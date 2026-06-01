@@ -1,6 +1,7 @@
 from .appodization import AppodizationTransformer
 from .correlation import CorrelationTransformer
 from .detrending import DetrendingTransformer
+from .dispersion import DispersionTransformer
 from .filtering import FilteringTransformer
 from .normalizing import NormalizationTransformer
 from .slicing import SlicingTransformer
@@ -16,4 +17,5 @@ TRANSFORMERS = {
     "slicing": SlicingTransformer,
     "stacking": StackingTransformer,
     "whitening": WhiteningTransformer,
+    "dispersion": DispersionTransformer,
 }

@@ -6,7 +6,6 @@ def correlate_cross(
     xt: np.ndarray,
     ts: np.ndarray,
     sampling_freq: float,
-    *,
     virtual_source_index: int,
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
 

@@ -39,7 +39,7 @@ class FilteringTransformer(Transformer):
         streams_out = []
         for stream in data:
             out_xt = algorithm(
-                stream.xt,
+                xt=stream.xt,
                 sampling_freq=stream.sampling_freq,
                 **self.params,
             )

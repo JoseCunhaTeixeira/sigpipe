@@ -39,7 +39,7 @@ class DetrendingTransformer(Transformer):
         streams_out = []
         for stream in data:
             out_xt = algorithm(
-                stream.xt,
+                xt=stream.xt,
                 **self.params,
             )
 

@@ -4,8 +4,8 @@ from scipy.fft import fft, fftfreq, ifft
 
 def whiten_onebit_apod(
     data: np.ndarray,
-    *,
     sampling_freq: float,
+    *,
     fmin: float,
     fmax: float,
     taper_width_Hz: float = 1_000,

@@ -42,9 +42,10 @@ class CorrelationTransformer(Transformer):
         streams_out = []
         for stream in data:
             ts_out, xt_out_causal, xt_out_acausal = algorithm(
-                stream.xt,
-                stream.ts,
-                stream.sampling_freq,
+                xt=stream.xt,
+                ts=stream.ts,
+                sampling_freq=stream.sampling_freq,
+                virtual_source_index=self.virtual_source_index,
                 **self.params,
             )
 

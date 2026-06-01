@@ -47,8 +47,11 @@ class StackingTransformer(Transformer):
         cube = np.stack([s.xt for s in data], axis=0)
         out_xt = np.zeros((ref_shot.nx, ref_shot.nt))
         for i_receiver in range(ref_shot.nx):
-            traces = cube[:, i_receiver, :]
-            out_xt[i_receiver, :] = algorithm(traces, **self.params)
+            xt = cube[:, i_receiver, :]
+            out_xt[i_receiver, :] = algorithm(
+                xt=xt,
+                **self.params,
+            )
 
         return (
             Stream(
