@@ -1,4 +1,5 @@
 from abc import ABC, abstractmethod
+from collections.abc import Sequence
 from typing import Generic, TypeVar
 
 InputT = TypeVar("InputT")
@@ -11,5 +12,5 @@ class Transformer(ABC, Generic[InputT, OutputT]):
         return self.__class__.__name__
 
     @abstractmethod
-    def transform(self, data: InputT) -> OutputT:
+    def transform(self, data: Sequence[InputT]) -> Sequence[OutputT]:
         pass

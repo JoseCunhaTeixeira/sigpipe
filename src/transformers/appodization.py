@@ -1,13 +1,13 @@
 from collections.abc import Sequence
 
-from src.algorithms.normalization.registry import NORMALIZATION_METHODS
+from src.algorithms.appodization.registry import APPODIZATION_METHODS
 from src.base.stream import Stream
 from src.base.transformer import Transformer
 
 
-class NormalizationTransformer(Transformer):
+class AppodizationTransformer(Transformer):
     """
-    Time normalization transformer.
+    Appodization transformer.
     """
 
     def __init__(
@@ -20,11 +20,11 @@ class NormalizationTransformer(Transformer):
 
     def transform(self, data: Sequence[Stream]) -> Sequence[Stream]:
 
-        algorithm = NORMALIZATION_METHODS.get(self.method)
+        algorithm = APPODIZATION_METHODS.get(self.method)
         if algorithm is None:
             raise ValueError(
                 f"Unknown normalizing method '{self.method}'. "
-                f"Available methods: {list(NORMALIZATION_METHODS.keys())}"
+                f"Available methods: {list(APPODIZATION_METHODS.keys())}"
             )
 
         if not isinstance(data, Sequence) or isinstance(data, (str, bytes)):

@@ -3,7 +3,7 @@ from scipy.fft import next_fast_len
 from scipy.signal import hilbert
 
 
-def phase_weighted_stack(
+def stack_phase_weighted(
     data: np.ndarray,
     *,
     nu: int = 2,

@@ -1,5 +1,5 @@
 from .onebit import normalize_onebit
 
-NORMALIZING_METHODS = {
+NORMALIZATION_METHODS = {
     "obebit": normalize_onebit,
 }

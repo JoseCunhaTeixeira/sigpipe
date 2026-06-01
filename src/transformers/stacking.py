@@ -20,7 +20,7 @@ class StackingTransformer(Transformer):
         self.method = method
         self.params = params
 
-    def transform(self, data: Sequence[Stream]) -> Stream:
+    def transform(self, data: Sequence[Stream]) -> Sequence[Stream]:
 
         algorithm = STACKING_METHODS.get(self.method)
         if algorithm is None:
@@ -50,9 +50,11 @@ class StackingTransformer(Transformer):
             traces = cube[:, i_receiver, :]
             out_xt[i_receiver, :] = algorithm(traces, **self.params)
 
-        return Stream(
-            xt=out_xt,
-            ts=ref_shot.ts,
-            sampling_freq=ref_shot.sampling_freq,
-            acquisition=ref_shot.acquisition,
+        return (
+            Stream(
+                xt=out_xt,
+                ts=ref_shot.ts,
+                sampling_freq=ref_shot.sampling_freq,
+                acquisition=ref_shot.acquisition,
+            ),
         )
