@@ -10,9 +10,6 @@ from src.base.transformer import Transformer
 class StackingTransformer(Transformer):
     """
     Stacking transformer.
-
-    Stacks a sequence of Stream objects into a single Stream
-    by applying a stacking algorithm per receiver.
     """
 
     def __init__(
