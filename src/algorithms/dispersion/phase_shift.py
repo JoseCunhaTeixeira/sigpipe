@@ -7,9 +7,9 @@ from src.base.stream import Stream
 
 def compute_frequency_vector(nt: int, sampling_freq: float) -> np.ndarray:
     if nt <= 0:
-        raise ValueError(f"nt ({nt}) must be greather than 0")
+        raise ValueError(f"requires nt > 0, got {nt}")
     if sampling_freq <= 0:
-        raise ValueError(f"sampling_freq ({sampling_freq}) must be greather than 0")
+        raise ValueError(f"requires sampling_freq > 0 Hz, got {sampling_freq} Hz")
     return rfftfreq(n=nt, d=1 / sampling_freq)
 
 
@@ -39,13 +39,15 @@ def dispersion_phase_shift(
     ):
         raise ValueError("offsets must be a 1D array with length nx")
     if stream.sampling_freq <= 0:
-        raise ValueError(f"sampling_freq {stream.sampling_freq} must be positive")
+        raise ValueError(
+            f"requires sampling_freq > 0 Hz, got {stream.sampling_freq} Hz"
+        )
     if not (0 <= fmin < fmax):
-        raise ValueError(f"require 0 Hz <= fmin ({fmin} Hz) < fmax ({fmax} Hz)")
+        raise ValueError(f"requires 0 Hz <= fmin < fmax, got {fmin} Hz and {fmax} Hz")
     if not (0 <= vmin < vmax):
-        raise ValueError(f"require 0 m/s < vmin ({vmin} m/s) < vmax ({vmax} m/s)")
+        raise ValueError(f"requires 0 m/s < vmin < vmax, got {vmin} m/s and {vmax} m/s")
     if nv <= 0:
-        raise ValueError(f"nv {nv} must be positive")
+        raise ValueError(f"requires nv > 0, got {nv}")
 
     xt = stream.xt * np.sqrt(
         stream.acquisition.offsets[:, None]

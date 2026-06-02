@@ -45,7 +45,6 @@ class Correlation(Transformer):
                 virtual_source_index=self.virtual_source_index,
                 **self.params,
             )
-
             streams_out.append(stream_causal)
             streams_out.append(stream_acausal)
 

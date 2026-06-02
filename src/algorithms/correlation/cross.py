@@ -10,9 +10,9 @@ def correlate_cross(
     virtual_source_index: int,
 ) -> tuple[Stream, Stream]:
 
-    if not (0 <= virtual_source_index < stream.xt):
+    if not (0 <= virtual_source_index < stream.nx):
         raise ValueError(
-            f"virtual_source_index={virtual_source_index} outside [0, {stream.xt - 1}]"
+            f"virtual_source_index {virtual_source_index} outside [0, {stream.nx - 1}]"
         )
 
     ts_out = np.arange(stream.nt) / stream.sampling_freq
@@ -27,7 +27,7 @@ def correlate_cross(
         acausal = correl[: mid + 1][::-1]
         if len(causal) != len(ts_out) or len(acausal) != len(ts_out):
             raise ValueError(
-                f"causal and acaucal lengths must be the same as ts_out, got {len(causal)} and {len(acausal)}"
+                f"causal and acaucal lengths must be the same as ts_out, got {len(causal)}, {len(acausal)} and {len(ts_out)}"
             )
         xt_out_causal[i_receiver, :] = causal
         xt_out_acausal[i_receiver, :] = acausal

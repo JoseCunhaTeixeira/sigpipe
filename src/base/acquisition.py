@@ -2,7 +2,7 @@ from dataclasses import dataclass, field
 
 import numpy as np
 
-from base.coordinate import Coordinate
+from src.base.coordinate import Coordinate
 
 
 @dataclass(slots=True, frozen=True)
@@ -16,6 +16,23 @@ class Acquisition:
         offsets = compute_offsets(self.source, self.receivers)
         object.__setattr__(self, "offsets", offsets)
         offsets.setflags(write=False)
+
+    def __eq__(self, other):
+        if not isinstance(other, Acquisition):
+            return NotImplemented
+
+        return (
+            self.source == other.source
+            and self.receivers == other.receivers
+            and np.array_equal(
+                self.offsets,
+                other.offsets,
+            )
+        )
+
+    @property
+    def is_unknown(self) -> bool:
+        return np.isnan(self.source.x)
 
 
 def compute_offsets(

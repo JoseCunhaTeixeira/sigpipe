@@ -2,7 +2,7 @@ from dataclasses import dataclass
 
 import numpy as np
 
-from base.acquisition import Acquisition
+from src.base.acquisition import Acquisition
 
 
 @dataclass(slots=True, frozen=True)

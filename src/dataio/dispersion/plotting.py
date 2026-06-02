@@ -2,7 +2,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 from matplotlib.figure import Figure
 
-from base.dispersion import DispersionCurve, DispersionImage
+from src.base.dispersion import DispersionCurve, DispersionImage
 from src.dataio.plot_config import CM, DISP_DPI, HEIGHT_CM, SINGLE_COLUMN_CM
 
 

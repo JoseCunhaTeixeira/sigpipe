@@ -5,12 +5,12 @@ import h5py
 import numpy as np
 import pandas as pd
 
-from base.acquisition import UNKNOWN_ACQUISITION, Acquisition
-from base.coordinate import (
+from src.base.acquisition import UNKNOWN_ACQUISITION, Acquisition
+from src.base.coordinate import (
     Coordinate,
     tuples_to_coordinates,
 )
-from base.dispersion import DispersionCurve, DispersionImage
+from src.base.dispersion import DispersionCurve, DispersionImage
 
 
 def load_dispersion_image(

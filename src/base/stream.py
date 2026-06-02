@@ -2,7 +2,7 @@ from dataclasses import dataclass
 
 import numpy as np
 
-from base.acquisition import Acquisition
+from src.base.acquisition import Acquisition
 
 
 @dataclass(slots=True, frozen=True)
@@ -48,5 +48,5 @@ def validate_shot_inputs(
     if nt != ts.size:
         raise ValueError("xt and ts mismatch")
 
-    if nx != len(acquisition.receivers):
+    if nx != len(acquisition.receivers) and not acquisition.is_unknown:
         raise ValueError("xt and receivers mismatch")

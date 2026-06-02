@@ -3,10 +3,10 @@ from pathlib import Path
 import h5py
 import numpy as np
 
-from base.coordinate import (
+from src.base.coordinate import (
     coordinates_to_tuples,
 )
-from base.dispersion import DispersionCurve, DispersionImage
+from src.base.dispersion import DispersionCurve, DispersionImage
 
 
 def save_dispersion_image(

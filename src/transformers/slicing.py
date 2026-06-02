@@ -1,5 +1,7 @@
 from collections.abc import Sequence
 
+import numpy as np
+
 from src.algorithms.segmentation.slice import segment_slice
 from src.base.stream import Stream
 from src.base.transformer import Transformer
@@ -23,22 +25,32 @@ class Slicing(Transformer):
     def transform(self, data: Sequence[Stream]) -> Sequence[Stream]:
 
         if not isinstance(data, Sequence) or isinstance(data, (str, bytes)):
-            raise TypeError(f"Expected Sequence[Stream], got {type(data).__name__}")
+            raise TypeError(f"expected Sequence[Stream], got {type(data).__name__}")
 
         if len(data) == 0:
-            raise ValueError("Empty input sequence")
+            raise ValueError("empty input sequence")
 
         if not all(isinstance(s, Stream) for s in data):
-            raise TypeError("All elements must be Stream")
+            raise TypeError("all elements in sequence must be Stream")
 
         if self.segment_duration <= 0:
-            raise ValueError("segment_duration must be > 0")
+            raise ValueError(
+                f"requires segment_duration > 0 s, got {self.segment_duration} s"
+            )
 
         if self.segment_step <= 0:
-            raise ValueError("segment_step must be > 0")
+            raise ValueError(f"requires segment_step > 0 s, got {self.segment_step} s")
 
         if self.segment_step > self.segment_duration:
-            raise ValueError("segment_step should be <= segment_duration")
+            raise ValueError(
+                f"requires segment_step <= segment_duration, got {self.segment_step} s and {self.segment_duration} s"
+            )
+
+        durations = np.array([stream.ts[-1] for stream in data])
+        if any(self.segment_duration > durations):
+            raise ValueError(
+                f"requires segment_duration <= record durations, got {self.segment_duration} s and {durations} s"
+            )
 
         streams_out = []
         for stream in data:

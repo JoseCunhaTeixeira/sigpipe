@@ -12,7 +12,7 @@ class Loading(Transformer):
     def __init__(
         self,
         file_paths: list[Path],
-        data_type: type,
+        data_type: type | str,
         **params,
     ):
         self.file_paths = file_paths
@@ -24,7 +24,9 @@ class Loading(Transformer):
         handler = LOAD_HANDLERS.get(self.data_type)
 
         if handler is None:
-            raise TypeError(f"No load handler for {self.data_type.__name__}")
+            raise TypeError(
+                f"No load handler for {self.data_type.__name__ if isinstance(self.data_type, type) else self.data_type}"
+            )
 
         objects = []
 

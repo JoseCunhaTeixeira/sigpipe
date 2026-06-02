@@ -16,9 +16,9 @@ def segment_slice(
     Returns:
         Stream: sliced data
     """
-    if t_slice_start >= t_slice_end:
+    if not 0 <= t_slice_start < t_slice_end <= stream.ts[-1]:
         raise ValueError(
-            f"t_slice_start ({t_slice_start}) must be < t_slice_end ({t_slice_end})"
+            f"requires 0 s < t_slice_start < t_slice_end <= record duration, got {t_slice_start}, {t_slice_end}, {stream.ts[-1]}"
         )
     dt = stream.ts[1] - stream.ts[0]
     i_start = int(round(t_slice_start / dt))

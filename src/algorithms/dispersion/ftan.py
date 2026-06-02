@@ -29,17 +29,21 @@ def dispersion_ftan(
     if not isinstance(trace, np.ndarray) or trace.ndim != 1:
         raise TypeError("trace must be a 1D numpy array [nt]")
     if stream.sampling_freq <= 0:
-        raise ValueError("sampling_freq must be positive")
+        raise ValueError(
+            f"requires sampling_freq > 0 Hz, got {stream.sampling_freq} Hz"
+        )
     if distance <= 0:
-        raise ValueError("distance must be positive")
+        raise ValueError(f"requires distance > 0 m, got {distance} m")
     if not (0 < fmin < fmax):
-        raise ValueError(f"require 0 Hz < fmin ({fmin} Hz) < fmax ({fmax} Hz)")
+        raise ValueError(f"requires 0 Hz < fmin < fmax, got {fmin} Hz and {fmax} Hz")
     if not (0 < vmin < vmax):
-        raise ValueError(f"require 0 m/s < vmin ({vmin} m/s) < vmax ({vmax} m/s)")
+        raise ValueError(
+            f"requires 0 m/s < vmin < vmax, got {vmin} m/s and {vmax} m/s)"
+        )
     if nf <= 0 or nv <= 0:
-        raise ValueError("nf and nv must be positive")
+        raise ValueError(f"requires nf > 0 and nv > 0, got {nf} and {nv}")
     if alpha <= 0:
-        raise ValueError("alpha must be positive")
+        raise ValueError(f"requires alpha > 0, got {alpha}")
     dt = 1 / stream.sampling_freq
     ts = np.arange(stream.nt) * dt
     trace_fft = fft(trace)
