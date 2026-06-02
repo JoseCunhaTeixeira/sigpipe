@@ -1,30 +1,33 @@
-import numpy as np
+from src.base.stream import Stream
 
 
 def segment_slice(
-    xt: np.ndarray,
-    ts: np.ndarray,
+    stream: Stream,
     t_slice_start: float,
     t_slice_end: float,
-) -> tuple[np.ndarray, np.ndarray]:
+) -> Stream:
     """Slice data between t_slice_start and t_slice_end.
 
     Args:
-        xt (np.ndarray): recording data [nx, nt]
-        ts (np.ndarray): times [nt]
+        stream (Stream): recording data
         t_slice_start (float): starting time
         t_slice_end (float): ending time
 
     Returns:
-        tuple[np.ndarray, np.ndarray]: (ts_slice [nt_slice], xt_slice [nx, nt_slice])
+        Stream: sliced data
     """
     if t_slice_start >= t_slice_end:
         raise ValueError(
             f"t_slice_start ({t_slice_start}) must be < t_slice_end ({t_slice_end})"
         )
-    dt = ts[1] - ts[0]
+    dt = stream.ts[1] - stream.ts[0]
     i_start = int(round(t_slice_start / dt))
     i_end = int(round(t_slice_end / dt))
-    ts_slice = ts[i_start : i_end + 1]
-    xt_slice = xt[:, i_start : i_end + 1]
-    return ts_slice.astype(np.float32), xt_slice.astype(np.float32)
+    ts_slice = stream.ts[i_start : i_end + 1]
+    xt_slice = stream.xt[:, i_start : i_end + 1]
+    return Stream(
+        xt=xt_slice,
+        ts=ts_slice,
+        sampling_freq=stream.sampling_freq,
+        acquisition=stream.acquisition,
+    )

@@ -1,28 +1,25 @@
 import numpy as np
 from scipy.fft import fft, ifft
 
+from src.base.stream import Stream
+
 
 def whiten_onebit(
-    data: np.ndarray,
-) -> np.ndarray:
-    """One-bit spectral whitening.
-
-    Args:
-        data (np.ndarray): raw data [ntraces, nt]
-
-    Returns:
-        np.ndarray: whitened data [ntraces, nt]
-    """
-    if not isinstance(data, np.ndarray) or data.ndim != 2:
-        raise TypeError("data must be a 2D numpy array: [ntraces, nt]")
-    _, nt = data.shape
-    if nt < 2:
+    stream: Stream,
+) -> Stream:
+    """One-bit spectral whitening."""
+    if stream.nt < 2:
         raise ValueError("Signal length nt too small for FFT processing")
-    data_fft = np.array(fft(data, axis=-1), dtype=np.complex64)
+    data_fft = np.array(fft(stream.xt, axis=-1), dtype=np.complex64)
     if data_fft.size == 0:
         raise ValueError("FFT failed: empty result")
-    data_whitened_fft = np.exp(1j * np.angle(data_fft))
-    data_whitened = np.array(ifft(data_whitened_fft, axis=-1), dtype=np.complex64)
+    data_fft_whitened = np.exp(1j * np.angle(data_fft))
+    data_whitened = np.array(ifft(data_fft_whitened, axis=-1), dtype=np.complex64).real
     if data_whitened.size == 0:
         raise ValueError("IFFT failed: empty result")
-    return data_whitened.real.astype(np.float32)
+    return Stream(
+        xt=data_whitened,
+        ts=stream.ts,
+        sampling_freq=stream.sampling_freq,
+        acquisition=stream.acquisition,
+    )

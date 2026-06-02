@@ -1,13 +1,11 @@
 from collections.abc import Sequence
 
-import numpy as np
-
 from src.algorithms.stacking.registry import STACKING_METHODS
 from src.base.stream import Stream
 from src.base.transformer import Transformer
 
 
-class StackingTransformer(Transformer):
+class Stacking(Transformer):
     """
     Stacking transformer.
     """
@@ -38,26 +36,9 @@ class StackingTransformer(Transformer):
         if not all(isinstance(s, Stream) for s in data):
             raise TypeError("All elements must be Stream")
 
-        ref_shot = data[0]
-        nx = ref_shot.nx
-        nt = ref_shot.nt
-        if any(s.nx != nx or s.nt != nt for s in data):
-            raise ValueError("Inconsistent Stream dimensions")
-
-        cube = np.stack([s.xt for s in data], axis=0)
-        out_xt = np.zeros((ref_shot.nx, ref_shot.nt))
-        for i_receiver in range(ref_shot.nx):
-            xt = cube[:, i_receiver, :]
-            out_xt[i_receiver, :] = algorithm(
-                xt=xt,
-                **self.params,
-            )
-
-        return (
-            Stream(
-                xt=out_xt,
-                ts=ref_shot.ts,
-                sampling_freq=ref_shot.sampling_freq,
-                acquisition=ref_shot.acquisition,
-            ),
+        stream_out = algorithm(
+            streams=data,
+            **self.params,
         )
+
+        return (stream_out,)

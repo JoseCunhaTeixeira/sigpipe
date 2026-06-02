@@ -5,7 +5,7 @@ from src.base.stream import Stream
 from src.base.transformer import Transformer
 
 
-class SlicingTransformer(Transformer):
+class Slicing(Transformer):
     """
     Slicing transformer.
     """
@@ -45,18 +45,10 @@ class SlicingTransformer(Transformer):
             record_duration = stream.ts[-1]
             t = 0.0
             while t + self.segment_duration <= record_duration + 1e-12:
-                ts_slice, xt_slice = segment_slice(
-                    xt=stream.xt,
-                    ts=stream.ts,
+                stream_out = segment_slice(
+                    stream=stream,
                     t_slice_start=t,
                     t_slice_end=t + self.segment_duration,
-                )
-
-                stream_out = Stream(
-                    xt=xt_slice,
-                    ts=ts_slice,
-                    sampling_freq=stream.sampling_freq,
-                    acquisition=stream.acquisition,
                 )
 
                 streams_out.append(stream_out)

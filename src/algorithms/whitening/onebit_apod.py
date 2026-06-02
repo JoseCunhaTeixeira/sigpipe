@@ -1,31 +1,17 @@
 import numpy as np
 from scipy.fft import fft, fftfreq, ifft
 
+from src.base.stream import Stream
+
 
 def whiten_onebit_apod(
-    data: np.ndarray,
-    sampling_freq: float,
+    stream: Stream,
     *,
     fmin: float,
     fmax: float,
     taper_width_Hz: float = 1_000,
-) -> np.ndarray:
-    """One-bit spectral whitening with appodisation over a frequency range.
-
-    Args:
-        data (np.ndarray): raw data [ntraces, nt]
-        sampling_freq (float): sampling frequency [in Hz]
-        fmin (float): minumum frequency to whiten [in Hz]
-        fmax (float): maximum frequency to whiten [in Hz]
-        taper_width_Hz (float, optional): taper width [in Hz]. Defaults to 10.
-
-    Returns:
-        np.ndarray: whitened data [ntraces, nt]
-    """
-    if not isinstance(data, np.ndarray) or data.ndim != 2:
-        raise TypeError("data must be a 2D numpy array: [ntraces, nt]")
-    if sampling_freq <= 0:
-        raise ValueError(f"sampling_freq ({sampling_freq} Hz) must be > 0 Hz")
+) -> Stream:
+    """One-bit spectral whitening with appodisation over a frequency range."""
     if not (0 <= fmin < fmax):
         raise ValueError(f"require 0 Hz <= fmin ({fmin} Hz) < fmax ({fmax} Hz)")
     if fmax - fmin <= taper_width_Hz:
@@ -33,18 +19,17 @@ def whiten_onebit_apod(
             f"taper_width_Hz ({taper_width_Hz} Hz) must be smaller than "
             f"the frequency band width ({fmax - fmin} Hz)"
         )
-    _, nt = data.shape
-    if nt < 2:
+    if stream.nt < 2:
         raise ValueError(
-            f"signal length nt ({nt} samples) too small for FFT processing"
+            f"signal length nt ({stream.nt} samples) too small for FFT processing"
         )
-    df = sampling_freq / nt
+    df = stream.sampling_freq / stream.nt
     if int((fmax - fmin) / df) < 2:
         raise ValueError(
             f"frequency range ({int((fmax - fmin) / df)} samples) is too small, "
             f"for fmin ({fmin} Hz) and fmax ({fmax} Hz)"
         )
-    fs = fftfreq(nt, d=1 / sampling_freq)
+    fs = fftfreq(stream.nt, d=1 / stream.sampling_freq)
     nsmo = max(int(taper_width_Hz / df), 1)
     if nsmo > int((fmax - fmin) / df):
         raise ValueError(
@@ -53,7 +38,7 @@ def whiten_onebit_apod(
         )
     absf = np.abs(fs)
     band = (absf >= fmin) & (absf <= fmax)
-    taper = np.zeros(nt, dtype=np.float32)
+    taper = np.zeros(stream.nt, dtype=np.float32)
     taper[band] = 1.0
     idx = np.argsort(absf)
     b_sorted = band[idx]
@@ -68,9 +53,15 @@ def whiten_onebit_apod(
     else:
         w = len(band_idx)
         taper[idx[band_idx]] = 0.5 * (1 - np.cos(np.linspace(0, np.pi, w)))
-    data_fft = np.array(fft(data, axis=-1), dtype=np.complex64)
+    data_fft = np.array(fft(stream.xt, axis=-1), dtype=np.complex64)
     phases = np.exp(1j * np.angle(data_fft))
     data_fft_whitened = phases * taper
-    return np.array(ifft(data_fft_whitened, axis=-1), dtype=np.complex64).real.astype(
-        np.float32
+    data_whitened = np.array(ifft(data_fft_whitened, axis=-1), dtype=np.complex64).real
+    if data_whitened.size == 0:
+        raise ValueError("IFFT failed: empty result")
+    return Stream(
+        xt=data_whitened,
+        ts=stream.ts,
+        sampling_freq=stream.sampling_freq,
+        acquisition=stream.acquisition,
     )

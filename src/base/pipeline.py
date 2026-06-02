@@ -1,27 +1,15 @@
-from src.transformers.registry import TRANSFORMERS
+class Pipeline:
+    def __init__(self, steps):
+        self.steps = list(steps)
 
+    def __rshift__(self, other):
+        return Pipeline([*self.steps, other])
 
-def build_pipeline(config):
+    def run(self):
+        data = None
+        for step in self.steps:
+            data = step.transform(data)
+        return data
 
-    processors = []
-
-    for step_cfg in config["pipeline"]:
-        op = step_cfg["op"]
-
-        cls = TRANSFORMERS[op]
-
-        kwargs = {k: v for k, v in step_cfg.items() if k != "op"}
-
-        processors.append(cls(**kwargs))
-
-    return processors
-
-
-def run_pipeline(streams, pipeline):
-
-    data = streams
-
-    for processor in pipeline:
-        data = processor.run(data)
-
-    return data
+    def __repr__(self):
+        return " >> ".join(step.name for step in self.steps)

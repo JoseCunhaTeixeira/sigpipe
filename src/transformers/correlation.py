@@ -1,12 +1,11 @@
 from collections.abc import Sequence
 
 from src.algorithms.correlation.registry import CORRELATION_METHODS
-from src.base.acquisition import Acquisition
 from src.base.stream import Stream
 from src.base.transformer import Transformer
 
 
-class CorrelationTransformer(Transformer):
+class Correlation(Transformer):
     """
     Correlation transformer.
     """
@@ -41,31 +40,10 @@ class CorrelationTransformer(Transformer):
 
         streams_out = []
         for stream in data:
-            ts_out, xt_out_causal, xt_out_acausal = algorithm(
-                xt=stream.xt,
-                ts=stream.ts,
-                sampling_freq=stream.sampling_freq,
+            stream_causal, stream_acausal = algorithm(
+                stream=stream,
                 virtual_source_index=self.virtual_source_index,
                 **self.params,
-            )
-
-            acquisition_out = Acquisition(
-                source=stream.acquisition.receivers[self.virtual_source_index],
-                receivers=stream.acquisition.receivers,
-            )
-
-            stream_causal = Stream(
-                xt=xt_out_causal,
-                ts=ts_out,
-                sampling_freq=stream.sampling_freq,
-                acquisition=acquisition_out,
-            )
-
-            stream_acausal = Stream(
-                xt=xt_out_acausal,
-                ts=ts_out,
-                sampling_freq=stream.sampling_freq,
-                acquisition=acquisition_out,
             )
 
             streams_out.append(stream_causal)

@@ -29,18 +29,6 @@ def dispersion_phase_shift(
     Computes phase-velocity versus frequency energy map
     using a delay and sum technique according to Park et al. (1998).
 
-    Args:
-        stream (Stream): recording data of successive sensors/traces [nx, nt]
-        fmin (float): minimum frequency to compute [in Hz]
-        fmax (float): maximum frequency to compute [in Hz]
-        vmin (float): minimum phase velocity to compute [in m/s]
-        vmax (float): maximum phase velocity to compute [in m/s]
-        nv (int, optional): number of velocities [samples]. Defaults to 1_000
-        vmin_expected (float, optional): minimum expected velocity used to clip the stream-gather
-        vmax_expected (float, optional): maximum expected velocity used to clip the stream-gather
-
-    Returns:
-        np.tuple[np.ndarray, np.ndarray, np.ndarray]: frequencies [nf], phase velocities [nv], and FV map [nf, nv]
     """
     if not isinstance(stream.xt, np.ndarray) or stream.xt.ndim != 2:
         raise TypeError("xt must be a 2D numpy array [nx, nt]")

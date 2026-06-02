@@ -5,7 +5,7 @@ from src.base.stream import Stream
 from src.base.transformer import Transformer
 
 
-class FilteringTransformer(Transformer):
+class Filtering(Transformer):
     """
     Filtering transformer.
     """
@@ -38,17 +38,9 @@ class FilteringTransformer(Transformer):
 
         streams_out = []
         for stream in data:
-            out_xt = algorithm(
-                xt=stream.xt,
-                sampling_freq=stream.sampling_freq,
+            stream_out = algorithm(
+                stream=stream,
                 **self.params,
-            )
-
-            stream_out = Stream(
-                xt=out_xt,
-                ts=stream.ts,
-                sampling_freq=stream.sampling_freq,
-                acquisition=stream.acquisition,
             )
 
             streams_out.append(stream_out)

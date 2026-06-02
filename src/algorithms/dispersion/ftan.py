@@ -23,22 +23,6 @@ def dispersion_ftan(
     Computes group velocity versus frequency energy map from a single trace using
     narrow-band Gaussian filtering and envelope detection according to Dziewonski et al. (1969),
     Levshin et al. (1972), and Bensen et al. (2007).
-
-    Args:
-        trace (np.ndarray): input time-domain signal [nt]
-        sampling_freq (float): sampling frequency [Hz]
-        distance (float): source-receiver distance [in m].
-        fmin (float): minimum frequency of analysis [Hz]
-        fmax (float): maximum frequency of analysis [Hz]
-        vmin (float): minimum velocity to scan [m/s]
-        vmax (float): maximum velocity to scan [m/s]
-        nf (int, optional): number of frequency samples. Defaults to 1_000
-        nv (int, optional): number of velocity samples. Defaults to 1_000
-        alpha (float, optional): width parameter of the Gaussian filters. Defaults to 10.0
-        normalize (bool, optional): normalize per frequencies. Defaults to False
-
-    Returns:
-        tuple[np.ndarray, np.ndarray, np.ndarray]: frequencies [N_f], group velocities [N_v], and FV map [n_f, n_v]
     """
     trace = stream.xt[0]  # Unique trace
     distance = stream.acquisition.offsets[0]  # Unique trace

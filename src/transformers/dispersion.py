@@ -1,11 +1,12 @@
 from collections.abc import Sequence
 
 from src.algorithms.dispersion.registry import DISPERSION_METHODS
+from src.base.dispersion import DispersionImage
 from src.base.stream import Stream
 from src.base.transformer import Transformer
 
 
-class DispersionTransformer(Transformer):
+class Dispersion(Transformer):
     """
     Dispersion transformer.
     """
@@ -18,7 +19,7 @@ class DispersionTransformer(Transformer):
         self.method = method
         self.params = params
 
-    def transform(self, data: Sequence[Stream]) -> Sequence[Stream]:
+    def transform(self, data: Sequence[Stream]) -> Sequence[DispersionImage]:
 
         algorithm = DISPERSION_METHODS.get(self.method)
         if algorithm is None:
@@ -36,20 +37,13 @@ class DispersionTransformer(Transformer):
         if not all(isinstance(s, Stream) for s in data):
             raise TypeError("All elements must be Stream")
 
-        streams_out = []
+        dispersion_images_out = []
         for stream in data:
-            out_xt = algorithm(
-                xt=stream.xt,
+            dispersion_image_out = algorithm(
+                stream=stream,
                 **self.params,
             )
 
-            stream_out = Stream(
-                xt=out_xt,
-                ts=stream.ts,
-                sampling_freq=stream.sampling_freq,
-                acquisition=stream.acquisition,
-            )
+            dispersion_images_out.append(dispersion_image_out)
 
-            streams_out.append(stream_out)
-
-        return streams_out
+        return dispersion_images_out

@@ -1,41 +1,26 @@
 import numpy as np
 from scipy.signal import istft, savgol_filter, stft
 
+from src.base.stream import Stream
+
 
 def whiten_stft_savgol(
-    data: np.ndarray,
+    stream: Stream,
     *,
-    sampling_freq: float,
     sfft_window_duration_sec: float,
     savgol_window_size_pts: int = 11,
     savgol_order: int = 1,
     epsilon: float = 1e-10,
-) -> np.ndarray:
-    """Short-time Fourier transform-based spectral whitening using Savitzky-Golay smoothing.
-
-    Args:
-        data (np.ndarray): raw data [ntraces, nt]
-        sampling_freq (float): sampling frequency [in Hz]
-        sfft_window_duration_sec (float): short time Fourier transform window length [in s]
-        savgol_window_size_pts (int): savgol smoothing window size [in points]
-        savgol_order (int): sagvol order
-        epsilon (float): epsilon to avoid division by 0. Defaults to 1e-10
-
-    Returns:
-        np.ndarray: whitened data [ntraces, nt]
-    """
-    if not isinstance(data, np.ndarray) or data.ndim != 2:
-        raise TypeError("data must be a 2D numpy array: [ntraces, nt]")
-    if sampling_freq <= 0:
-        raise ValueError("sampling_freq must be > 0")
+) -> Stream:
+    """Short-time Fourier transform-based spectral whitening using Savitzky-Golay smoothing."""
     if sfft_window_duration_sec <= 0:
         raise ValueError("sfft_window_duration_sec must be > 0")
-    fft_size = int(sfft_window_duration_sec * sampling_freq)
+    fft_size = int(sfft_window_duration_sec * stream.sampling_freq)
     if fft_size < 2:
         raise ValueError(
             "FFT size too small; increase window duration or sampling_freq"
         )
-    _, _, data_fft = stft(data, nperseg=fft_size)
+    _, _, data_fft = stft(stream.xt, nperseg=fft_size)
     _, n_freqs, _ = data_fft.shape
     if savgol_window_size_pts < 3:
         raise ValueError("savgol_window_size_pts must be >= 3")
@@ -54,7 +39,7 @@ def whiten_stft_savgol(
         )
     if epsilon <= 0:
         raise ValueError("epsilon must be > 0")
-    data_whitened_fft = np.empty_like(data_fft, dtype=np.complex128)
+    data_fft_whitened = np.empty_like(data_fft, dtype=np.complex128)
     for t in range(data_fft.shape[2]):
         magnitude = np.abs(data_fft[:, :, t])
         magnitude_smooth = savgol_filter(
@@ -62,6 +47,12 @@ def whiten_stft_savgol(
             window_length=savgol_window_size_pts,
             polyorder=savgol_order,
         )
-        data_whitened_fft[:, :, t] = data_fft[:, :, t] / (magnitude_smooth + epsilon)
-    _, data_whitened = istft(data_whitened_fft, nperseg=fft_size)
-    return data_whitened.real.astype(np.float32)
+        data_fft_whitened[:, :, t] = data_fft[:, :, t] / (magnitude_smooth + epsilon)
+    _, data_whitened = istft(data_fft_whitened, nperseg=fft_size)
+    data_whitened = np.array(data_whitened, dtype=np.complex64).real
+    return Stream(
+        xt=data_whitened,
+        ts=stream.ts,
+        sampling_freq=stream.sampling_freq,
+        acquisition=stream.acquisition,
+    )

@@ -1,7 +1,13 @@
-import numpy as np
 from scipy.signal import detrend
 
+from src.base.stream import Stream
 
-def detrend_constant(xt: np.ndarray) -> np.ndarray:
-    xt_detrended = detrend(xt, axis=1, type="constant")
-    return xt_detrended.astype(np.float32)
+
+def detrend_constant(stream: Stream) -> Stream:
+    xt_detrended = detrend(stream.xt, axis=1, type="constant")
+    return Stream(
+        xt=xt_detrended,
+        ts=stream.ts,
+        sampling_freq=stream.sampling_freq,
+        acquisition=stream.acquisition,
+    )
