@@ -2,6 +2,7 @@ from collections.abc import Sequence
 from pathlib import Path
 from typing import TypeVar
 
+from matplotlib import pyplot as plt
 from matplotlib.figure import Figure
 
 from src.base.transformer import Transformer
@@ -11,7 +12,7 @@ from src.dataio.registry import PLOT_HANDLERS
 T = TypeVar("T")
 
 
-class Plotting(Transformer):
+class Plot(Transformer):
     """
     Plotting transformer.
     """
@@ -51,7 +52,7 @@ class Plotting(Transformer):
                 path=self.folder_path / f"{type(obj).__name__}_{i:04d}.png",
                 figure=figure,
             )
-
+            plt.close(figure)
         return data
 
     @staticmethod

@@ -9,7 +9,7 @@ from src.dataio.plot_config import CM, DISP_DPI, HEIGHT_CM, SINGLE_COLUMN_CM
 def plot_stream(
     stream: Stream,
     spacing: float = 2.25,
-    normalize: str | None = None,
+    normalize: bool = True,
 ) -> Figure:
     xt = stream.xt.copy()
     nx = stream.nx
@@ -18,28 +18,21 @@ def plot_stream(
         figsize=(SINGLE_COLUMN_CM * CM, HEIGHT_CM * CM), dpi=DISP_DPI
     )
     ts *= 1e3  # s to ms
-    if normalize is not None:
-        normalize = str(normalize).lower()
-        match normalize:
-            case "global":
-                xt /= np.max(np.abs(xt)) + 1e-12
-            case "per_trace":
-                xt /= np.max(np.abs(xt), axis=1, keepdims=True) + 1e-12
-            case _:
-                raise ValueError(f"Unknown normalize option: {normalize}")
-    for i_trace, trace in enumerate(xt):
-        y = i_trace * spacing + trace
-        ax.plot(y, ts, color="black", lw=0.5)
+    if normalize:
+        xt /= np.max(np.abs(xt), axis=1, keepdims=True) + 1e-12
+    y_positions = np.arange(nx) * spacing
+    for i_trace, (trace, y_position) in enumerate(zip(xt, y_positions)):
+        ax.plot(y_position + trace, ts, color="black", lw=0.5)
         ax.fill_betweenx(
             ts,
-            i_trace * spacing,
-            y,
+            y_position,
+            y_position + trace,
             where=(trace > 0),
             color="black",
         )
         if i_trace % 5 == 0:
             ax.text(
-                i_trace * spacing,
+                y_position,
                 ts[0],
                 f"{i_trace}",
                 ha="center",

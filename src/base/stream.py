@@ -46,7 +46,7 @@ def validate_shot_inputs(
     nx, nt = xt.shape
 
     if nt != ts.size:
-        raise ValueError("xt and ts mismatch")
+        raise ValueError("nt and ts mismatch")
 
     if nx != len(acquisition.receivers) and not acquisition.is_unknown:
         raise ValueError("xt and receivers mismatch")

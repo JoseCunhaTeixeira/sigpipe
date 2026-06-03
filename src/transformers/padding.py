@@ -1,31 +1,22 @@
 from collections.abc import Sequence
 
-from src.algorithms.appodization.registry import APPODIZATION_METHODS
+from src.algorithms.padding.padding import pad
 from src.base.stream import Stream
 from src.base.transformer import Transformer
 
 
-class Appodize(Transformer):
+class Pad(Transformer):
     """
-    Appodization transformer.
+    Padding transformer.
     """
 
     def __init__(
         self,
-        method: str,
         **params,
     ):
-        self.method = method
         self.params = params
 
     def transform(self, data: Sequence[Stream]) -> Sequence[Stream]:
-
-        algorithm = APPODIZATION_METHODS.get(self.method)
-        if algorithm is None:
-            raise ValueError(
-                f"Unknown normalizing method '{self.method}'. "
-                f"Available methods: {list(APPODIZATION_METHODS.keys())}"
-            )
 
         if not isinstance(data, Sequence) or isinstance(data, (str, bytes)):
             raise TypeError(f"Expected Sequence[Stream], got {type(data).__name__}")
@@ -38,7 +29,7 @@ class Appodize(Transformer):
 
         streams_out = []
         for stream in data:
-            stream_out = algorithm(
+            stream_out = pad(
                 stream=stream,
                 **self.params,
             )

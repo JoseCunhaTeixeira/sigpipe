@@ -14,7 +14,7 @@ def plot_dispersion_image(
     thickness: float | None = None,
     lbmin: float | None = None,
     lbmax: float | None = None,
-    normalize: bool = False,
+    normalize: bool = True,
     show_cbar: bool = False,
     show_legend: bool = False,
 ) -> Figure:
@@ -52,6 +52,7 @@ def plot_dispersion_image(
                 linewidth=0.5,
                 label="λ",
             )
+
     if picked_curves is not None:
         for picked_curve in picked_curves:
             picked_fs, _ = _scale_frequency(
@@ -65,6 +66,21 @@ def plot_dispersion_image(
                 linewidth=0.5,
                 label=picked_curve.name,
             )
+    else:
+        if dispersion_image.dispersion_curves:
+            for picked_curve in dispersion_image.dispersion_curves:
+                picked_fs, _ = _scale_frequency(
+                    picked_curve.fs,
+                    thickness,
+                )
+                ax.plot(
+                    picked_fs,
+                    picked_curve.vs,
+                    color="white",
+                    linewidth=0.5,
+                    label=picked_curve.name,
+                )
+
     if modeled_curves is not None:
         for modeled_curve in modeled_curves:
             model_fs, _ = _scale_frequency(
@@ -103,7 +119,6 @@ def plot_dispersion_curve(
     *,
     modeled_curves: list[DispersionCurve] | None = None,
     thickness: float | None = None,
-    vlabel: str = "phase",
     fmin: float | None = None,
     fmax: float | None = None,
     vmin: float | None = None,
@@ -117,6 +132,7 @@ def plot_dispersion_curve(
         dpi=DISP_DPI,
     )
     xlabel = "Frequency [kHz]"
+    vlabel = ""
     if picked_curves is not None:
         cmap = plt.colormaps["viridis"]
         for i, picked_curve in enumerate(picked_curves):
@@ -131,6 +147,7 @@ def plot_dispersion_curve(
                 linewidth=0.5,
                 label=picked_curve.name,
             )
+        vlabel = picked_curves[0].type.lower()
     if modeled_curves is not None:
         for modeled_curve in modeled_curves:
             model_fs, xlabel = _scale_frequency(
@@ -144,10 +161,11 @@ def plot_dispersion_curve(
                 linewidth=0.5,
                 label=modeled_curve.name,
             )
-    vlabel = vlabel.lower()
+        vlabel = modeled_curves[0].type.lower()
     ylabel_map = {
         "phase": "Phase velocity [m/s]",
         "group": "Group velocity [m/s]",
+        "": "Velocity [m/s]",
     }
     if vlabel not in ylabel_map:
         raise ValueError(

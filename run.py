@@ -1,3 +1,3 @@
-from experiments.passive import pipeline
+from experiments.active_find import pipeline
 
 pipeline.run()

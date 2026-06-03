@@ -41,6 +41,7 @@ def save_dispersion_curve(
         receivers.append(coordinates_to_tuples(acquisition.receivers))
     header = (
         f"name: {dispersion_curve.name}\n"
+        f"type: {dispersion_curve.type}\n"
         f"sources: {tuple(sources)}\n"
         f"receivers: {tuple(receivers)}\n"
         "frequency_Hz,phase_velocity_m/s"

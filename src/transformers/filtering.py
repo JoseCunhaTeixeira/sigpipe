@@ -5,7 +5,7 @@ from src.base.stream import Stream
 from src.base.transformer import Transformer
 
 
-class Filtering(Transformer):
+class Filter(Transformer):
     """
     Filtering transformer.
     """

@@ -7,7 +7,7 @@ from src.base.stream import Stream
 from src.base.transformer import Transformer
 
 
-class Slicing(Transformer):
+class Slice(Transformer):
     """
     Slicing transformer.
     """

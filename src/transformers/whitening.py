@@ -5,7 +5,7 @@ from src.base.stream import Stream
 from src.base.transformer import Transformer
 
 
-class Whitening(Transformer):
+class Whiten(Transformer):
     """
     Spectral whitening transformer.
     """

@@ -8,7 +8,7 @@ from src.dataio.registry import SAVE_HANDLERS
 T = TypeVar("T")
 
 
-class Saving(Transformer):
+class Save(Transformer):
     """
     Saving transformer.
     """

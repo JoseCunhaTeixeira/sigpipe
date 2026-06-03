@@ -39,11 +39,14 @@ class Dispersion(Transformer):
 
         dispersion_images_out = []
         for stream in data:
-            dispersion_image_out = algorithm(
+            obj = algorithm(
                 stream=stream,
                 **self.params,
             )
 
-            dispersion_images_out.append(dispersion_image_out)
+            if isinstance(obj, Sequence):
+                dispersion_images_out.extend(obj)
+            else:
+                dispersion_images_out.append(obj)
 
         return dispersion_images_out

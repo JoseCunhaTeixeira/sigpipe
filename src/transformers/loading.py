@@ -1,10 +1,11 @@
+from collections.abc import Sequence
 from pathlib import Path
 
 from src.base.transformer import Transformer
 from src.dataio.registry import LOAD_HANDLERS
 
 
-class Loading(Transformer):
+class Load(Transformer):
     """
     Saving transformer.
     """
@@ -35,6 +36,9 @@ class Loading(Transformer):
                 path=file_path,
                 **self.params,
             )
-            objects.append(obj)
+            if isinstance(obj, Sequence):
+                objects.extend(obj)
+            else:
+                objects.append(obj)
 
         return objects

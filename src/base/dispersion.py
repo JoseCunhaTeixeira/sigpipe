@@ -10,6 +10,7 @@ class DispersionCurve:
     fs: np.ndarray
     vs: np.ndarray
     name: str
+    type: str
     acquisitions: tuple[Acquisition, ...]
 
     def __post_init__(self) -> None:
@@ -30,6 +31,7 @@ class DispersionImage:
     vs: np.ndarray
     type: str
     acquisitions: tuple[Acquisition, ...]
+    dispersion_curves: tuple[DispersionCurve, ...] = ()
 
     def __post_init__(self) -> None:
         fv_map = np.asarray(self.fv_map, dtype=np.float32)

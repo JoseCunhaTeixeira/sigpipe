@@ -71,9 +71,9 @@ def load_dispersion_curve(
 ) -> DispersionCurve | list[DispersionCurve]:
     if not path.exists():
         raise FileNotFoundError(path)
-    if path.suffix == "txt":
+    if path.suffix == ".txt":
         return load_modeled_dispersion_curves(path=path)
-    elif path.suffix == "csv":
+    elif path.suffix == ".csv":
         return load_picked_dispersion_curve(path=path)
     else:
         raise TypeError(f"File must be .txt or .csv, got {path.suffix}")
@@ -86,7 +86,8 @@ def load_picked_dispersion_curve(
     if not path.exists():
         raise FileNotFoundError(path)
 
-    name = "unknown"
+    name = ""
+    type = ""
 
     sources = ()
     receivers = ()
@@ -120,6 +121,9 @@ def load_picked_dispersion_curve(
                     for receiver_group in raw_receivers
                 )
 
+            elif line.startswith("type:"):
+                type = line.removeprefix("type:").strip()
+
     acquisitions = tuple(
         Acquisition(
             source=source,
@@ -146,6 +150,7 @@ def load_picked_dispersion_curve(
         vs=vs,
         name=name,
         acquisitions=acquisitions,
+        type=type,
     )
 
 
@@ -201,6 +206,7 @@ def load_modeled_dispersion_curves(
                 vs=vs * 1e3,
                 name=col.strip(),
                 acquisitions=(UNKNOWN_ACQUISITION,),
+                type="",
             )
         )
 

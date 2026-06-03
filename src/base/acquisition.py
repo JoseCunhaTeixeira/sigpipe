@@ -32,7 +32,10 @@ class Acquisition:
 
     @property
     def is_unknown(self) -> bool:
-        return np.isnan(self.source.x)
+        values = [self.source.x, self.source.y, self.source.z]
+        for receiver in self.receivers:
+            values.extend([receiver.x, receiver.y, receiver.z])
+        return any(np.isnan(v) for v in values)
 
 
 def compute_offsets(
