@@ -37,9 +37,7 @@ class Plot(Transformer):
             raise TypeError("All elements must have the same type")
 
         first = data[0]
-
         handler = PLOT_HANDLERS.get(type(first))
-
         if handler is None:
             raise TypeError(f"No save handler for {type(first).__name__}")
 

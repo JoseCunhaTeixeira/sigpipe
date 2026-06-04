@@ -1,3 +1,4 @@
-from experiments.active_find import pipeline
+from experiments.active_find import main
 
-pipeline.run()
+if __name__ == "__main__":
+    main()

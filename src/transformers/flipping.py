@@ -1,33 +1,22 @@
 from collections.abc import Sequence
 
-from src.algorithms.correlation.registry import CORRELATION_METHODS
+from src.algorithms.flipping.flipping import flip
 from src.base.stream import Stream
 from src.base.transformer import Transformer
 
 
-class Correlate(Transformer):
+class Flip(Transformer):
     """
-    Correlation transformer.
+    Flipping transformer.
     """
 
     def __init__(
         self,
-        method: str,
-        virtual_source_index: int,
         **params,
     ):
-        self.method = method
-        self.virtual_source_index = virtual_source_index
         self.params = params
 
     def transform(self, data: Sequence[Stream]) -> Sequence[Stream]:
-
-        algorithm = CORRELATION_METHODS.get(self.method)
-        if algorithm is None:
-            raise ValueError(
-                f"Unknown normalizing method '{self.method}'. "
-                f"Available methods: {list(CORRELATION_METHODS.keys())}"
-            )
 
         if not isinstance(data, Sequence) or isinstance(data, (str, bytes)):
             raise TypeError(f"Expected Sequence[Stream], got {type(data).__name__}")
@@ -40,11 +29,11 @@ class Correlate(Transformer):
 
         streams_out = []
         for stream in data:
-            obj = algorithm(
+            stream_out = flip(
                 stream=stream,
-                virtual_source_index=self.virtual_source_index,
                 **self.params,
             )
-            streams_out.extend(obj)
+
+            streams_out.append(stream_out)
 
         return streams_out

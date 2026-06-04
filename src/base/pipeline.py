@@ -2,6 +2,7 @@ import logging
 from datetime import datetime
 from pathlib import Path
 from time import perf_counter
+from typing import Any
 
 
 class Pipeline:
@@ -11,7 +12,7 @@ class Pipeline:
     def __rshift__(self, other):
         return Pipeline([*self.steps, other])
 
-    def run(self):
+    def run(self, data: Any = None) -> Any:
 
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
 
@@ -25,8 +26,6 @@ class Pipeline:
         logger.info("=" * 80)
         logger.info("Pipeline started")
         logger.info("Pipeline: %s", self)
-
-        data = None
 
         total_start = perf_counter()
 

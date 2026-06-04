@@ -1,3 +1,5 @@
+from typing import Literal
+
 import numpy as np
 from scipy.signal import correlate
 
@@ -8,11 +10,17 @@ from src.base.stream import Stream
 def correlate_cross(
     stream: Stream,
     virtual_source_index: int,
-) -> tuple[Stream, Stream]:
+    part: Literal["causal", "acausal", "both"] = "both",
+) -> tuple[Stream] | tuple[Stream, Stream]:
 
-    if not (0 <= virtual_source_index < stream.nx):
+    if not (-1 <= virtual_source_index < stream.nx):
         raise ValueError(
             f"virtual_source_index {virtual_source_index} outside [0, {stream.nx - 1}]"
+        )
+
+    if part.lower() not in {"causal", "acausal", "both"}:
+        raise ValueError(
+            f"part must be 'causal', 'acausal' or 'both, got {part.lower()!r}"
         )
 
     ts_out = np.arange(stream.nt) / stream.sampling_freq
@@ -37,6 +45,24 @@ def correlate_cross(
         receivers=stream.acquisition.receivers,
     )
 
+    if part.lower() == "causal":
+        return (
+            Stream(
+                xt=xt_out_causal,
+                ts=ts_out,
+                sampling_freq=stream.sampling_freq,
+                acquisition=acquisition_out,
+            ),
+        )
+    elif part.lower() == "acausal":
+        return (
+            Stream(
+                xt=xt_out_acausal,
+                ts=ts_out,
+                sampling_freq=stream.sampling_freq,
+                acquisition=acquisition_out,
+            ),
+        )
     return Stream(
         xt=xt_out_causal,
         ts=ts_out,

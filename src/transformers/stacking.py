@@ -1,8 +1,10 @@
 from collections.abc import Sequence
+from typing import TypeVar
 
-from src.algorithms.stacking.registry import STACKING_METHODS
-from src.base.stream import Stream
+from src.algorithms.stacking.registry import STACKING_HANDLERS
 from src.base.transformer import Transformer
+
+T = TypeVar("T")
 
 
 class Stack(Transformer):
@@ -18,14 +20,7 @@ class Stack(Transformer):
         self.method = method
         self.params = params
 
-    def transform(self, data: Sequence[Stream]) -> Sequence[Stream]:
-
-        algorithm = STACKING_METHODS.get(self.method)
-        if algorithm is None:
-            raise ValueError(
-                f"Unknown stacking method '{self.method}'. "
-                f"Available methods: {list(STACKING_METHODS.keys())}"
-            )
+    def transform(self, data: Sequence[T]) -> Sequence[T]:
 
         if not isinstance(data, Sequence) or isinstance(data, (str, bytes)):
             raise TypeError(f"Expected Sequence[Stream], got {type(data).__name__}")
@@ -33,11 +28,23 @@ class Stack(Transformer):
         if len(data) == 0:
             raise ValueError("Empty input sequence")
 
-        if not all(isinstance(s, Stream) for s in data):
-            raise TypeError("All elements must be Stream")
+        if not all(isinstance(x, type(data[0])) for x in data):
+            raise TypeError("All elements must have the same type")
+
+        first = data[0]
+        handler = STACKING_HANDLERS.get(type(first))
+        if handler is None:
+            raise TypeError(f"No save handler for {type(first).__name__}")
+
+        algorithm = handler.get(self.method)
+        if algorithm is None:
+            raise ValueError(
+                f"Unknown stacking method '{self.method}'. "
+                f"Available methods: {list(handler.keys())}"
+            )
 
         stream_out = algorithm(
-            streams=data,
+            data,
             **self.params,
         )
 

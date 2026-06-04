@@ -56,10 +56,14 @@ pipeline = (
     >> Detrend(method="constant")
     >> Filter(method="iir", fmin=2_000, fmax=8_000, order=4)
     >> Slice(segment_duration=0.003, segment_step=0.003)
-    >> Whiten(method="onebit_apod", fmin=2_000, fmax=8_000, taper_width_Hz=1_000)
+    >> Whiten(method="one_bit", fmin=2_000, fmax=8_000, taper_width_Hz=1_000)
     >> Normalize(method="onebit")
     >> Appodize(method="hanning", frac=0.1)
     >> Correlate(method="cross", virtual_source_index=0)
     >> Stack(method="phase_weighted", nu=2)
     >> Plot(folder_path=saving_folder_path, normalize=True)
 )
+
+
+def main() -> None:
+    pipeline.run()
