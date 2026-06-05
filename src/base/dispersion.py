@@ -25,13 +25,27 @@ class DispersionCurve:
 
 
 @dataclass(slots=True, frozen=True)
+class DispersionCurves:
+    curves: tuple[DispersionCurve, ...]
+
+    def __iter__(self):
+        return iter(self.curves)
+
+    def __len__(self):
+        return len(self.curves)
+
+    def __getitem__(self, item):
+        return self.curves[item]
+
+
+@dataclass(slots=True, frozen=True)
 class DispersionImage:
     fv_map: np.ndarray
     fs: np.ndarray
     vs: np.ndarray
     type: str
     acquisitions: tuple[Acquisition, ...]
-    dispersion_curves: tuple[DispersionCurve, ...] = ()
+    dispersion_curves: DispersionCurves = DispersionCurves(curves=())
 
     def __post_init__(self) -> None:
         fv_map = np.asarray(self.fv_map, dtype=np.float32)

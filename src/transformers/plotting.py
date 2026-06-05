@@ -36,6 +36,11 @@ class Plot(Transformer):
         if not all(isinstance(x, type(data[0])) for x in data):
             raise TypeError("All elements must have the same type")
 
+        self.folder_path.mkdir(
+            parents=True,
+            exist_ok=True,
+        )
+
         first = data[0]
         handler = PLOT_HANDLERS.get(type(first))
         if handler is None:

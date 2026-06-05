@@ -1,16 +1,20 @@
 from pathlib import Path
 
-from src.base.acquisition import Acquisition
 from src.base.coordinate import Coordinate
+from src.base.dispersion import DispersionCurves
 from src.base.pipeline import Pipeline
-from src.dataio.dispersion.loading import load_dispersion_curve
+from src.dataio.dispersion.loading import load_dispersion_curves
 from src.transformers.correlation import Correlate
 from src.transformers.detrending import Detrend
 from src.transformers.dispersion import Dispersion
 from src.transformers.flipping import Flip
 from src.transformers.loading import Load
+from src.transformers.mutting import Mute
 from src.transformers.padding import Pad
+from src.transformers.picking import Pick
 from src.transformers.plotting import Plot
+from src.transformers.saving import Save
+from src.transformers.section import Section
 from src.transformers.stacking import Stack
 
 data_dir = Path(
@@ -23,19 +27,21 @@ file_paths = [
     data_dir / "20260529_140057_sin_115kHz_3c_hann_50V_sain1.gero",
     data_dir / "20260529_140702_sin_130kHz_3c_hann_50V_sain1.gero",
     data_dir / "20260529_141309_sin_145kHz_3c_hann_50V_sain1.gero",
+    data_dir / "20260529_134546_sin_70kHz_5c_hann_50V_sain1.gero",
+    data_dir / "20260529_135150_sin_85kHz_5c_hann_50V_sain1.gero",
+    data_dir / "20260529_135754_sin_100kHz_5c_hann_50V_sain1.gero",
+    data_dir / "20260529_140359_sin_115kHz_5c_hann_50V_sain1.gero",
+    data_dir / "20260529_141005_sin_130kHz_5c_hann_50V_sain1.gero",
+    data_dir / "20260529_141612_sin_145kHz_5c_hann_50V_sain1.gero",
 ]
 
-saving_folder_path = Path(
-    "/Users/JC287771/Documents/Work/data/2026-05-29_essai_imagerie_invent/results"
-)
-
-modeled_curves = load_dispersion_curve(
+modeled_curves = load_dispersion_curves(
     path=Path(
         "/Users/JC287771/Documents/Work/data/2026-05-29_essai_imagerie_invent/models/disp_1.72mm.txt"
     )
 )
 
-sources = (
+SOURCES = (
     # 1st ring
     Coordinate(x=0.000, y=0.000, z=0),  # 00
     Coordinate(x=0.012, y=0.000, z=0),  # 01
@@ -71,7 +77,7 @@ sources = (
     Coordinate(x=0.168, y=0.012, z=0),  # 30
     Coordinate(x=0.180, y=0.012, z=0),  # 31
 )
-receivers = (
+RECEIVERS = (
     # 1st ring
     Coordinate(x=0.000, y=0.000, z=0),  # 00
     Coordinate(x=0.012, y=0.000, z=0),  # 01
@@ -107,123 +113,137 @@ receivers = (
     Coordinate(x=0.168, y=0.012, z=0),  # 30
     Coordinate(x=0.180, y=0.012, z=0),  # 31
 )
-sources_to_load = [
-    # 0,
-    # 1,
-    # 2,
-    # 3,
-    # 4,
-    # 5,
-    # 6,
-    7,
-    8,
-    9,
-    10,
-    11,
-    12,
-    13,
-    14,
-    15,
-    # ---
-    # 16,
-    # 17,
-    # 18,
-    # 19,
-    # 20,
-    # 21,
-    # 22,
-    # 23,
-    # 24,
-    # 25,
-    # 26,
-    # 27,
-    # 28,
-    # 29,
-    # 30,
-    # 31,
-]
-receivers_to_load = [
-    0,
-    1,
-    2,
-    3,
-    4,
-    5,
-    6,
-    # 7,
-    # 8,
-    # 9,
-    # 10,
-    # 11,
-    # 12,
-    # 13,
-    # 14,
-    # 15,
-    # ---
-    # 16,
-    # 17,
-    # 18,
-    # 19,
-    # 20,
-    # 21,
-    # 22,
-    # 23,
-    # 24,
-    # 25,
-    # 26,
-    # 27,
-    # 28,
-    # 29,
-    # 30,
-    # 31,
-]
 
-sources = tuple(sources[i] for i in sources_to_load)
-receivers = tuple(receivers[i] for i in receivers_to_load)
-acquisitions = [Acquisition(source=source, receivers=receivers) for source in sources]
 
-pipeline_load = Load(
-    file_paths=file_paths,
-    data_type="gero_active",
-    acquisitions=acquisitions,
-    key="signal",
-    sources_to_load=sources_to_load,
-    sensors_to_load=receivers_to_load,
-) >> Detrend(method="constant")
-
-pipeline_left = Pipeline(
-    [
-        Correlate(method="cross", virtual_source_index=0, part="causal"),
-    ]
-)
-
-pipeline_right = Correlate(
-    method="cross",
-    virtual_source_index=-1,
-    part="acausal",
-) >> Flip(axis="space")
-
-pipeline_compute_disp = (
-    Stack(method="phase_weighted", nu=2)
-    >> Plot(folder_path=saving_folder_path, normalize=True)
-    >> Pad(n=1_000, taper=100)
-    >> Dispersion(
-        method="phase",
-        fmin=10_000,
-        fmax=2_000_000,
-        vmin=0,
-        vmax=7_000,
+def run_pipeline(acquisitions, sources_to_load, receivers_to_load, folder_path):
+    pipeline_load = (
+        Load(
+            file_paths=file_paths,
+            data_type="gero_active",
+            acquisitions=acquisitions,
+            key="signal",
+            sources_to_load=sources_to_load,
+            sensors_to_load=receivers_to_load,
+        )
+        >> Detrend(method="constant")
+        >> Mute(vmin=1_000, vmax=2_500, taper=25)
     )
-    >> Plot(
-        folder_path=saving_folder_path,
-        normalize=True,
-        modeled_curves=modeled_curves,
+
+    pipeline_left = Pipeline(
+        [
+            Correlate(method="cross", virtual_source_index=0, part="causal"),
+        ]
     )
-)
 
+    pipeline_right = Correlate(
+        method="cross",
+        virtual_source_index=-1,
+        part="acausal",
+    ) >> Flip(axis="space")
 
-def main() -> None:
+    pipeline_compute_disp = (
+        Stack(method="phase_weighted", nu=10)
+        >> Plot(folder_path=folder_path, normalize=True)
+        >> Pad(n=1_000, taper=25)
+        >> Dispersion(
+            method="phase",
+            fmin=0,
+            fmax=2_000_000,
+            vmin=0,
+            vmax=7_000,
+        )
+        >> Pick(
+            fmins=[20_000],
+            fmaxs=[200_000],
+            vmins=[0],
+            vmaxs=[2_500],
+            lbdmins=[0.0065],
+            lbdmaxs=[0.1],
+            names=["A0"],
+            return_image=True,
+        )
+        >> Plot(
+            folder_path=folder_path,
+            modeled_curves=modeled_curves,
+        )
+        >> Save(folder_path=folder_path)
+    )
+
     files = pipeline_load.run()
     left_correls = pipeline_left.run(files)
     right_correls = pipeline_right.run(files)
     pipeline_compute_disp.run(left_correls + right_correls)
+
+
+def run() -> None:
+
+    folder = Path(
+        "/Users/JC287771/Documents/Work/data/2026-05-29_essai_imagerie_invent/results"
+    )
+
+    # folder_paths = [
+    #     folder / "1/",
+    #     folder / "2/",
+    #     folder / "3/",
+    #     folder / "4/",
+    #     folder / "5/",
+    #     folder / "6/",
+    #     folder / "7/",
+    #     folder / "8/",
+    #     folder / "9/",
+    #     folder / "10/",
+    #     folder / "11/",
+    #     folder / "12/",
+    # ]
+
+    # source_windows = [
+    #     [4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15],
+    #     [0, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15],
+    #     [0, 1, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15],
+    #     [0, 1, 2, 7, 8, 9, 10, 11, 12, 13, 14, 15],
+    #     [0, 1, 2, 3, 8, 9, 10, 11, 12, 13, 14, 15],
+    #     [0, 1, 2, 3, 4, 5, 10, 11, 12, 13, 14, 15],
+    #     [0, 1, 2, 3, 4, 5, 6, 11, 12, 13, 14, 15],
+    #     [0, 1, 2, 3, 4, 5, 6, 7, 12, 13, 14, 15],
+    #     [0, 1, 2, 3, 4, 5, 6, 7, 8, 13, 14, 15],
+    #     [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 14, 15],
+    #     [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 15],
+    #     [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11],
+    # ]
+
+    # receiver_windows = [
+    #     [0, 1, 2, 3, 4],
+    #     [1, 2, 3, 4, 5],
+    #     [2, 3, 4, 5, 6],
+    #     [3, 4, 5, 6, 7],
+    #     [4, 5, 6, 7, 8],
+    #     [5, 6, 7, 8, 9],
+    #     [6, 7, 8, 9, 10],
+    #     [7, 8, 9, 10, 11],
+    #     [8, 9, 10, 11, 12],
+    #     [9, 10, 11, 12, 13],
+    #     [10, 11, 12, 13, 14],
+    #     [11, 12, 13, 14, 15],
+    # ]
+
+    # for sources_to_load, receivers_to_load, folder_path in zip(
+    #     source_windows, receiver_windows, folder_paths
+    # ):
+    #     sources = tuple(SOURCES[i] for i in sources_to_load)
+    #     receivers = tuple(RECEIVERS[i] for i in receivers_to_load)
+    #     acquisitions = [
+    #         Acquisition(source=source, receivers=receivers) for source in sources
+    #     ]
+
+    #     run_pipeline(
+    #         acquisitions=acquisitions,
+    #         sources_to_load=sources_to_load,
+    #         receivers_to_load=receivers_to_load,
+    #         folder_path=folder_path,
+    #     )
+
+    pipeline_section = Load(
+        file_paths=[folder / "disps.csv"],
+        data_type=DispersionCurves,
+    ) >> Section(folder_path=folder)
+    pipeline_section.run()

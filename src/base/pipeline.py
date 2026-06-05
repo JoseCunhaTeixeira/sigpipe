@@ -12,16 +12,14 @@ class Pipeline:
     def __rshift__(self, other):
         return Pipeline([*self.steps, other])
 
-    def run(self, data: Any = None) -> Any:
+    def run(self, data: Any = None, save_log: bool = False) -> Any:
 
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
 
         log_dir = Path("logs")
         log_dir.mkdir(exist_ok=True)
-
         log_path = log_dir / f"{timestamp}.log"
-
-        logger = self._create_logger(log_path)
+        logger = self._create_logger(log_path, save_log)
 
         logger.info("=" * 80)
         logger.info("Pipeline started")
@@ -70,7 +68,7 @@ class Pipeline:
         return data
 
     @staticmethod
-    def _create_logger(log_path: Path) -> logging.Logger:
+    def _create_logger(log_path: Path, save_log: bool = True) -> logging.Logger:
 
         logger = logging.getLogger("pipeline")
 
@@ -83,11 +81,12 @@ class Pipeline:
         console_handler = logging.StreamHandler()
         console_handler.setFormatter(formatter)
 
-        file_handler = logging.FileHandler(log_path)
-        file_handler.setFormatter(formatter)
-
         logger.addHandler(console_handler)
-        logger.addHandler(file_handler)
+
+        if save_log:
+            file_handler = logging.FileHandler(log_path)
+            file_handler.setFormatter(formatter)
+            logger.addHandler(file_handler)
 
         return logger
 

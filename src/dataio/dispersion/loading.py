@@ -10,11 +10,12 @@ from src.base.coordinate import (
     Coordinate,
     tuples_to_coordinates,
 )
-from src.base.dispersion import DispersionCurve, DispersionImage
+from src.base.dispersion import DispersionCurve, DispersionCurves, DispersionImage
 
 
 def load_dispersion_image(
     path: Path,
+    curves_path: Path | None = None,
 ) -> DispersionImage:
 
     if not path.exists():
@@ -57,52 +58,64 @@ def load_dispersion_image(
         )
     )
 
+    dispersion_curves = DispersionCurves(curves=())
+    if curves_path is not None:
+        dispersion_curves = load_dispersion_curves(path=curves_path)
+
     return DispersionImage(
         fv_map=fv_map,
         fs=fs,
         vs=vs,
         type=type,
         acquisitions=acquisitions,
+        dispersion_curves=dispersion_curves,
     )
 
 
-def load_dispersion_curve(
+def load_dispersion_curves(
     path: Path,
-) -> DispersionCurve | list[DispersionCurve]:
+) -> DispersionCurves:
     if not path.exists():
         raise FileNotFoundError(path)
     if path.suffix == ".txt":
         return load_modeled_dispersion_curves(path=path)
     elif path.suffix == ".csv":
-        return load_picked_dispersion_curve(path=path)
+        return load_picked_dispersion_curves(path=path)
     else:
         raise TypeError(f"File must be .txt or .csv, got {path.suffix}")
 
 
-def load_picked_dispersion_curve(
+def load_picked_dispersion_curves(
     path: Path,
-) -> DispersionCurve:
+) -> DispersionCurves:
 
     if not path.exists():
         raise FileNotFoundError(path)
 
-    name = ""
-    type = ""
+    curves = []
 
-    sources = ()
-    receivers = ()
+    with path.open("r", encoding="utf-8") as file:
+        content = file.read()
 
-    with path.open("r") as f:
-        for line in f:
-            line = line.strip()
+    blocks = [block.strip() for block in content.split("---") if block.strip()]
 
-            if not line.startswith("#"):
-                break
+    for block in blocks:
+        lines = [line.strip() for line in block.splitlines() if line.strip()]
 
-            line = line.removeprefix("#").strip()
+        name = ""
+        curve_type = ""
 
+        sources = ()
+        receivers = ()
+
+        data_start = None
+
+        for i, line in enumerate(lines):
             if line.startswith("name:"):
                 name = line.removeprefix("name:").strip()
+
+            elif line.startswith("type:"):
+                curve_type = line.removeprefix("type:").strip()
 
             elif line.startswith("sources:"):
                 raw_sources = ast.literal_eval(
@@ -121,42 +134,51 @@ def load_picked_dispersion_curve(
                     for receiver_group in raw_receivers
                 )
 
-            elif line.startswith("type:"):
-                type = line.removeprefix("type:").strip()
+            elif line == "frequency_Hz,phase_velocity_m/s":
+                data_start = i + 1
+                break
 
-    acquisitions = tuple(
-        Acquisition(
-            source=source,
-            receivers=receiver_group,
+        if data_start is None:
+            raise ValueError(f"Could not find frequency table in '{path}'.")
+
+        fs = []
+        vs = []
+
+        for line in lines[data_start:]:
+            f, v = line.split(",")
+            fs.append(float(f))
+            vs.append(float(v))
+
+        acquisitions = tuple(
+            Acquisition(
+                source=source,
+                receivers=receiver_group,
+            )
+            for source, receiver_group in zip(
+                sources,
+                receivers,
+                strict=True,
+            )
         )
-        for source, receiver_group in zip(
-            sources,
-            receivers,
-            strict=True,
+
+        curves.append(
+            DispersionCurve(
+                fs=np.asarray(fs, dtype=np.float32),
+                vs=np.asarray(vs, dtype=np.float32),
+                name=name,
+                type=curve_type,
+                acquisitions=acquisitions,
+            )
         )
-    )
 
-    data = np.loadtxt(
-        path,
-        delimiter=",",
-        comments="#",
-    )
-
-    fs = data[:, 0]
-    vs = data[:, 1]
-
-    return DispersionCurve(
-        fs=fs,
-        vs=vs,
-        name=name,
-        acquisitions=acquisitions,
-        type=type,
+    return DispersionCurves(
+        curves=tuple(curves),
     )
 
 
 def load_modeled_dispersion_curves(
     path: Path,
-) -> list[DispersionCurve]:
+) -> DispersionCurves:
 
     if not path.exists():
         raise FileNotFoundError(path)
@@ -171,7 +193,7 @@ def load_modeled_dispersion_curves(
 
     fcol = "Frequency"
 
-    curves: list[DispersionCurve] = []
+    curves = []
 
     for col in df.columns:
         if col == fcol:
@@ -210,4 +232,6 @@ def load_modeled_dispersion_curves(
             )
         )
 
-    return curves
+    return DispersionCurves(
+        curves=tuple(curves),
+    )

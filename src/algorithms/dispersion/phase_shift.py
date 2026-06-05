@@ -13,8 +13,6 @@ def dispersion_phase_shift(
     vmin: float,
     vmax: float,
     nv: int = 1_000,
-    vmin_expected: float | None = None,
-    vmax_expected: float | None = None,
 ) -> DispersionImage:
     if stream.acquisition.is_unknown:
         raise ValueError("dispersion has unknown acquisition")
@@ -22,14 +20,11 @@ def dispersion_phase_shift(
         xt=stream.xt,
         sampling_freq=stream.sampling_freq,
         offsets=stream.acquisition.offsets,
-        ts=stream.ts,
         fmin=fmin,
         fmax=fmax,
         vmin=vmin,
         vmax=vmax,
         nv=nv,
-        vmin_expected=vmin_expected,
-        vmax_expected=vmax_expected,
     )
     return DispersionImage(
         fv_map=fv_map,
@@ -50,9 +45,6 @@ def phase_shift(
     vmin: float,
     vmax: float,
     nv: int = 1_000,
-    ts: np.ndarray | None = None,
-    vmin_expected: float | None = None,
-    vmax_expected: float | None = None,
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
     """Phase-shift transform.
 
@@ -75,24 +67,6 @@ def phase_shift(
         raise ValueError(f"requires nv > 0, got {nv}")
 
     xt = xt * np.sqrt(offsets[:, None])  # Compensate geometrical attenuation sqrt(r)
-
-    if vmin_expected is not None and ts is not None:
-        if not (vmin <= vmin_expected < vmax):
-            raise ValueError(
-                f"require vmin ({vmin} m/s) <= vmin_expected ({vmin_expected} m/s) < vmax ({vmax} m/s)"
-            )
-        tlims = offsets / vmin_expected
-        for i_trace, (trace, tlim) in enumerate(zip(xt, tlims)):
-            xt[i_trace, ts > tlim] = 0.0
-
-    if vmax_expected is not None and ts is not None:
-        if not (vmin < vmax_expected <= vmax):
-            raise ValueError(
-                f"require vmin ({vmin} m/s) < vmax_expected ({vmax_expected} m/s) <= vmax ({vmax} m/s)"
-            )
-        tlims = offsets / vmax_expected
-        for i_trace, (trace, tlim) in enumerate(zip(xt, tlims)):
-            xt[i_trace, ts < tlim] = 0.0
 
     xf = np.array(rfft(xt, axis=1, n=nt), dtype=np.complex64)
     fs = compute_frequency_vector(nt=nt, sampling_freq=sampling_freq)

@@ -1,12 +1,11 @@
 from pathlib import Path
 
 import h5py
-import numpy as np
 
 from src.base.coordinate import (
     coordinates_to_tuples,
 )
-from src.base.dispersion import DispersionCurve, DispersionImage
+from src.base.dispersion import DispersionCurves, DispersionImage
 
 
 def save_dispersion_image(
@@ -16,6 +15,7 @@ def save_dispersion_image(
 ) -> None:
     sources = []
     receivers = []
+    path = path.with_suffix(".hd5")
     for acquisition in dispersion_image.acquisitions:
         sources.append(acquisition.source.to_tuple())
         receivers.append(coordinates_to_tuples(acquisition.receivers))
@@ -28,29 +28,29 @@ def save_dispersion_image(
         file.create_dataset("receivers", data=tuple(receivers))
         for key, value in kwargs.items():
             file.create_dataset(key, data=value)
+    save_dispersion_curves(dispersion_image.dispersion_curves, path=path)
 
 
-def save_dispersion_curve(
-    dispersion_curve: DispersionCurve,
+def save_dispersion_curves(
+    dispersion_curves: DispersionCurves,
     path: Path,
 ) -> None:
-    sources = []
-    receivers = []
-    for acquisition in dispersion_curve.acquisitions:
-        sources.append(acquisition.source.to_tuple())
-        receivers.append(coordinates_to_tuples(acquisition.receivers))
-    header = (
-        f"name: {dispersion_curve.name}\n"
-        f"type: {dispersion_curve.type}\n"
-        f"sources: {tuple(sources)}\n"
-        f"receivers: {tuple(receivers)}\n"
-        "frequency_Hz,phase_velocity_m/s"
-    )
-    arr = np.column_stack([dispersion_curve.fs, dispersion_curve.vs])
-    np.savetxt(
-        path,
-        arr,
-        header=header,
-        delimiter=",",
-        fmt="%.6f",
-    )
+    if dispersion_curves:
+        path = path.with_name(
+            path.name.replace("DispersionImage", "DispersionCurves")
+        ).with_suffix(".csv")
+        with open(path, "w", encoding="utf-8") as file:
+            for dispersion_curve in dispersion_curves:
+                sources = []
+                receivers = []
+                for acquisition in dispersion_curve.acquisitions:
+                    sources.append(acquisition.source.to_tuple())
+                    receivers.append(coordinates_to_tuples(acquisition.receivers))
+                file.write(f"name: {dispersion_curve.name}\n")
+                file.write(f"type: {dispersion_curve.type}\n")
+                file.write(f"sources: {tuple(sources)}\n")
+                file.write(f"receivers: {tuple(receivers)}\n")
+                file.write("frequency_Hz,phase_velocity_m/s\n")
+                for f, v in zip(dispersion_curve.fs, dispersion_curve.vs, strict=True):
+                    file.write(f"{float(f):.6f},{float(v):.6f}\n")
+                file.write("\n---\n\n")

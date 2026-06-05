@@ -2,19 +2,19 @@ import matplotlib.pyplot as plt
 import numpy as np
 from matplotlib.figure import Figure
 
-from src.base.dispersion import DispersionCurve, DispersionImage
+from src.base.dispersion import DispersionCurves, DispersionImage
 from src.dataio.plot_config import CM, DISP_DPI, HEIGHT_CM, SINGLE_COLUMN_CM
 
 
 def plot_dispersion_image(
     dispersion_image: DispersionImage,
     *,
-    picked_curves: list[DispersionCurve] | None = None,
-    modeled_curves: list[DispersionCurve] | None = None,
+    picked_curves: DispersionCurves | None = None,
+    modeled_curves: DispersionCurves | None = None,
     thickness: float | None = None,
     lbmin: float | None = None,
     lbmax: float | None = None,
-    normalize: bool = True,
+    normalize: bool = False,
     show_cbar: bool = False,
     show_legend: bool = False,
 ) -> Figure:
@@ -114,10 +114,10 @@ def plot_dispersion_image(
     return fig
 
 
-def plot_dispersion_curve(
-    picked_curves: list[DispersionCurve] | None = None,
+def plot_dispersion_curves(
+    picked_curves: DispersionCurves | None = None,
     *,
-    modeled_curves: list[DispersionCurve] | None = None,
+    modeled_curves: DispersionCurves | None = None,
     thickness: float | None = None,
     fmin: float | None = None,
     fmax: float | None = None,

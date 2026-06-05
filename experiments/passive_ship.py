@@ -65,5 +65,5 @@ pipeline = (
 )
 
 
-def main() -> None:
+def run() -> None:
     pipeline.run()
