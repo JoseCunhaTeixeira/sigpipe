@@ -12,9 +12,9 @@ from src.dataio.registry import SECTION_HANDLERS
 T = TypeVar("T")
 
 
-class Section(Transformer):
+class PlotSection(Transformer):
     """
-    Section transformer.
+    Section olitting transformer.
     """
 
     def __init__(

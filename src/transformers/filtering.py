@@ -18,7 +18,7 @@ class Filter(Transformer):
         self.method = method
         self.params = params
 
-    def transform(self, data: Sequence[Stream]) -> Sequence[Stream]:
+    def transform(self, data: Sequence[Stream]) -> list[Stream]:
 
         algorithm = FILTERING_METHODS.get(self.method)
         if algorithm is None:
@@ -36,13 +36,12 @@ class Filter(Transformer):
         if not all(isinstance(s, Stream) for s in data):
             raise TypeError("All elements must be Stream")
 
-        streams_out = []
+        streams_out: list[Stream] = []
         for stream in data:
             stream_out = algorithm(
                 stream=stream,
                 **self.params,
             )
-
             streams_out.append(stream_out)
 
         return streams_out

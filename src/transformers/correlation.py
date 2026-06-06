@@ -20,7 +20,7 @@ class Correlate(Transformer):
         self.virtual_source_index = virtual_source_index
         self.params = params
 
-    def transform(self, data: Sequence[Stream]) -> Sequence[Stream]:
+    def transform(self, data: Sequence[Stream]) -> list[Stream]:
 
         algorithm = CORRELATION_METHODS.get(self.method)
         if algorithm is None:
@@ -38,7 +38,7 @@ class Correlate(Transformer):
         if not all(isinstance(s, Stream) for s in data):
             raise TypeError("All elements must be Stream")
 
-        streams_out = []
+        streams_out: list[Stream] = []
         for stream in data:
             obj = algorithm(
                 stream=stream,

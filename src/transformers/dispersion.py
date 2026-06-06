@@ -19,7 +19,7 @@ class Dispersion(Transformer):
         self.method = method
         self.params = params
 
-    def transform(self, data: Sequence[Stream]) -> Sequence[DispersionImage]:
+    def transform(self, data: Sequence[Stream]) -> list[DispersionImage]:
 
         algorithm = DISPERSION_METHODS.get(self.method)
         if algorithm is None:
@@ -37,13 +37,12 @@ class Dispersion(Transformer):
         if not all(isinstance(s, Stream) for s in data):
             raise TypeError("All elements must be Stream")
 
-        dispersion_images_out = []
+        dispersion_images_out: list[DispersionImage] = []
         for stream in data:
             obj = algorithm(
                 stream=stream,
                 **self.params,
             )
-
             if isinstance(obj, Sequence):
                 dispersion_images_out.extend(obj)
             else:

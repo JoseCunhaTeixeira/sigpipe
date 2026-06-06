@@ -105,8 +105,8 @@ def load_picked_dispersion_curves(
         name = ""
         curve_type = ""
 
-        sources = ()
-        receivers = ()
+        sources: tuple[Coordinate, ...] = ()
+        receivers: tuple[tuple[Coordinate, ...], ...] = ()
 
         data_start = None
 

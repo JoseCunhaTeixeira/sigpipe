@@ -20,7 +20,7 @@ class Pick(Transformer):
 
     def transform(
         self, data: Sequence[DispersionImage]
-    ) -> Sequence[DispersionImage] | Sequence[DispersionCurves]:
+    ) -> list[DispersionImage] | list[DispersionCurves]:
 
         if not isinstance(data, Sequence) or isinstance(data, (str, bytes)):
             raise TypeError(
@@ -34,7 +34,7 @@ class Pick(Transformer):
             raise TypeError("All elements must be DispersionImage")
 
         if self.return_image:
-            dispersion_images_out = []
+            dispersion_images_out: list[DispersionImage] = []
             for dispersion_image in data:
                 dispersion_curves = pick(
                     dispersion_image,
@@ -55,7 +55,7 @@ class Pick(Transformer):
                 dispersion_images_out.append(dispersion_image_out)
             return dispersion_images_out
 
-        dispersion_curves_out = []
+        dispersion_curves_out: list[DispersionCurves] = []
         for dispersion_image in data:
             dispersion_curves = pick(
                 dispersion_image,

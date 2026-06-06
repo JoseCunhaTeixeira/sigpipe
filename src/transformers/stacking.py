@@ -1,10 +1,19 @@
 from collections.abc import Sequence
 from typing import TypeVar
 
-from src.algorithms.stacking.registry import STACKING_HANDLERS
+from base.dispersion import DispersionImage
+from base.stream import Stream
+from src.algorithms.stacking.registry import (
+    DISPERSION_IMAGE_STACKING_METHODS,
+    STREAM_STACKING_METHODS,
+)
 from src.base.transformer import Transformer
 
-T = TypeVar("T")
+T = TypeVar(
+    "T",
+    Stream,
+    DispersionImage,
+)
 
 
 class Stack(Transformer):
@@ -20,7 +29,10 @@ class Stack(Transformer):
         self.method = method
         self.params = params
 
-    def transform(self, data: Sequence[T]) -> Sequence[T]:
+    def transform(
+        self,
+        data: Sequence[T],
+    ) -> list[T]:
 
         if not isinstance(data, Sequence) or isinstance(data, (str, bytes)):
             raise TypeError(f"Expected Sequence[Stream], got {type(data).__name__}")
@@ -32,20 +44,21 @@ class Stack(Transformer):
             raise TypeError("All elements must have the same type")
 
         first = data[0]
-        handler = STACKING_HANDLERS.get(type(first))
-        if handler is None:
+        if isinstance(first, Stream):
+            algorithm_stream = STREAM_STACKING_METHODS.get(self.method)
+            if algorithm_stream is None:
+                raise ValueError(
+                    f"Unknown normalizing method '{self.method}'. "
+                    f"Available methods: {list(STREAM_STACKING_METHODS.keys())}"
+                )
+            return [algorithm_stream(data, **self.params)]
+        elif isinstance(first, DispersionImage):
+            algorithm_image = DISPERSION_IMAGE_STACKING_METHODS.get(self.method)
+            if algorithm_image is None:
+                raise ValueError(
+                    f"Unknown normalizing method '{self.method}'. "
+                    f"Available methods: {list(DISPERSION_IMAGE_STACKING_METHODS.keys())}"
+                )
+            return [algorithm_image(data, **self.params)]
+        else:
             raise TypeError(f"No save handler for {type(first).__name__}")
-
-        algorithm = handler.get(self.method)
-        if algorithm is None:
-            raise ValueError(
-                f"Unknown stacking method '{self.method}'. "
-                f"Available methods: {list(handler.keys())}"
-            )
-
-        stream_out = algorithm(
-            data,
-            **self.params,
-        )
-
-        return (stream_out,)

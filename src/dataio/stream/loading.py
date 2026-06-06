@@ -83,7 +83,7 @@ def load_gero_active(
     sort: bool = False,
     sources_to_load: Sequence[int] | None = None,
     sensors_to_load: Sequence[int] | None = None,
-) -> Sequence[Stream]:
+) -> list[Stream]:
     if not path.exists():
         raise FileNotFoundError(path)
     streams = []

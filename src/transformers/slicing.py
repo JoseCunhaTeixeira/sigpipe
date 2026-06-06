@@ -22,7 +22,7 @@ class Slice(Transformer):
         self.segment_step = segment_step
         self.params = params
 
-    def transform(self, data: Sequence[Stream]) -> Sequence[Stream]:
+    def transform(self, data: Sequence[Stream]) -> list[Stream]:
 
         if not isinstance(data, Sequence) or isinstance(data, (str, bytes)):
             raise TypeError(f"expected Sequence[Stream], got {type(data).__name__}")
@@ -52,7 +52,7 @@ class Slice(Transformer):
                 f"requires segment_duration <= record durations, got {self.segment_duration} s and {durations} s"
             )
 
-        streams_out = []
+        streams_out: list[Stream] = []
         for stream in data:
             record_duration = stream.ts[-1]
             t = 0.0
@@ -62,9 +62,7 @@ class Slice(Transformer):
                     t_slice_start=t,
                     t_slice_end=t + self.segment_duration,
                 )
-
                 streams_out.append(stream_out)
-
                 t += self.segment_step
 
         return streams_out

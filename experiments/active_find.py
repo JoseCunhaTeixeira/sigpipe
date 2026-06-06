@@ -2,20 +2,18 @@ from pathlib import Path
 
 from src.base.coordinate import Coordinate
 from src.base.dispersion import DispersionCurves
-from src.base.pipeline import Pipeline
 from src.dataio.dispersion.loading import load_dispersion_curves
-from src.transformers.correlation import Correlate
+from src.transformers.composites.double_correlation import BidirectionalCorrelate
 from src.transformers.detrending import Detrend
 from src.transformers.dispersion import Dispersion
-from src.transformers.flipping import Flip
 from src.transformers.loading import Load
 from src.transformers.mutting import Mute
 from src.transformers.padding import Pad
 from src.transformers.picking import Pick
 from src.transformers.plotting import Plot
 from src.transformers.saving import Save
-from src.transformers.section import Section
 from src.transformers.stacking import Stack
+from transformers.plotting_section import PlotSection
 
 data_dir = Path(
     "//resinosa/PARTAGES_UNITES/DRT_CND/MATER-SHM_2026_BCH/data/20260529_essais_imagerie_invent/data_imagerie"
@@ -116,7 +114,7 @@ RECEIVERS = (
 
 
 def run_pipeline(acquisitions, sources_to_load, receivers_to_load, folder_path):
-    pipeline_load = (
+    pipeline = (
         Load(
             file_paths=file_paths,
             data_type="gero_active",
@@ -127,31 +125,11 @@ def run_pipeline(acquisitions, sources_to_load, receivers_to_load, folder_path):
         )
         >> Detrend(method="constant")
         >> Mute(vmin=1_000, vmax=2_500, taper=25)
-    )
-
-    pipeline_left = Pipeline(
-        [
-            Correlate(method="cross", virtual_source_index=0, part="causal"),
-        ]
-    )
-
-    pipeline_right = Correlate(
-        method="cross",
-        virtual_source_index=-1,
-        part="acausal",
-    ) >> Flip(axis="space")
-
-    pipeline_compute_disp = (
-        Stack(method="phase_weighted", nu=10)
+        >> BidirectionalCorrelate(method="cross")
+        >> Stack(method="phase_weighted", nu=10)
         >> Plot(folder_path=folder_path, normalize=True)
         >> Pad(n=1_000, taper=25)
-        >> Dispersion(
-            method="phase",
-            fmin=0,
-            fmax=2_000_000,
-            vmin=0,
-            vmax=7_000,
-        )
+        >> Dispersion(method="phase", fmin=0, fmax=2_000_000, vmin=0, vmax=7_000)
         >> Pick(
             fmins=[20_000],
             fmaxs=[200_000],
@@ -162,17 +140,11 @@ def run_pipeline(acquisitions, sources_to_load, receivers_to_load, folder_path):
             names=["A0"],
             return_image=True,
         )
-        >> Plot(
-            folder_path=folder_path,
-            modeled_curves=modeled_curves,
-        )
+        >> Plot(folder_path=folder_path, modeled_curves=modeled_curves)
         >> Save(folder_path=folder_path)
     )
 
-    files = pipeline_load.run()
-    left_correls = pipeline_left.run(files)
-    right_correls = pipeline_right.run(files)
-    pipeline_compute_disp.run(left_correls + right_correls)
+    pipeline.run()
 
 
 def run() -> None:
@@ -245,5 +217,5 @@ def run() -> None:
     pipeline_section = Load(
         file_paths=[folder / "disps.csv"],
         data_type=DispersionCurves,
-    ) >> Section(folder_path=folder)
+    ) >> PlotSection(folder_path=folder)
     pipeline_section.run()

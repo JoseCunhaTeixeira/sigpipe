@@ -30,7 +30,6 @@ class Load(Transformer):
             )
 
         objects = []
-
         for file_path in self.file_paths:
             obj = handler(
                 path=file_path,

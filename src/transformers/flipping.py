@@ -16,7 +16,7 @@ class Flip(Transformer):
     ):
         self.params = params
 
-    def transform(self, data: Sequence[Stream]) -> Sequence[Stream]:
+    def transform(self, data: Sequence[Stream]) -> list[Stream]:
 
         if not isinstance(data, Sequence) or isinstance(data, (str, bytes)):
             raise TypeError(f"Expected Sequence[Stream], got {type(data).__name__}")
@@ -27,13 +27,12 @@ class Flip(Transformer):
         if not all(isinstance(s, Stream) for s in data):
             raise TypeError("All elements must be Stream")
 
-        streams_out = []
+        streams_out: list[Stream] = []
         for stream in data:
             stream_out = flip(
                 stream=stream,
                 **self.params,
             )
-
             streams_out.append(stream_out)
 
         return streams_out

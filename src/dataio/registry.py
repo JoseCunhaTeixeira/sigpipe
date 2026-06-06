@@ -11,12 +11,18 @@ from src.dataio.dispersion.section import plot_dispersion_curve_section
 from src.dataio.stream.loading import load_gero_active, load_gero_passive
 from src.dataio.stream.plotting import plot_stream
 
-SAVE_HANDLERS = {
+SAVE_HANDLERS: dict[type, Callable[..., None]] = {
     DispersionImage: save_dispersion_image,
     DispersionCurves: save_dispersion_curves,
 }
 
-LOAD_HANDLERS = {
+LOAD_HANDLERS: dict[
+    type | str,
+    Callable[..., DispersionImage]
+    | Callable[..., DispersionCurves]
+    | Callable[..., Stream]
+    | Callable[..., list[Stream]],
+] = {
     DispersionImage: load_dispersion_image,
     DispersionCurves: load_dispersion_curves,
     "gero_passive": load_gero_passive,
@@ -24,7 +30,7 @@ LOAD_HANDLERS = {
 }
 
 
-PLOT_HANDLERS = {
+PLOT_HANDLERS: dict[type, Callable[..., Figure]] = {
     DispersionImage: plot_dispersion_image,
     DispersionCurves: plot_dispersion_curves,
     Stream: plot_stream,
