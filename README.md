@@ -1,1 +1,1 @@
-# Signal processiong
+# Signal processing pipeline
