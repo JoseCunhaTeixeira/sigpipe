@@ -1,17 +1,17 @@
 from pathlib import Path
 
-from src.base.acquisition import Acquisition
-from src.base.coordinate import Coordinate
-from src.transformers.appodization import Appodize
-from src.transformers.correlation import Correlate
-from src.transformers.detrending import Detrend
-from src.transformers.filtering import Filter
-from src.transformers.loading import Load
-from src.transformers.normalization import Normalize
-from src.transformers.plotting import Plot
-from src.transformers.slicing import Slice
-from src.transformers.stacking import Stack
-from src.transformers.whitening import Whiten
+from src.sigproc.base.acquisition import Acquisition
+from src.sigproc.base.coordinate import Coordinate
+from src.sigproc.transformers.appodization import Appodize
+from src.sigproc.transformers.correlation import Correlate
+from src.sigproc.transformers.detrending import Detrend
+from src.sigproc.transformers.filtering import Filter
+from src.sigproc.transformers.loading import Load
+from src.sigproc.transformers.normalization import Normalize
+from src.sigproc.transformers.plotting import Plot
+from src.sigproc.transformers.slicing import Slice
+from src.sigproc.transformers.stacking import Stack
+from src.sigproc.transformers.whitening import Whiten
 
 data_dir = Path("//drtfaucon-1/DIN/SMCD/LSPM/Projets/FIND/data/_exemple_donnees_passif")
 file_paths = [
@@ -56,7 +56,7 @@ pipeline = (
     >> Detrend(method="constant")
     >> Filter(method="iir", fmin=2_000, fmax=8_000, order=4)
     >> Slice(segment_duration=0.003, segment_step=0.003)
-    >> Whiten(method="one_bit", fmin=2_000, fmax=8_000, taper_width_Hz=1_000)
+    >> Whiten(method="onebit_apod", fmin=2_000, fmax=8_000, taper_width_Hz=1_000)
     >> Normalize(method="onebit")
     >> Appodize(method="hanning", frac=0.1)
     >> Correlate(method="cross", virtual_source_index=0)

@@ -1,18 +1,20 @@
 from pathlib import Path
 
-from src.base.acquisition import Acquisition
-from src.base.coordinate import Coordinate
-from src.dataio.dispersion.loading import load_dispersion_curves
-from src.transformers.composites.double_correlation import BidirectionalCorrelate
-from src.transformers.detrending import Detrend
-from src.transformers.dispersion import Dispersion
-from src.transformers.loading import Load
-from src.transformers.mutting import Mute
-from src.transformers.padding import Pad
-from src.transformers.picking import Pick
-from src.transformers.plotting import Plot
-from src.transformers.saving import Save
-from src.transformers.stacking import Stack
+from src.sigproc.base.acquisition import Acquisition
+from src.sigproc.base.coordinate import Coordinate
+from src.sigproc.dataio.dispersion.loading import load_dispersion_curves
+from src.sigproc.transformers.composites.double_correlation import (
+    BidirectionalCorrelate,
+)
+from src.sigproc.transformers.detrending import Detrend
+from src.sigproc.transformers.dispersion import Dispersion
+from src.sigproc.transformers.loading import Load
+from src.sigproc.transformers.mutting import Mute
+from src.sigproc.transformers.padding import Pad
+from src.sigproc.transformers.picking import Pick
+from src.sigproc.transformers.plotting import Plot
+from src.sigproc.transformers.saving import Save
+from src.sigproc.transformers.stacking import Stack
 
 data_dir = Path(
     "//resinosa/PARTAGES_UNITES/DRT_CND/MATER-SHM_2026_BCH/data/20260529_essais_imagerie_invent/data_imagerie"
@@ -125,19 +127,21 @@ def run_pipeline(acquisitions, sources_to_load, receivers_to_load, folder_path):
         >> Detrend(method="constant")
         >> Mute(vmin=1_000, vmax=2_500, taper=25)
         >> BidirectionalCorrelate(method="cross")
-        >> Stack(method="phase_weighted", nu=0)
+        >> Stack(method="phase_weighted", nu=2)
+        >> Pick(method="maximum")
         >> Plot(folder_path=folder_path, normalize=True)
+        >> Save(folder_path=folder_path)
         >> Pad(n=1_000, taper=25)
         >> Dispersion(method="phase", fmin=0, fmax=2_000_000, vmin=0, vmax=7_000)
         >> Pick(
+            method="maximum",
             fmins=[20_000],
             fmaxs=[200_000],
             vmins=[0],
             vmaxs=[2_500],
             lbdmins=[0.0065],
             lbdmaxs=[0.1],
-            names=["A0"],
-            return_image=True,
+            labels=["A0"],
         )
         >> Plot(folder_path=folder_path, modeled_curves=modeled_curves)
         >> Save(folder_path=folder_path)
