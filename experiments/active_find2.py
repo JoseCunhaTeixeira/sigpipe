@@ -3,7 +3,6 @@ from pathlib import Path
 from src.base.acquisition import Acquisition
 from src.base.coordinate import Coordinate
 from src.dataio.dispersion.loading import load_dispersion_curves
-from src.transformers.composites.double_correlation import BidirectionalCorrelate
 from src.transformers.detrending import Detrend
 from src.transformers.dispersion import Dispersion
 from src.transformers.loading import Load
@@ -124,8 +123,8 @@ def run_pipeline(acquisitions, sources_to_load, receivers_to_load, folder_path):
         )
         >> Detrend(method="constant")
         >> Mute(vmin=1_000, vmax=2_500, taper=25)
-        >> BidirectionalCorrelate(method="cross")
-        >> Stack(method="phase_weighted", nu=0)
+        >> Stack(method="phase_weighted", nu=2)
+        >> Save(folder_path=folder_path)
         >> Plot(folder_path=folder_path, normalize=True)
         >> Pad(n=1_000, taper=25)
         >> Dispersion(method="phase", fmin=0, fmax=2_000_000, vmin=0, vmax=7_000)
@@ -154,47 +153,14 @@ def run() -> None:
 
     folder_paths = [
         folder / "1/",
-        folder / "2/",
-        folder / "3/",
-        folder / "4/",
-        folder / "5/",
-        folder / "6/",
-        folder / "7/",
-        folder / "8/",
-        folder / "9/",
-        folder / "10/",
-        folder / "11/",
-        folder / "12/",
     ]
 
     source_windows = [
-        [4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15],
-        [0, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15],
-        [0, 1, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15],
-        [0, 1, 2, 7, 8, 9, 10, 11, 12, 13, 14, 15],
-        [0, 1, 2, 3, 8, 9, 10, 11, 12, 13, 14, 15],
-        [0, 1, 2, 3, 4, 5, 10, 11, 12, 13, 14, 15],
-        [0, 1, 2, 3, 4, 5, 6, 11, 12, 13, 14, 15],
-        [0, 1, 2, 3, 4, 5, 6, 7, 12, 13, 14, 15],
-        [0, 1, 2, 3, 4, 5, 6, 7, 8, 13, 14, 15],
-        [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 14, 15],
-        [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 15],
-        [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11],
+        [0],
     ]
 
     receiver_windows = [
-        [0, 1, 2, 3, 4],
-        [1, 2, 3, 4, 5],
-        [2, 3, 4, 5, 6],
-        [3, 4, 5, 6, 7],
-        [4, 5, 6, 7, 8],
-        [5, 6, 7, 8, 9],
-        [6, 7, 8, 9, 10],
-        [7, 8, 9, 10, 11],
-        [8, 9, 10, 11, 12],
-        [9, 10, 11, 12, 13],
-        [10, 11, 12, 13, 14],
-        [11, 12, 13, 14, 15],
+        [16, 17, 18, 19, 20],
     ]
 
     for sources_to_load, receivers_to_load, folder_path in zip(
@@ -212,9 +178,3 @@ def run() -> None:
             receivers_to_load=receivers_to_load,
             folder_path=folder_path,
         )
-
-    # pipeline_section = Load(
-    #     file_paths=[folder / "disps.csv"],
-    #     data_type=DispersionCurves,
-    # ) >> PlotSection(folder_path=folder)
-    # pipeline_section.run()

@@ -1,6 +1,6 @@
 from typing import Callable
 
-from base.stream import Stream
+from src.base.stream import Stream
 
 from .onebit import whiten_onebit
 from .onebit_apod import whiten_onebit_apod

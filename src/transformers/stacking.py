@@ -1,12 +1,12 @@
 from collections.abc import Sequence
 from typing import TypeVar
 
-from base.dispersion import DispersionImage
-from base.stream import Stream
 from src.algorithms.stacking.registry import (
     DISPERSION_IMAGE_STACKING_METHODS,
     STREAM_STACKING_METHODS,
 )
+from src.base.dispersion import DispersionImage
+from src.base.stream import Stream
 from src.base.transformer import Transformer
 
 T = TypeVar(

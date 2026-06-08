@@ -5,7 +5,51 @@ import h5py
 import numpy as np
 
 from src.base.acquisition import UNKNOWN_ACQUISITION, Acquisition
+from src.base.coordinate import Coordinate, tuples_to_coordinates
 from src.base.stream import Stream
+
+
+def load_stream(
+    path: Path,
+    sort: bool = False,
+) -> Stream:
+    path = path.with_suffix(".hd5")
+
+    with h5py.File(path, "r") as file:
+        xt = np.asarray(
+            file["xt"][:],  # type: ignore
+            dtype=np.float32,
+        )
+
+        ts = np.asarray(
+            file["ts"][:],  # type: ignore
+            dtype=np.float32,
+        )
+
+        sampling_freq = float(file["sampling_freq"][()])  # type: ignore
+
+        source = tuple(file["source"][:])  # type: ignore
+        receivers = list(file["receivers"][:])  # type: ignore
+
+    acquisition = Acquisition(
+        source=Coordinate(*source),
+        receivers=tuples_to_coordinates(receivers),
+    )
+
+    if not acquisition.is_unknown and sort:
+        order = np.argsort(acquisition.offsets)
+        xt = xt[order]
+        acquisition = Acquisition(
+            source=acquisition.source,
+            receivers=tuple(acquisition.receivers[i] for i in order),
+        )
+
+    return Stream(
+        xt=xt,
+        ts=ts,
+        sampling_freq=sampling_freq,
+        acquisition=acquisition,
+    )
 
 
 def load_gero_passive(
@@ -15,6 +59,7 @@ def load_gero_passive(
     sampling_freq: float | None = None,
     acquisition: Acquisition = UNKNOWN_ACQUISITION,
     sort: bool = False,
+    receivers_to_load: Sequence[int] | None = None,
 ) -> Stream:
     if not path.exists():
         raise FileNotFoundError(path)
@@ -31,6 +76,18 @@ def load_gero_passive(
 
         if record.ndim != 2:
             raise ValueError("record must be 2D for passive workflow")
+
+        if receivers_to_load is not None:
+            if (
+                not isinstance(receivers_to_load, Sequence)
+                or isinstance(receivers_to_load, (str, bytes))
+                or not all(isinstance(x, int) for x in receivers_to_load)
+            ):
+                raise TypeError(
+                    "Expected Sequence[int | float] for receivers_to_load, "
+                    f"got {type(receivers_to_load).__name__}"
+                )
+            record = record[receivers_to_load, :]
 
         file_sampling_freq = f[key].attrs.get("fs")
         if file_sampling_freq is None:
@@ -58,6 +115,12 @@ def load_gero_passive(
             sampling_freq=sampling_freq,
         )
 
+    if record.shape[0] != len(acquisition.receivers):
+        raise ValueError(
+            "requires shot.shape[0] = number of receivers. "
+            f"Got {record.shape[0]} and {len(acquisition.receivers)}"
+        )
+
     if not acquisition.is_unknown and sort:
         order = np.argsort(acquisition.offsets)
         record = record[order]
@@ -82,7 +145,7 @@ def load_gero_active(
     acquisitions: Sequence[Acquisition],
     sort: bool = False,
     sources_to_load: Sequence[int] | None = None,
-    sensors_to_load: Sequence[int] | None = None,
+    receivers_to_load: Sequence[int] | None = None,
 ) -> list[Stream]:
     if not path.exists():
         raise FileNotFoundError(path)
@@ -113,17 +176,17 @@ def load_gero_active(
                 )
             shots = shots[sources_to_load, :, :]
 
-        if sensors_to_load is not None:
+        if receivers_to_load is not None:
             if (
-                not isinstance(sensors_to_load, Sequence)
-                or isinstance(sensors_to_load, (str, bytes))
-                or not all(isinstance(x, int) for x in sensors_to_load)
+                not isinstance(receivers_to_load, Sequence)
+                or isinstance(receivers_to_load, (str, bytes))
+                or not all(isinstance(x, int) for x in receivers_to_load)
             ):
                 raise TypeError(
-                    "Expected Sequence[int | float] for sensors_to_load, "
-                    f"got {type(sensors_to_load).__name__}"
+                    "Expected Sequence[int | float] for receivers_to_load, "
+                    f"got {type(receivers_to_load).__name__}"
                 )
-            shots = shots[:, sensors_to_load, :]
+            shots = shots[:, receivers_to_load, :]
 
         if shots.shape[0] != len(acquisitions):
             raise ValueError(

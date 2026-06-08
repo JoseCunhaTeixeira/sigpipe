@@ -1,9 +1,8 @@
 from typing import Callable
 
-from base.dispersion import DispersionImage
-
-from .ftan import dispersion_ftan
-from .phase_shift import dispersion_phase_shift
+from src.algorithms.dispersion.ftan import dispersion_ftan
+from src.algorithms.dispersion.phase_shift import dispersion_phase_shift
+from src.base.dispersion import DispersionImage
 
 DISPERSION_METHODS: dict[
     str, Callable[..., DispersionImage | list[DispersionImage]]

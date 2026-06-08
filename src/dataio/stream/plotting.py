@@ -43,7 +43,7 @@ def plot_stream(
     ax.set_ylim(ts[0], ts[-1])
     ax.set_xlim(-2, (nx - 1) * spacing + 2)
     ax.set_ylabel("Time [ms]")
-    ax.set_xlabel("Sensor [#]")
+    ax.set_xlabel("Receiver [#]")
     ax.xaxis.set_label_coords(0.5, 1.13)
     ax.invert_yaxis()
     fig.tight_layout()
