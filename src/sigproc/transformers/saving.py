@@ -16,9 +16,11 @@ class Save(Transformer):
     def __init__(
         self,
         folder_path: Path,
+        file_name: str = "",
         **params,
     ):
         self.folder_path = folder_path
+        self.file_name = file_name
         self.params = params
 
     def transform(self, data: Sequence[T]) -> Sequence[T]:
@@ -43,9 +45,14 @@ class Save(Transformer):
             raise TypeError(f"No save handler for {type(first).__name__}")
 
         for i, obj in enumerate(data):
+            file_name = (
+                f"{self.file_name}_{i:04d}"
+                if self.file_name
+                else f"{type(obj).__name__}_{i:04d}"
+            )
             handler(
                 obj,
-                path=self.folder_path / f"{type(obj).__name__}_{i:04d}",
+                path=self.folder_path / file_name,
                 **self.params,
             )
 

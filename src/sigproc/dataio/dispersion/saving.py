@@ -28,7 +28,8 @@ def save_dispersion_image(
         file.create_dataset("receivers", data=tuple(receivers))
         for key, value in kwargs.items():
             file.create_dataset(key, data=value)
-    save_dispersion_curves(dispersion_image.dispersion_curves, path=path)
+    if dispersion_image.dispersion_curves is not None:
+        save_dispersion_curves(dispersion_image.dispersion_curves, path=path)
 
 
 def save_dispersion_curves(

@@ -20,9 +20,11 @@ class Plot(Transformer):
     def __init__(
         self,
         folder_path: Path,
+        file_name: str = "",
         **params,
     ):
         self.folder_path = folder_path
+        self.file_name = file_name
         self.params = params
 
     def transform(self, data: Sequence[T]) -> Sequence[T]:
@@ -51,8 +53,13 @@ class Plot(Transformer):
                 obj,
                 **self.params,
             )
+            file_name = (
+                f"{self.file_name}_{i:04d}.png"
+                if self.file_name
+                else f"{type(obj).__name__}_{i:04d}.png"
+            )
             self.savefig(
-                path=self.folder_path / f"{type(obj).__name__}_{i:04d}.png",
+                path=self.folder_path / file_name,
                 figure=figure,
             )
             plt.close(figure)
