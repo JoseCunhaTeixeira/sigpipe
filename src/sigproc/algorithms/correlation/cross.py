@@ -3,8 +3,8 @@ from typing import Literal
 import numpy as np
 from scipy.signal import correlate
 
-from src.sigproc.base.acquisition import Acquisition
-from src.sigproc.base.stream import Stream
+from sigproc.base.acquisition import Acquisition
+from sigproc.base.stream import Stream
 
 
 def correlate_cross(

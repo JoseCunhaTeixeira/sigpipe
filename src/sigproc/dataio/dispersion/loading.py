@@ -5,12 +5,12 @@ import h5py
 import numpy as np
 import pandas as pd
 
-from src.sigproc.base.acquisition import UNKNOWN_ACQUISITION, Acquisition
-from src.sigproc.base.coordinate import (
+from sigproc.base.acquisition import UNKNOWN_ACQUISITION, Acquisition
+from sigproc.base.coordinate import (
     Coordinate,
     tuples_to_coordinates,
 )
-from src.sigproc.base.dispersion import (
+from sigproc.base.dispersion import (
     DispersionCurve,
     DispersionCurves,
     DispersionImage,

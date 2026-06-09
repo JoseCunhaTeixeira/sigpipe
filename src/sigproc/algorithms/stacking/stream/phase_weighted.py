@@ -2,7 +2,7 @@ import numpy as np
 from scipy.fft import next_fast_len
 from scipy.signal import hilbert
 
-from src.sigproc.base.stream import Stream
+from sigproc.base.stream import Stream
 
 
 def stack_phase_weighted(

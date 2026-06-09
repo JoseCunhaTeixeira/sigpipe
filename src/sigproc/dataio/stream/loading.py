@@ -4,9 +4,9 @@ from pathlib import Path
 import h5py
 import numpy as np
 
-from src.sigproc.base.acquisition import UNKNOWN_ACQUISITION, Acquisition
-from src.sigproc.base.coordinate import Coordinate, tuples_to_coordinates
-from src.sigproc.base.stream import Stream
+from sigproc.base.acquisition import UNKNOWN_ACQUISITION, Acquisition
+from sigproc.base.coordinate import Coordinate, tuples_to_coordinates
+from sigproc.base.stream import Stream
 
 
 def load_stream(

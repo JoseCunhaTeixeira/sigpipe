@@ -1,6 +1,6 @@
 from typing import Literal
 
-from src.sigproc.base.stream import Stream
+from sigproc.base.stream import Stream
 
 
 def flip(

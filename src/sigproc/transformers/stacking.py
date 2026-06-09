@@ -1,13 +1,13 @@
 from collections.abc import Sequence
 from typing import Literal, TypeVar
 
-from src.sigproc.algorithms.stacking.registry import (
+from sigproc.algorithms.stacking.registry import (
     DISPERSION_IMAGE_STACKING_METHODS,
     STREAM_STACKING_METHODS,
 )
-from src.sigproc.base.dispersion import DispersionImage
-from src.sigproc.base.stream import Stream
-from src.sigproc.base.transformer import Transformer
+from sigproc.base.dispersion import DispersionImage
+from sigproc.base.stream import Stream
+from sigproc.base.transformer import Transformer
 
 T = TypeVar(
     "T",

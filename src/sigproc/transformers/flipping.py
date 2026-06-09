@@ -1,8 +1,8 @@
 from collections.abc import Sequence
 
-from src.sigproc.algorithms.flipping.flipping import flip
-from src.sigproc.base.stream import Stream
-from src.sigproc.base.transformer import Transformer
+from sigproc.algorithms.flipping.flipping import flip
+from sigproc.base.stream import Stream
+from sigproc.base.transformer import Transformer
 
 
 class Flip(Transformer):

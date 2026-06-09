@@ -1,6 +1,6 @@
 from scipy.signal import detrend
 
-from src.sigproc.base.stream import Stream
+from sigproc.base.stream import Stream
 
 
 def detrend_linear(stream: Stream) -> Stream:

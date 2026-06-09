@@ -1,7 +1,7 @@
 import numpy as np
 from scipy.signal.windows import hann
 
-from src.sigproc.base.stream import Stream
+from sigproc.base.stream import Stream
 
 
 def appodize_hanning(

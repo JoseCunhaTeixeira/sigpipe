@@ -4,7 +4,7 @@ from abc import ABC, abstractmethod
 from collections.abc import Sequence
 from typing import Generic, TypeVar, Union
 
-from src.sigproc.base.pipeline import Pipeline
+from sigproc.base.pipeline import Pipeline
 
 InputT = TypeVar("InputT")
 OutputT = TypeVar("OutputT")

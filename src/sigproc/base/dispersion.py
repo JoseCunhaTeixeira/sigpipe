@@ -2,7 +2,7 @@ from dataclasses import dataclass
 
 import numpy as np
 
-from src.sigproc.base.acquisition import Acquisition
+from sigproc.base.acquisition import Acquisition
 
 
 @dataclass(slots=True, frozen=True)

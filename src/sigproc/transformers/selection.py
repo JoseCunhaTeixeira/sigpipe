@@ -2,9 +2,9 @@ from collections.abc import Sequence
 from typing import TypeVar
 
 from sigproc.base.arrivals import TraceArrivals
-from src.sigproc.base.dispersion import DispersionCurves, DispersionImage
-from src.sigproc.base.stream import Stream
-from src.sigproc.base.transformer import Transformer
+from sigproc.base.dispersion import DispersionCurves, DispersionImage
+from sigproc.base.stream import Stream
+from sigproc.base.transformer import Transformer
 
 T = TypeVar(
     "T",

@@ -2,8 +2,8 @@ import matplotlib.pyplot as plt
 import numpy as np
 from matplotlib.figure import Figure
 
-from src.sigproc.base.stream import Stream
-from src.sigproc.dataio.plot_config import CM, DISP_DPI, HEIGHT_CM, SINGLE_COLUMN_CM
+from sigproc.base.stream import Stream
+from sigproc.dataio.plot_config import CM, DISP_DPI, HEIGHT_CM, SINGLE_COLUMN_CM
 
 
 def plot_stream(
@@ -28,7 +28,7 @@ def plot_stream(
             ts,
             y_position,
             y_position + trace,
-            where=(trace > 0),
+            where=(trace > 1e-6),
             color="black",
         )
         if i_trace % 5 == 0:

@@ -1,10 +1,10 @@
 from collections.abc import Sequence
 from typing import Literal
 
-from src.sigproc.base.stream import Stream
-from src.sigproc.base.transformer import Transformer
-from src.sigproc.transformers.correlation import Correlate
-from src.sigproc.transformers.flipping import Flip
+from sigproc.base.stream import Stream
+from sigproc.base.transformer import Transformer
+from sigproc.transformers.correlation import Correlate
+from sigproc.transformers.flipping import Flip
 
 
 class BidirectionalCorrelate(Transformer[Stream, Stream]):

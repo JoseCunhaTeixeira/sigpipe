@@ -1,10 +1,10 @@
 import numpy as np
 import torch
 
-from src.sigproc.base.beamforming import Beam
-from src.sigproc.base.coordinate import coordinates_to_tuples
-from src.sigproc.base.dispersion import DispersionCurve
-from src.sigproc.base.stream import Stream
+from sigproc.base.beamforming import Beam
+from sigproc.base.coordinate import coordinates_to_tuples
+from sigproc.base.dispersion import DispersionCurve
+from sigproc.base.stream import Stream
 
 
 def beamform_cross(

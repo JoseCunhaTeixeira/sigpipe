@@ -1,7 +1,7 @@
 import numpy as np
 from scipy.signal import medfilt, savgol_filter
 
-from src.sigproc.base.dispersion import (
+from sigproc.base.dispersion import (
     DispersionCurve,
     DispersionCurves,
     DispersionImage,

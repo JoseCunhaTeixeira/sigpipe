@@ -2,7 +2,7 @@ from dataclasses import dataclass, field
 
 import numpy as np
 
-from src.sigproc.base.coordinate import Coordinate
+from sigproc.base.coordinate import Coordinate
 
 
 @dataclass(slots=True, frozen=True)

@@ -2,28 +2,28 @@ from typing import Callable
 
 from matplotlib.figure import Figure
 
-from src.sigproc.base.dispersion import DispersionCurves, DispersionImage
-from src.sigproc.base.stream import Stream
-from src.sigproc.dataio.dispersion.loading import (
+from sigproc.base.dispersion import DispersionCurves, DispersionImage
+from sigproc.base.stream import Stream
+from sigproc.dataio.dispersion.loading import (
     load_dispersion_curves,
     load_dispersion_image,
 )
-from src.sigproc.dataio.dispersion.plotting import (
+from sigproc.dataio.dispersion.plotting import (
     plot_dispersion_curves,
     plot_dispersion_image,
 )
-from src.sigproc.dataio.dispersion.saving import (
+from sigproc.dataio.dispersion.saving import (
     save_dispersion_curves,
     save_dispersion_image,
 )
-from src.sigproc.dataio.dispersion.section import plot_dispersion_curve_section
-from src.sigproc.dataio.stream.loading import (
+from sigproc.dataio.dispersion.section import plot_dispersion_curve_section
+from sigproc.dataio.stream.loading import (
     load_gero_active,
     load_gero_passive,
     load_stream,
 )
-from src.sigproc.dataio.stream.plotting import plot_stream
-from src.sigproc.dataio.stream.saving import save_stream
+from sigproc.dataio.stream.plotting import plot_stream
+from sigproc.dataio.stream.saving import save_stream
 
 SAVE_HANDLERS: dict[type, Callable[..., None]] = {
     DispersionImage: save_dispersion_image,

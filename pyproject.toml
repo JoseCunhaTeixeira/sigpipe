@@ -13,8 +13,15 @@ dependencies = [
     "torch",
 ]
 
-[tool.ruff]
-target-version = "py314"
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.package-dir]
+"" = "src"
 
 [tool.setuptools.packages.find]
 where = ["src"]
+
+[tool.ruff]
+target-version = "py314"

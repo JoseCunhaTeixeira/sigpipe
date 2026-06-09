@@ -1,6 +1,6 @@
 from typing import Callable
 
-from src.sigproc.base.stream import Stream
+from sigproc.base.stream import Stream
 
 from .onebit import whiten_onebit
 from .onebit_apod import whiten_onebit_apod

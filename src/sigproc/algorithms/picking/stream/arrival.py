@@ -3,8 +3,8 @@ from collections.abc import Sequence
 import numpy as np
 from scipy.signal import hilbert
 
-from src.sigproc.base.arrivals import Arrival, TraceArrivals
-from src.sigproc.base.stream import Stream
+from sigproc.base.arrivals import Arrival, TraceArrivals
+from sigproc.base.stream import Stream
 
 
 def pick_arrivals(
@@ -51,7 +51,7 @@ def pick_arrivals(
 
         i_peak = np.argmax(envelope)
 
-        time = ts_window[i_peak]
+        time = np.round(ts_window[i_peak], decimals=6)
 
         # Original trace amplitude at the picked time
         amplitude = trace_window[i_peak]

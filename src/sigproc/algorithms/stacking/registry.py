@@ -1,7 +1,7 @@
 from typing import Callable
 
-from src.sigproc.base.dispersion import DispersionImage
-from src.sigproc.base.stream import Stream
+from sigproc.base.dispersion import DispersionImage
+from sigproc.base.stream import Stream
 
 from .dispersion.linear import stack_linear as ls_dispersion_image
 from .stream.linear import stack_linear as ls_stream

@@ -1,8 +1,8 @@
 from collections.abc import Sequence
 
-from src.sigproc.algorithms.mutting.mutting import mute
-from src.sigproc.base.stream import Stream
-from src.sigproc.base.transformer import Transformer
+from sigproc.algorithms.mutting.mutting import mute
+from sigproc.base.stream import Stream
+from sigproc.base.transformer import Transformer
 
 
 class Mute(Transformer):

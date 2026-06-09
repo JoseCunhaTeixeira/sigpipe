@@ -2,8 +2,8 @@ from collections.abc import Sequence
 from pathlib import Path
 from typing import TypeVar
 
-from src.sigproc.base.transformer import Transformer
-from src.sigproc.dataio.registry import SAVE_HANDLERS
+from sigproc.base.transformer import Transformer
+from sigproc.dataio.registry import SAVE_HANDLERS
 
 T = TypeVar("T")
 

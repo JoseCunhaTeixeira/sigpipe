@@ -2,10 +2,10 @@ from pathlib import Path
 
 import h5py
 
-from src.sigproc.base.coordinate import (
+from sigproc.base.coordinate import (
     coordinates_to_tuples,
 )
-from src.sigproc.base.dispersion import DispersionCurves, DispersionImage
+from sigproc.base.dispersion import DispersionCurves, DispersionImage
 
 
 def save_dispersion_image(

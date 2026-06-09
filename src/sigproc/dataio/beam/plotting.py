@@ -2,9 +2,9 @@ import matplotlib.pyplot as plt
 import numpy as np
 from matplotlib.figure import Figure
 
-from src.sigproc.base.beamforming import Beam
-from src.sigproc.base.coordinate import coordinates_to_tuples
-from src.sigproc.dataio.plot_config import CM, DISP_DPI, HEIGHT_CM, SINGLE_COLUMN_CM
+from sigproc.base.beamforming import Beam
+from sigproc.base.coordinate import coordinates_to_tuples
+from sigproc.dataio.plot_config import CM, DISP_DPI, HEIGHT_CM, SINGLE_COLUMN_CM
 
 
 def plot_beamforming(

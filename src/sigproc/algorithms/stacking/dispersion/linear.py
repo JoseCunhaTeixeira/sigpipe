@@ -1,6 +1,6 @@
 import numpy as np
 
-from src.sigproc.base.dispersion import DispersionImage
+from sigproc.base.dispersion import DispersionImage
 
 
 def stack_linear(

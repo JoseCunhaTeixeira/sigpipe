@@ -1,17 +1,17 @@
 from pathlib import Path
 
-from src.sigproc.base.acquisition import Acquisition
-from src.sigproc.base.coordinate import Coordinate
-from src.sigproc.transformers.appodization import Appodize
-from src.sigproc.transformers.correlation import Correlate
-from src.sigproc.transformers.detrending import Detrend
-from src.sigproc.transformers.filtering import Filter
-from src.sigproc.transformers.loading import Load
-from src.sigproc.transformers.normalization import Normalize
-from src.sigproc.transformers.plotting import Plot
-from src.sigproc.transformers.slicing import Slice
-from src.sigproc.transformers.stacking import Stack
-from src.sigproc.transformers.whitening import Whiten
+from sigproc.base.acquisition import Acquisition
+from sigproc.base.coordinate import Coordinate
+from sigproc.transformers.appodization import Appodize
+from sigproc.transformers.correlation import Correlate
+from sigproc.transformers.detrending import Detrend
+from sigproc.transformers.filtering import Filter
+from sigproc.transformers.loading import Load
+from sigproc.transformers.normalization import Normalize
+from sigproc.transformers.plotting import Plot
+from sigproc.transformers.slicing import Slice
+from sigproc.transformers.stacking import Stack
+from sigproc.transformers.whitening import Whiten
 
 data_dir = Path("//drtfaucon-1/DIN/SMCD/LSPM/Projets/FIND/data/_exemple_donnees_passif")
 file_paths = [

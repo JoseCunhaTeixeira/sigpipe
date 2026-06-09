@@ -1,6 +1,6 @@
 from scipy.signal import butter, sosfiltfilt
 
-from src.sigproc.base.stream import Stream
+from sigproc.base.stream import Stream
 
 
 def filter_iir(

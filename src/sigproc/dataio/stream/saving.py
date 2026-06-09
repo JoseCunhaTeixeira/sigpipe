@@ -2,8 +2,8 @@ from pathlib import Path
 
 import h5py
 
-from src.sigproc.base.coordinate import coordinates_to_tuples
-from src.sigproc.base.stream import Stream
+from sigproc.base.coordinate import coordinates_to_tuples
+from sigproc.base.stream import Stream
 
 
 def save_stream(

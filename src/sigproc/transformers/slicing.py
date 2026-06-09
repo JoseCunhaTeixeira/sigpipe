@@ -2,9 +2,9 @@ from collections.abc import Sequence
 
 import numpy as np
 
-from src.sigproc.algorithms.segmentation.slice import segment_slice
-from src.sigproc.base.stream import Stream
-from src.sigproc.base.transformer import Transformer
+from sigproc.algorithms.segmentation.slice import segment_slice
+from sigproc.base.stream import Stream
+from sigproc.base.transformer import Transformer
 
 
 class Slice(Transformer):

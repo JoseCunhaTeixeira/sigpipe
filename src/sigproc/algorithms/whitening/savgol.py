@@ -2,7 +2,7 @@ import numpy as np
 from scipy.fft import fft, ifft
 from scipy.signal import savgol_filter
 
-from src.sigproc.base.stream import Stream
+from sigproc.base.stream import Stream
 
 
 def whiten_savgol(

@@ -1,7 +1,7 @@
 import numpy as np
 from scipy.signal import istft, savgol_filter, stft
 
-from src.sigproc.base.stream import Stream
+from sigproc.base.stream import Stream
 
 
 def whiten_stft_savgol(

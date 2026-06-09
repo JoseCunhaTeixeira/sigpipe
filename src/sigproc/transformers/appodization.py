@@ -1,9 +1,9 @@
 from collections.abc import Sequence
 from typing import Literal
 
-from src.sigproc.algorithms.appodization.registry import APPODIZATION_METHODS
-from src.sigproc.base.stream import Stream
-from src.sigproc.base.transformer import Transformer
+from sigproc.algorithms.appodization.registry import APPODIZATION_METHODS
+from sigproc.base.stream import Stream
+from sigproc.base.transformer import Transformer
 
 
 class Appodize(Transformer):

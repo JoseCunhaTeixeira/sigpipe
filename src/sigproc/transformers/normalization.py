@@ -1,9 +1,9 @@
 from collections.abc import Sequence
 from typing import Literal
 
-from src.sigproc.algorithms.normalization.registry import NORMALIZATION_METHODS
-from src.sigproc.base.stream import Stream
-from src.sigproc.base.transformer import Transformer
+from sigproc.algorithms.normalization.registry import NORMALIZATION_METHODS
+from sigproc.base.stream import Stream
+from sigproc.base.transformer import Transformer
 
 
 class Normalize(Transformer):

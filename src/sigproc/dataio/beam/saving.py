@@ -2,8 +2,8 @@ from pathlib import Path
 
 import h5py
 
-from src.sigproc.base.beamforming import Beam
-from src.sigproc.base.coordinate import (
+from sigproc.base.beamforming import Beam
+from sigproc.base.coordinate import (
     coordinates_to_tuples,
 )
 

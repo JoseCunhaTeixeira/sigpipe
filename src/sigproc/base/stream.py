@@ -2,8 +2,8 @@ from dataclasses import dataclass
 
 import numpy as np
 
-from src.sigproc.base.acquisition import Acquisition
-from src.sigproc.base.arrivals import TraceArrivals
+from sigproc.base.acquisition import Acquisition
+from sigproc.base.arrivals import TraceArrivals
 
 
 @dataclass(slots=True, frozen=True)

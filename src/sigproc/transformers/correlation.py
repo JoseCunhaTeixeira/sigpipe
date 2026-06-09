@@ -1,11 +1,11 @@
 from collections.abc import Sequence
 from typing import Literal
 
-from src.sigproc.algorithms.correlation.registry import (
+from sigproc.algorithms.correlation.registry import (
     CORRELATION_METHODS,
 )
-from src.sigproc.base.stream import Stream
-from src.sigproc.base.transformer import Transformer
+from sigproc.base.stream import Stream
+from sigproc.base.transformer import Transformer
 
 
 class Correlate(Transformer):

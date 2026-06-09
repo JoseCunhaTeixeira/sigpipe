@@ -5,9 +5,9 @@ from typing import TypeVar
 from matplotlib import pyplot as plt
 from matplotlib.figure import Figure
 
-from src.sigproc.base.transformer import Transformer
-from src.sigproc.dataio.plot_config import SAVING_DPI
-from src.sigproc.dataio.registry import PLOT_HANDLERS
+from sigproc.base.transformer import Transformer
+from sigproc.dataio.plot_config import SAVING_DPI
+from sigproc.dataio.registry import PLOT_HANDLERS
 
 T = TypeVar("T")
 

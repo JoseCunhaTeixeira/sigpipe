@@ -1,6 +1,6 @@
 from typing import Callable
 
-from src.sigproc.base.beamforming import Beam
+from sigproc.base.beamforming import Beam
 
 from .cross import beamform_cross
 

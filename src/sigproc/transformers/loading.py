@@ -1,8 +1,8 @@
 from collections.abc import Sequence
 from pathlib import Path
 
-from src.sigproc.base.transformer import Transformer
-from src.sigproc.dataio.registry import LOAD_HANDLERS
+from sigproc.base.transformer import Transformer
+from sigproc.dataio.registry import LOAD_HANDLERS
 
 
 class Load(Transformer):

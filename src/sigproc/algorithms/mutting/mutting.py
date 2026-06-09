@@ -1,6 +1,6 @@
 import numpy as np
 
-from src.sigproc.base.stream import Stream
+from sigproc.base.stream import Stream
 
 
 def _cosine_taper(n: int) -> np.ndarray:

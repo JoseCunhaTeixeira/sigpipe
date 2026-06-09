@@ -1,8 +1,8 @@
 import numpy as np
 from scipy.fft import rfft, rfftfreq
 
-from src.sigproc.base.dispersion import DispersionImage
-from src.sigproc.base.stream import Stream
+from sigproc.base.dispersion import DispersionImage
+from sigproc.base.stream import Stream
 
 
 def dispersion_phase_shift(

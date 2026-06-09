@@ -3,9 +3,9 @@ from pathlib import Path
 import h5py
 import numpy as np
 
-from src.sigproc.base.acquisition import Acquisition
-from src.sigproc.base.beamforming import Beam
-from src.sigproc.base.coordinate import Coordinate, tuples_to_coordinates
+from sigproc.base.acquisition import Acquisition
+from sigproc.base.beamforming import Beam
+from sigproc.base.coordinate import Coordinate, tuples_to_coordinates
 
 
 def load_beam(

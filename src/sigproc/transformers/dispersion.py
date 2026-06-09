@@ -1,10 +1,10 @@
 from collections.abc import Sequence
 from typing import Literal
 
-from src.sigproc.algorithms.dispersion.registry import DISPERSION_METHODS
-from src.sigproc.base.dispersion import DispersionImage
-from src.sigproc.base.stream import Stream
-from src.sigproc.base.transformer import Transformer
+from sigproc.algorithms.dispersion.registry import DISPERSION_METHODS
+from sigproc.base.dispersion import DispersionImage
+from sigproc.base.stream import Stream
+from sigproc.base.transformer import Transformer
 
 
 class Dispersion(Transformer):
