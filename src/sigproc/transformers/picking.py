@@ -29,7 +29,7 @@ class Pick(Transformer):
         self.method = method
         self.params = params
 
-    def transform(self, data: Sequence[T]) -> Sequence[T]:
+    def transform(self, data: Sequence[T]) -> list[T]:
 
         if not isinstance(data, Sequence) or isinstance(data, (str, bytes)):
             raise TypeError(f"Expected Sequence, got {type(data).__name__}")

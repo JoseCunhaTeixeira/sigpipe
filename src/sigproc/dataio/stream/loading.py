@@ -66,13 +66,16 @@ def load_gero_passive(
     with h5py.File(path, "r") as f:
         if key not in f:
             raise ValueError(
-                "Missing dataset '{key}'. "
+                f"Missing dataset '{key}'. "
                 f"Available objects: {[key for key in f.keys()]}"
             )
         record = np.array(
             f[key][:],  # type: ignore
             dtype=np.float32,
         )
+
+        if record.ndim == 3 and record.shape[0] == 1:
+            record = np.squeeze(record, axis=0)
 
         if record.ndim != 2:
             raise ValueError("record must be 2D for passive workflow")
@@ -153,7 +156,7 @@ def load_gero_active(
     with h5py.File(path, "r") as f:
         if key not in f:
             raise ValueError(
-                "Missing dataset '{key}'. "
+                f"Missing dataset '{key}'. "
                 f"Available objects: {[key for key in f.keys()]}"
             )
         shots = np.array(

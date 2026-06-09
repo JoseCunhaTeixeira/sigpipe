@@ -152,23 +152,23 @@ def run_pipeline(acquisitions, sources_to_load, receivers_to_load, folder_path):
 
 def run() -> None:
 
-    folder = Path(
+    saving_dir = Path(
         "/Users/JC287771/Documents/Work/data/2026-05-29_essai_imagerie_invent/results"
     )
 
-    folder_paths = [
-        folder / "1/",
-        folder / "2/",
-        folder / "3/",
-        folder / "4/",
-        folder / "5/",
-        folder / "6/",
-        folder / "7/",
-        folder / "8/",
-        folder / "9/",
-        folder / "10/",
-        folder / "11/",
-        folder / "12/",
+    saving_dirs = [
+        saving_dir / "1/",
+        saving_dir / "2/",
+        saving_dir / "3/",
+        saving_dir / "4/",
+        saving_dir / "5/",
+        saving_dir / "6/",
+        saving_dir / "7/",
+        saving_dir / "8/",
+        saving_dir / "9/",
+        saving_dir / "10/",
+        saving_dir / "11/",
+        saving_dir / "12/",
     ]
 
     source_windows = [
@@ -202,7 +202,7 @@ def run() -> None:
     ]
 
     for sources_to_load, receivers_to_load, folder_path in zip(
-        source_windows, receiver_windows, folder_paths
+        source_windows, receiver_windows, saving_dirs
     ):
         sources = tuple(SOURCES[i] for i in sources_to_load)
         receivers = tuple(RECEIVERS[i] for i in receivers_to_load)
@@ -218,7 +218,7 @@ def run() -> None:
         )
 
     # pipeline_section = Load(
-    #     file_paths=[folder / "disps.csv"],
+    #     file_paths=[saving_dir / "disps.csv"],
     #     data_type=DispersionCurves,
-    # ) >> PlotSection(folder_path=folder)
+    # ) >> PlotSection(folder_path=saving_dir)
     # pipeline_section.run()

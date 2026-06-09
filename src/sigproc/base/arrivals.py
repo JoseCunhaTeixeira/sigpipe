@@ -6,6 +6,7 @@ class Arrival:
     label: str
     time: float
     amplitude: float
+    residual_phase: float | None = None
 
 
 @dataclass(frozen=True)

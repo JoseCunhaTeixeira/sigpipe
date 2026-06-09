@@ -1,7 +1,6 @@
 from collections.abc import Sequence
 
 import numpy as np
-from scipy.signal import hilbert
 
 from sigproc.base.arrivals import Arrival, TraceArrivals
 from sigproc.base.stream import Stream
@@ -18,13 +17,15 @@ def pick_arrivals(
     if traces_to_pick is None:
         traces_to_pick = range(stream.nx)
 
+    n = len(traces_to_pick)
+
     if tmins is None:
-        tmins = [stream.ts[0]] * len(traces_to_pick)
+        tmins = [float(stream.ts[0])] * n
 
     if tmaxs is None:
-        tmaxs = [stream.ts[-1]] * len(traces_to_pick)
+        tmaxs = [float(stream.ts[-1])] * n
 
-    if not (len(traces_to_pick) == len(tmins) == len(tmaxs)):
+    if not (n == len(tmins) == len(tmaxs)):
         raise ValueError("traces_to_pick, tmins and tmaxs must have the same length")
 
     arrivals = list(stream.arrivals or (TraceArrivals(),) * stream.nx)
@@ -35,26 +36,16 @@ def pick_arrivals(
         tmaxs,
         strict=True,
     ):
-        trace = stream.xt[trace_idx]
+        i0 = np.searchsorted(stream.ts, tmin, side="left")
+        i1 = np.searchsorted(stream.ts, tmax, side="right")
 
-        mask = (stream.ts >= tmin) & (stream.ts <= tmax)
-
-        if not np.any(mask):
+        if i0 >= i1:
             raise ValueError(
                 f"Empty picking window for trace {trace_idx}: tmin={tmin}, tmax={tmax}"
             )
 
-        trace_window = trace[mask]
-        ts_window = stream.ts[mask]
-
-        envelope = np.abs(np.array(hilbert(trace_window)))
-
-        i_peak = np.argmax(envelope)
-
-        time = np.round(ts_window[i_peak], decimals=6)
-
-        # Original trace amplitude at the picked time
-        amplitude = trace_window[i_peak]
+        local_peak = np.argmax(stream.xt_envelope[trace_idx, i0:i1])
+        k = i0 + local_peak
 
         old = arrivals[trace_idx]
 
@@ -63,8 +54,8 @@ def pick_arrivals(
                 *old.arrivals,
                 Arrival(
                     label=label,
-                    time=float(time),
-                    amplitude=float(amplitude),
+                    time=float(stream.ts[k]),
+                    amplitude=float(stream.xt[trace_idx, k]),
                 ),
             )
         )

@@ -12,10 +12,15 @@ class Load(Transformer):
 
     def __init__(
         self,
-        file_paths: list[Path],
+        file_paths: Sequence[Path],
         data_type: type | str,
         **params,
     ):
+        if not isinstance(file_paths, Sequence) or isinstance(file_paths, (str, bytes)):
+            raise TypeError(
+                f"Expected Sequence for file_paths, got {type(file_paths).__name__}"
+            )
+
         self.file_paths = file_paths
         self.data_type = data_type
         self.params = params

@@ -1,16 +1,9 @@
 from collections.abc import Sequence
-from typing import TypeVar
 
 from sigproc.base.arrivals import TraceArrivals
 from sigproc.base.dispersion import DispersionCurves, DispersionImage
 from sigproc.base.stream import Stream
 from sigproc.base.transformer import Transformer
-
-T = TypeVar(
-    "T",
-    Stream,
-    DispersionImage,
-)
 
 
 class SelectDispersionCurves(Transformer):
@@ -18,7 +11,7 @@ class SelectDispersionCurves(Transformer):
     Dispersion curves Selection from Dispersion images transformer.
     """
 
-    def transform(self, data: Sequence[DispersionImage]) -> Sequence[DispersionCurves]:
+    def transform(self, data: Sequence[DispersionImage]) -> list[DispersionCurves]:
 
         if not isinstance(data, Sequence) or isinstance(data, (str, bytes)):
             raise TypeError(f"Expected Sequence, got {type(data).__name__}")
@@ -41,7 +34,7 @@ class SelectArrivals(Transformer):
     Arrivals selection from Streams transformer.
     """
 
-    def transform(self, data: Sequence[Stream]) -> Sequence[tuple[TraceArrivals, ...]]:
+    def transform(self, data: Sequence[Stream]) -> list[tuple[TraceArrivals, ...]]:
 
         if not isinstance(data, Sequence) or isinstance(data, (str, bytes)):
             raise TypeError(f"Expected Sequence, got {type(data).__name__}")

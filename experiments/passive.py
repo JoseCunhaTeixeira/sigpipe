@@ -13,45 +13,64 @@ from sigproc.transformers.slicing import Slice
 from sigproc.transformers.stacking import Stack
 from sigproc.transformers.whitening import Whiten
 
-data_dir = Path("//drtfaucon-1/DIN/SMCD/LSPM/Projets/FIND/data/_exemple_donnees_passif")
+data_dir = Path("//drtvini/Echange/JCU/exemple donnees passives/data_passif_sain")
 file_paths = [
-    data_dir / "20250311101311_passive_rep0.hdf5",
-    data_dir / "20250311101318_passive_rep1.hdf5",
-    data_dir / "20250311101324_passive_rep2.hdf5",
-    data_dir / "20250311101330_passive_rep3.hdf5",
-    data_dir / "20250311101336_passive_rep4.hdf5",
-    data_dir / "20250311101342_passive_rep5.hdf5",
-    data_dir / "20250311101348_passive_rep6.hdf5",
-    data_dir / "20250311101354_passive_rep7.hdf5",
-    data_dir / "20250311101400_passive_rep8.hdf5",
-    data_dir / "20250311101406_passive_rep9.hdf5",
+    data_dir / "20250328_162747_1_1.gero",
+    data_dir / "20250328_162751_1_2.gero",
+    data_dir / "20250328_162756_1_3.gero",
+    data_dir / "20250328_162800_1_4.gero",
+    data_dir / "20250328_162804_1_5.gero",
 ]
 
 saving_dir = Path(
-    "/Users/JC287771/Documents/Work/data/2026-05-29_essai_imagerie_invent/results"
+    "/Users/JC287771/Documents/Work/data/2026-05-09_passive_tests/results"
 )
 
 source = Coordinate(x=0, y=0, z=0)
 receivers = (
-    Coordinate(x=0.110, y=0, z=0),
-    Coordinate(x=1.805, y=0, z=0),
-    Coordinate(x=0.450, y=0, z=0),
-    Coordinate(x=1.855, y=0, z=0),
-    Coordinate(x=0.905, y=0, z=0),
-    Coordinate(x=2.385, y=0, z=0),
-    Coordinate(x=1.405, y=0, z=0),
-    Coordinate(x=2.865, y=0, z=0),
+    Coordinate(x=1, y=0, z=0),
+    Coordinate(x=2, y=0, z=0),
+    Coordinate(x=3, y=0, z=0),
+    Coordinate(x=4, y=0, z=0),
+    Coordinate(x=5, y=0, z=0),
+    Coordinate(x=6, y=0, z=0),
+    Coordinate(x=7, y=0, z=0),
+    Coordinate(x=8, y=0, z=0),
+    Coordinate(x=9, y=0, z=0),
+    Coordinate(x=10, y=0, z=0),
+    Coordinate(x=11, y=0, z=0),
+    Coordinate(x=12, y=0, z=0),
+    Coordinate(x=13, y=0, z=0),
+    Coordinate(x=14, y=0, z=0),
 )
+receivers_to_load = [
+    ### PZT
+    # 0,
+    # 1,
+    # 2,
+    # 3,
+    # 4,
+    # 5,
+    # 6,
+    ### FIBER
+    7,
+    8,
+    9,
+    10,
+    11,
+    12,
+    13,
+]
+receivers = tuple(receivers[i] for i in receivers_to_load)
 acquisition = Acquisition(source=source, receivers=receivers)
 
 pipeline = (
     Load(
         file_paths=file_paths,
         data_type="gero_passive",
-        sampling_freq=2_000_000,
         acquisition=acquisition,
-        key="signals",
         sort=True,
+        receivers_to_load=receivers_to_load,
     )
     >> Detrend(method="constant")
     >> Filter(method="iir", fmin=2_000, fmax=8_000, order=4)
