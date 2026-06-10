@@ -28,38 +28,40 @@ saving_dir = Path(
 
 source = Coordinate(x=0, y=0, z=0)
 receivers = (
+    ### PZT
+    Coordinate(x=0, y=0, z=0),
     Coordinate(x=1, y=0, z=0),
     Coordinate(x=2, y=0, z=0),
     Coordinate(x=3, y=0, z=0),
-    Coordinate(x=4, y=0, z=0),
-    Coordinate(x=5, y=0, z=0),
-    Coordinate(x=6, y=0, z=0),
-    Coordinate(x=7, y=0, z=0),
-    Coordinate(x=8, y=0, z=0),
-    Coordinate(x=9, y=0, z=0),
-    Coordinate(x=10, y=0, z=0),
-    Coordinate(x=11, y=0, z=0),
-    Coordinate(x=12, y=0, z=0),
-    Coordinate(x=13, y=0, z=0),
-    Coordinate(x=14, y=0, z=0),
+    Coordinate(x=-3, y=0, z=0),
+    Coordinate(x=-2, y=0, z=0),
+    Coordinate(x=-1, y=0, z=0),
+    ### FIBER
+    Coordinate(x=0, y=0, z=0),
+    Coordinate(x=1, y=0, z=0),
+    Coordinate(x=2, y=0, z=0),
+    Coordinate(x=3, y=0, z=0),
+    Coordinate(x=-3, y=0, z=0),
+    Coordinate(x=-2, y=0, z=0),
+    Coordinate(x=-1, y=0, z=0),
 )
 receivers_to_load = [
     ### PZT
-    # 0,
-    # 1,
-    # 2,
-    # 3,
-    # 4,
-    # 5,
-    # 6,
+    0,
+    1,
+    2,
+    3,
+    4,
+    5,
+    6,
     ### FIBER
-    7,
-    8,
-    9,
-    10,
-    11,
-    12,
-    13,
+    # 7,
+    # 8,
+    # 9,
+    # 10,
+    # 11,
+    # 12,
+    # 13,
 ]
 receivers = tuple(receivers[i] for i in receivers_to_load)
 acquisition = Acquisition(source=source, receivers=receivers)
@@ -73,9 +75,10 @@ pipeline = (
         receivers_to_load=receivers_to_load,
     )
     >> Detrend(method="constant")
-    >> Filter(method="iir", fmin=2_000, fmax=8_000, order=4)
-    >> Slice(segment_duration=0.003, segment_step=0.003)
-    >> Whiten(method="onebit_apod", fmin=2_000, fmax=8_000, taper_width_Hz=1_000)
+    >> Detrend(method="linear")
+    >> Filter(method="iir", fmin=10_000, fmax=20_000, order=4)
+    >> Slice(segment_duration=0.002, segment_step=0.002)
+    >> Whiten(method="onebit_apod", fmin=10_000, fmax=20_000, taper_width_Hz=1_000)
     >> Normalize(method="onebit")
     >> Appodize(method="hanning", frac=0.1)
     >> Correlate(method="cross", virtual_source_index=0)

@@ -55,7 +55,7 @@ def pick_arrivals(
                 Arrival(
                     label=label,
                     time=float(stream.ts[k]),
-                    amplitude=float(stream.xt[trace_idx, k]),
+                    amplitude=float(stream.xt_envelope[trace_idx, k]),
                 ),
             )
         )

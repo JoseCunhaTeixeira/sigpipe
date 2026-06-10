@@ -43,21 +43,21 @@ modeled_curves = load_dispersion_curves(
 SOURCES = (
     # 1st ring
     Coordinate(x=0.000, y=0.000, z=0),  # 00
-    Coordinate(x=0.012, y=0.000, z=0),  # 01
-    Coordinate(x=0.024, y=0.000, z=0),  # 02
-    Coordinate(x=0.036, y=0.000, z=0),  # 03
-    Coordinate(x=0.048, y=0.000, z=0),  # 04
-    Coordinate(x=0.060, y=0.000, z=0),  # 05
-    Coordinate(x=0.072, y=0.000, z=0),  # 06
-    Coordinate(x=0.084, y=0.000, z=0),  # 07
-    Coordinate(x=0.096, y=0.000, z=0),  # 08
-    Coordinate(x=0.108, y=0.000, z=0),  # 09
-    Coordinate(x=0.120, y=0.000, z=0),  # 10
-    Coordinate(x=0.132, y=0.000, z=0),  # 11
-    Coordinate(x=0.144, y=0.000, z=0),  # 12
-    Coordinate(x=0.156, y=0.000, z=0),  # 13
-    Coordinate(x=0.168, y=0.000, z=0),  # 14
-    Coordinate(x=0.180, y=0.000, z=0),  # 15
+    Coordinate(x=0.0113, y=0.000, z=0),  # 01
+    Coordinate(x=2 * 0.0113, y=0.000, z=0),  # 02
+    Coordinate(x=3 * 0.0113, y=0.000, z=0),  # 03
+    Coordinate(x=4 * 0.0113, y=0.000, z=0),  # 04
+    Coordinate(x=5 * 0.0113, y=0.000, z=0),  # 05
+    Coordinate(x=6 * 0.0113, y=0.000, z=0),  # 06
+    Coordinate(x=7 * 0.0113, y=0.000, z=0),  # 07
+    Coordinate(x=8 * 0.0113, y=0.000, z=0),  # 08
+    Coordinate(x=9 * 0.0113, y=0.000, z=0),  # 09
+    Coordinate(x=10 * 0.0113, y=0.000, z=0),  # 10
+    Coordinate(x=11 * 0.0113, y=0.000, z=0),  # 11
+    Coordinate(x=12 * 0.0113, y=0.000, z=0),  # 12
+    Coordinate(x=13 * 0.0113, y=0.000, z=0),  # 13
+    Coordinate(x=14 * 0.0113, y=0.000, z=0),  # 14
+    Coordinate(x=15 * 0.0113, y=0.000, z=0),  # 15
     # 2nd ring
     Coordinate(x=0.000, y=0.012, z=0),  # 16
     Coordinate(x=0.012, y=0.012, z=0),  # 17
@@ -76,42 +76,7 @@ SOURCES = (
     Coordinate(x=0.168, y=0.012, z=0),  # 30
     Coordinate(x=0.180, y=0.012, z=0),  # 31
 )
-RECEIVERS = (
-    # 1st ring
-    Coordinate(x=0.000, y=0.000, z=0),  # 00
-    Coordinate(x=0.012, y=0.000, z=0),  # 01
-    Coordinate(x=0.024, y=0.000, z=0),  # 02
-    Coordinate(x=0.036, y=0.000, z=0),  # 03
-    Coordinate(x=0.048, y=0.000, z=0),  # 04
-    Coordinate(x=0.060, y=0.000, z=0),  # 05
-    Coordinate(x=0.072, y=0.000, z=0),  # 06
-    Coordinate(x=0.084, y=0.000, z=0),  # 07
-    Coordinate(x=0.096, y=0.000, z=0),  # 08
-    Coordinate(x=0.108, y=0.000, z=0),  # 09
-    Coordinate(x=0.120, y=0.000, z=0),  # 10
-    Coordinate(x=0.132, y=0.000, z=0),  # 11
-    Coordinate(x=0.144, y=0.000, z=0),  # 12
-    Coordinate(x=0.156, y=0.000, z=0),  # 13
-    Coordinate(x=0.168, y=0.000, z=0),  # 14
-    Coordinate(x=0.180, y=0.000, z=0),  # 15
-    # 2nd ring
-    Coordinate(x=0.000, y=0.012, z=0),  # 16
-    Coordinate(x=0.012, y=0.012, z=0),  # 17
-    Coordinate(x=0.024, y=0.012, z=0),  # 18
-    Coordinate(x=0.036, y=0.012, z=0),  # 19
-    Coordinate(x=0.048, y=0.012, z=0),  # 20
-    Coordinate(x=0.060, y=0.012, z=0),  # 21
-    Coordinate(x=0.072, y=0.012, z=0),  # 22
-    Coordinate(x=0.084, y=0.012, z=0),  # 23
-    Coordinate(x=0.096, y=0.012, z=0),  # 24
-    Coordinate(x=0.108, y=0.012, z=0),  # 25
-    Coordinate(x=0.120, y=0.012, z=0),  # 26
-    Coordinate(x=0.132, y=0.012, z=0),  # 27
-    Coordinate(x=0.144, y=0.012, z=0),  # 28
-    Coordinate(x=0.156, y=0.012, z=0),  # 29
-    Coordinate(x=0.168, y=0.012, z=0),  # 30
-    Coordinate(x=0.180, y=0.012, z=0),  # 31
-)
+RECEIVERS = SOURCES
 
 
 def run_pipeline(acquisitions, sources_to_load, receivers_to_load, folder_path):
