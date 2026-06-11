@@ -3,6 +3,7 @@ from numpy.fft import fft, fftfreq
 from scipy.fft import rfft, rfftfreq
 from scipy.fftpack import next_fast_len
 
+from sigproc.algorithms.flipping.flipping import flip
 from sigproc.base.stream import Stream
 
 
@@ -11,6 +12,7 @@ def selection_fk(
     threshold: float,
     vmin: float,
     vmax: float,
+    flip_negatives: bool = False,
 ) -> Stream | None:
 
     if not 0 <= threshold <= 1:
@@ -41,8 +43,8 @@ def selection_fk(
     # Limit the FK diagrams to the velocity range as in Cheng et al. (2018)
     # Users should avoid wavenumber=frequency/velocity > 1/(2*dx) by
     # limiting frequencies in accordance to the velocities to study
-    fs_min_lim_neg = vmin * abs(ks_neg)
-    fs_max_lim_neg = vmax * abs(ks_neg)
+    fs_min_lim_neg = vmin * np.abs(ks_neg)
+    fs_max_lim_neg = vmax * np.abs(ks_neg)
     for i_k in range(len(ks_neg)):
         if fs[0] <= fs_min_lim_neg[i_k] <= fs[-1]:
             i_flim = np.where(fs >= fs_min_lim_neg[i_k])[0][0]
@@ -51,8 +53,8 @@ def selection_fk(
             i_flim = np.where(fs >= fs_max_lim_neg[i_k])[0][0]
             K_neg[i_flim:, i_k] = 0
 
-    fs_min_lim_pos = vmin * abs(ks_pos)
-    fs_max_lim_pos = vmax * abs(ks_pos)
+    fs_min_lim_pos = vmin * np.abs(ks_pos)
+    fs_max_lim_pos = vmax * np.abs(ks_pos)
     for i_k in range(len(ks_pos)):
         if fs[0] <= fs_min_lim_pos[i_k] <= fs[-1]:
             i_flim = np.where(fs >= fs_min_lim_pos[i_k])[0][0]
@@ -65,6 +67,15 @@ def selection_fk(
     energy_pos = np.sum(K_pos)
     energy_neg = np.sum(K_neg)
     fk_ratio = (energy_pos - energy_neg) / (energy_pos + energy_neg + eps)
-    if abs(fk_ratio) > threshold:
-        return stream
-    return None
+
+    if np.abs(fk_ratio) <= threshold:
+        return None
+
+    if flip_negatives and fk_ratio < 0:
+        return flip(
+            stream=stream,
+            axis="space",
+            flip_acquisition=False,
+        )
+
+    return stream

@@ -48,6 +48,7 @@ class BidirectionalCorrelate(Transformer[Stream, Stream]):
 
         right = Flip(
             axis="space",
+            flip_acquisition=False,
         ).transform(right)
 
         return [
