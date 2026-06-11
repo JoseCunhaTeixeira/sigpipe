@@ -33,9 +33,14 @@ class ArrivalResidualPhase(Transformer[Stream, Stream]):
                 for arrival in trace_arrivals:
                     k = np.argmin(np.abs(stream.ts - arrival.time))
 
-                    residual_phase = (
-                        stream.xt_phase[itrace, k] - 2 * np.pi * self.f0 * arrival.time
+                    residual_phase = np.angle(
+                        stream.xt_analytic[itrace, k]
+                        * np.exp(-1j * 2 * np.pi * self.f0 * arrival.time)
                     )
+
+                    # residual_phase = (
+                    #     stream.xt_phase[itrace, k] - 2 * np.pi * self.f0 * arrival.time
+                    # )
 
                     arrivals_new.append(
                         replace(

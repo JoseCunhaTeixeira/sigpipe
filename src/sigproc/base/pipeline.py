@@ -2,26 +2,17 @@ import logging
 from datetime import datetime
 from pathlib import Path
 from time import perf_counter
-from typing import Any, Sequence
-
-from sigproc.base.transformer import Transformer
+from typing import Any
 
 
 class Pipeline:
-    def __init__(self, steps: Sequence[Transformer]):
+    def __init__(self, steps):
         self.steps = list(steps)
 
     def __rshift__(
         self,
-        other: Transformer | Pipeline,
+        other,
     ) -> Pipeline:
-        if isinstance(other, Pipeline):
-            return Pipeline(
-                [
-                    *self.steps,
-                    *other.steps,
-                ]
-            )
         return Pipeline(
             [
                 *self.steps,
