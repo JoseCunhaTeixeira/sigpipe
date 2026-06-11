@@ -1,7 +1,8 @@
 from collections.abc import Sequence
 from typing import Literal
 
-from sigproc.algorithms.selection.registy import SELECTION_METHODS
+from sigproc.algorithms.selection.registy import STREAM_SELECTION_METHODS
+from sigproc.base.dispersion import DispersionImage
 from sigproc.base.stream import Stream
 from sigproc.base.transformer import Transformer
 
@@ -21,11 +22,11 @@ class Selection(Transformer):
 
     def transform(self, data: Sequence[Stream]) -> list[Stream]:
 
-        algorithm = SELECTION_METHODS.get(self.method)
+        algorithm = STREAM_SELECTION_METHODS.get(self.method)
         if algorithm is None:
             raise ValueError(
                 f"Unknown normalizing method '{self.method}'. "
-                f"Available methods: {list(SELECTION_METHODS.keys())}"
+                f"Available methods: {list(STREAM_SELECTION_METHODS.keys())}"
             )
 
         if not isinstance(data, Sequence) or isinstance(data, (str, bytes)):
@@ -34,16 +35,27 @@ class Selection(Transformer):
         if len(data) == 0:
             raise ValueError("Empty input sequence")
 
-        if not all(isinstance(s, Stream) for s in data):
-            raise TypeError("All elements must be Stream")
+        if not all(isinstance(s, (Stream, DispersionImage)) for s in data):
+            raise TypeError("All elements must be Stream or DispersionImage")
 
-        streams_out: list[Stream] = []
-        for stream in data:
-            stream_out = algorithm(
-                stream=stream,
-                **self.params,
-            )
-            if stream_out is not None:
-                streams_out.append(stream_out)
+        first = data[0]
 
-        return streams_out
+        if isinstance(first, Stream):
+            algorithm_stream = STREAM_SELECTION_METHODS.get(self.method)
+            if algorithm_stream is None:
+                raise ValueError(
+                    f"Unknown normalizing method '{self.method}'. "
+                    f"Available methods: {list(STREAM_SELECTION_METHODS.keys())}"
+                )
+            streams_out: list[Stream] = []
+            for stream in data:
+                stream_out = algorithm(
+                    stream=stream,
+                    **self.params,
+                )
+                if stream_out is not None:
+                    streams_out.append(stream_out)
+            return streams_out
+
+        else:
+            raise TypeError(f"No save handler for {type(first).__name__}")
