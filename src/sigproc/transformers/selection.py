@@ -1,43 +1,35 @@
 from collections.abc import Sequence
+from typing import Literal
 
-from sigproc.base.arrivals import TraceArrivals
-from sigproc.base.dispersion import DispersionCurves, DispersionImage
+from sigproc.algorithms.selection.registy import SELECTION_METHODS
 from sigproc.base.stream import Stream
 from sigproc.base.transformer import Transformer
 
 
-class SelectDispersionCurves(Transformer):
+class Selection(Transformer):
     """
-    Dispersion curves Selection from Dispersion images transformer.
+    Stream selection transformer.
     """
 
-    def transform(self, data: Sequence[DispersionImage]) -> list[DispersionCurves]:
+    def __init__(
+        self,
+        method: Literal["fk"],
+        **params,
+    ):
+        self.method = method
+        self.params = params
+
+    def transform(self, data: Sequence[Stream]) -> list[Stream]:
+
+        algorithm = SELECTION_METHODS.get(self.method)
+        if algorithm is None:
+            raise ValueError(
+                f"Unknown normalizing method '{self.method}'. "
+                f"Available methods: {list(SELECTION_METHODS.keys())}"
+            )
 
         if not isinstance(data, Sequence) or isinstance(data, (str, bytes)):
-            raise TypeError(f"Expected Sequence, got {type(data).__name__}")
-
-        if len(data) == 0:
-            raise ValueError("Empty input sequence")
-
-        if not all(isinstance(s, DispersionImage) for s in data):
-            raise TypeError("All elements must be DispersionImage")
-
-        return [
-            dispersion_image.dispersion_curves
-            for dispersion_image in data
-            if dispersion_image.dispersion_curves is not None
-        ]
-
-
-class SelectArrivals(Transformer):
-    """
-    Arrivals selection from Streams transformer.
-    """
-
-    def transform(self, data: Sequence[Stream]) -> list[tuple[TraceArrivals, ...]]:
-
-        if not isinstance(data, Sequence) or isinstance(data, (str, bytes)):
-            raise TypeError(f"Expected Sequence, got {type(data).__name__}")
+            raise TypeError(f"Expected Sequence[Stream], got {type(data).__name__}")
 
         if len(data) == 0:
             raise ValueError("Empty input sequence")
@@ -45,4 +37,13 @@ class SelectArrivals(Transformer):
         if not all(isinstance(s, Stream) for s in data):
             raise TypeError("All elements must be Stream")
 
-        return [stream.arrivals for stream in data if stream.arrivals is not None]
+        streams_out: list[Stream] = []
+        for stream in data:
+            stream_out = algorithm(
+                stream=stream,
+                **self.params,
+            )
+            if stream_out is not None:
+                streams_out.append(stream_out)
+
+        return streams_out

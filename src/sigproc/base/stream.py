@@ -1,7 +1,7 @@
 from dataclasses import dataclass
 
 import numpy as np
-from scipy.fft import next_fast_len, rfft, rfftfreq
+from scipy.fft import next_fast_len
 from scipy.signal import hilbert
 
 from sigproc.base.acquisition import Acquisition
@@ -41,7 +41,7 @@ class Stream:
     def xt_analytic(self) -> np.ndarray:
         npts = np.shape(self.xt)[1]
         nfft = next_fast_len(npts)
-        z = np.array(hilbert(self.xt, N=nfft, axis=-1), np.complex64)[:, :npts]
+        z = np.array(hilbert(self.xt, N=nfft, axis=1), np.complex64)[:, :npts]
         return z
 
     @property
@@ -51,24 +51,6 @@ class Stream:
     @property
     def xt_phase(self) -> np.ndarray:
         return np.angle(self.xt_analytic).astype(np.float32)
-
-    @property
-    def xf(self) -> np.ndarray:
-        nfft = next_fast_len(self.nt)
-        return np.array(rfft(self.xt, n=nfft, axis=-1), dtype=np.complex64)
-
-    @property
-    def fs(self) -> np.ndarray:
-        nfft = next_fast_len(self.nt)
-        return rfftfreq(nfft, d=1.0 / self.sampling_freq).astype(np.float32)
-
-    @property
-    def xf_amp(self) -> np.ndarray:
-        return np.abs(self.xf).astype(np.float32)
-
-    @property
-    def xf_power(self) -> np.ndarray:
-        return self.xf_amp**2
 
     def validate_shot_inputs(self) -> None:
         if self.xt.ndim != 2:
