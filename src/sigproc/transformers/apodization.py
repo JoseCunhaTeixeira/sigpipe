@@ -1,14 +1,14 @@
 from collections.abc import Sequence
 from typing import Literal
 
-from sigproc.algorithms.appodization.registry import APPODIZATION_METHODS
+from sigproc.algorithms.apodization.registry import APODIZATION_METHODS
 from sigproc.base.stream import Stream
 from sigproc.base.transformer import Transformer
 
 
-class Appodize(Transformer):
+class Apodize(Transformer):
     """
-    Appodization transformer.
+    Apodization transformer.
     """
 
     def __init__(
@@ -21,11 +21,11 @@ class Appodize(Transformer):
 
     def transform(self, data: Sequence[Stream]) -> list[Stream]:
 
-        algorithm = APPODIZATION_METHODS.get(self.method)
+        algorithm = APODIZATION_METHODS.get(self.method)
         if algorithm is None:
             raise ValueError(
                 f"Unknown normalizing method '{self.method}'. "
-                f"Available methods: {list(APPODIZATION_METHODS.keys())}"
+                f"Available methods: {list(APODIZATION_METHODS.keys())}"
             )
 
         if not isinstance(data, Sequence) or isinstance(data, (str, bytes)):

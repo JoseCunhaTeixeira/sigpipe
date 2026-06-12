@@ -13,7 +13,7 @@ class Acquisition:
     offsets: np.ndarray = field(init=False)
 
     def __post_init__(self) -> None:
-        offsets = compute_offsets(self.source, self.receivers)
+        offsets = self.compute_offsets(self.source, self.receivers)
         object.__setattr__(self, "offsets", offsets)
         offsets.setflags(write=False)
 
@@ -37,14 +37,14 @@ class Acquisition:
             values.extend([receiver.x, receiver.y, receiver.z])
         return any(np.isnan(v) for v in values)
 
-
-def compute_offsets(
-    source: Coordinate, receivers: tuple[Coordinate, ...]
-) -> np.ndarray:
-    return np.array(
-        [source.distance_to(r) for r in receivers],
-        dtype=np.float32,
-    )
+    @staticmethod
+    def compute_offsets(
+        source: Coordinate, receivers: tuple[Coordinate, ...]
+    ) -> np.ndarray:
+        return np.array(
+            [source.distance_to(r) for r in receivers],
+            dtype=np.float32,
+        )
 
 
 UNKNOWN_ACQUISITION = Acquisition(

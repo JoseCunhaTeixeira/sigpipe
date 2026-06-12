@@ -4,7 +4,7 @@ from scipy.signal.windows import hann
 from sigproc.base.stream import Stream
 
 
-def appodize_hanning(
+def apodize_hanning(
     stream: Stream,
     *,
     frac: float = 0.1,
@@ -19,9 +19,9 @@ def appodize_hanning(
     wd = np.ones(stream.nt)
     wd[:n_taper] = taper_start
     wd[-n_taper:] = taper_end
-    xt_appodized = stream.xt * wd
+    xt_apodized = stream.xt * wd
     return Stream(
-        xt=xt_appodized,
+        xt=xt_apodized,
         ts=stream.ts,
         sampling_freq=stream.sampling_freq,
         acquisition=stream.acquisition,

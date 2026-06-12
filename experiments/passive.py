@@ -2,7 +2,7 @@ from pathlib import Path
 
 from sigproc.base.acquisition import Acquisition
 from sigproc.base.coordinate import Coordinate
-from sigproc.transformers.appodization import Appodize
+from sigproc.transformers.apodization import Apodize
 from sigproc.transformers.correlation import Correlate
 from sigproc.transformers.detrending import Detrend
 from sigproc.transformers.filtering import Filter
@@ -80,7 +80,7 @@ pipeline = (
     >> Slice(segment_duration=0.002, segment_step=0.002)
     >> Whiten(method="onebit_apod", fmin=10_000, fmax=20_000, taper_width_Hz=1_000)
     >> Normalize(method="onebit")
-    >> Appodize(method="hanning", frac=0.1)
+    >> Apodize(method="hanning", frac=0.1)
     >> Correlate(method="cross", virtual_source_index=0)
     >> Stack(method="phase_weighted", nu=2)
     >> Plot(folder_path=saving_dir, normalize=True)

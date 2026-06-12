@@ -3,6 +3,7 @@ from pathlib import Path
 
 import h5py
 import numpy as np
+from obspy import read as read_obspy
 
 from sigproc.base.acquisition import UNKNOWN_ACQUISITION, Acquisition
 from sigproc.base.coordinate import Coordinate, tuples_to_coordinates
@@ -35,6 +36,59 @@ def load_stream(
         source=Coordinate(*source),
         receivers=tuples_to_coordinates(receivers),
     )
+
+    if not acquisition.is_unknown and sort:
+        order = np.argsort(acquisition.offsets)
+        xt = xt[order]
+        acquisition = Acquisition(
+            source=acquisition.source,
+            receivers=tuple(acquisition.receivers[i] for i in order),
+        )
+
+    return Stream(
+        xt=xt,
+        ts=ts,
+        sampling_freq=sampling_freq,
+        acquisition=acquisition,
+    )
+
+
+def load_obspy(
+    path: Path,
+    acquisition: Acquisition = UNKNOWN_ACQUISITION,
+    sort: bool = False,
+    receivers_to_load: Sequence[int] | None = None,
+) -> Stream:
+    ob_stream = read_obspy(path)
+    sampling_freq = ob_stream[0].stats.sampling_rate
+    nx = len(ob_stream)
+    nt = ob_stream[0].stats.npts  # type: ignore
+    xt = np.zeros((nx, nt), dtype=np.float32)
+    for i, trace in enumerate(ob_stream):
+        xt[i, :] = trace.data
+
+    if receivers_to_load is not None:
+        if (
+            not isinstance(receivers_to_load, Sequence)
+            or isinstance(receivers_to_load, (str, bytes))
+            or not all(isinstance(x, int) for x in receivers_to_load)
+        ):
+            raise TypeError(
+                "Expected Sequence[int | float] for receivers_to_load, "
+                f"got {type(receivers_to_load).__name__}"
+            )
+        xt = xt[receivers_to_load, :]
+
+    ts = compute_time_vector(
+        nt=xt.shape[1],
+        sampling_freq=sampling_freq,
+    )
+
+    if xt.shape[0] != len(acquisition.receivers):
+        raise ValueError(
+            "requires shot.shape[0] = number of receivers. "
+            f"Got {xt.shape[0]} and {len(acquisition.receivers)}"
+        )
 
     if not acquisition.is_unknown and sort:
         order = np.argsort(acquisition.offsets)

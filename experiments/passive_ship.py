@@ -2,16 +2,18 @@ from pathlib import Path
 
 from sigproc.base.acquisition import Acquisition
 from sigproc.base.coordinate import Coordinate
-from sigproc.transformers.appodization import Appodize
-from sigproc.transformers.correlation import Correlate
-from sigproc.transformers.detrending import Detrend
-from sigproc.transformers.filtering import Filter
-from sigproc.transformers.loading import Load
-from sigproc.transformers.normalization import Normalize
-from sigproc.transformers.plotting import Plot
-from sigproc.transformers.slicing import Slice
-from sigproc.transformers.stacking import Stack
-from sigproc.transformers.whitening import Whiten
+from sigproc.transformers import (
+    Apodize,
+    Correlate,
+    Detrend,
+    Filter,
+    Load,
+    Normalize,
+    Plot,
+    Slice,
+    Stack,
+    Whiten,
+)
 
 data_dir = Path("//drtfaucon-1/DIN/SMCD/LSPM/Projets/FIND/data/_exemple_donnees_passif")
 file_paths = [
@@ -58,7 +60,7 @@ pipeline = (
     >> Slice(segment_duration=0.003, segment_step=0.003)
     >> Whiten(method="onebit_apod", fmin=2_000, fmax=8_000, taper_width_Hz=1_000)
     >> Normalize(method="onebit")
-    >> Appodize(method="hanning", frac=0.1)
+    >> Apodize(method="hanning", frac=0.1)
     >> Correlate(method="cross", virtual_source_index=0)
     >> Stack(method="phase_weighted", nu=2)
     >> Plot(folder_path=saving_dir, normalize=True)

@@ -1,20 +1,19 @@
 from pathlib import Path
 
-from sigproc.base.acquisition import Acquisition
-from sigproc.base.coordinate import Coordinate
+from sigproc.base import Acquisition, Coordinate
 from sigproc.dataio.dispersion.loading import load_dispersion_curves
-from sigproc.transformers.composites.double_correlation import (
+from sigproc.transformers import (
     BidirectionalCorrelate,
+    Detrend,
+    Dispersion,
+    Load,
+    Mute,
+    Pad,
+    Pick,
+    Plot,
+    Save,
+    Stack,
 )
-from sigproc.transformers.detrending import Detrend
-from sigproc.transformers.dispersion import Dispersion
-from sigproc.transformers.loading import Load
-from sigproc.transformers.mutting import Mute
-from sigproc.transformers.padding import Pad
-from sigproc.transformers.picking import Pick
-from sigproc.transformers.plotting import Plot
-from sigproc.transformers.saving import Save
-from sigproc.transformers.stacking import Stack
 
 data_dir = Path(
     "//resinosa/PARTAGES_UNITES/DRT_CND/MATER-SHM_2026_BCH/data/20260529_essais_imagerie_invent/data_imagerie"
