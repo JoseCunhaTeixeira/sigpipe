@@ -20,7 +20,7 @@ from sigproc.dataio.dispersion.section import plot_dispersion_curve_section
 from sigproc.dataio.stream.loading import (
     load_gero_active,
     load_gero_passive,
-    load_obspy,
+    load_segy,
     load_stream,
 )
 from sigproc.dataio.stream.plotting import plot_stream
@@ -33,20 +33,17 @@ SAVE_HANDLERS: dict[type, Callable[..., None]] = {
 }
 
 LOAD_HANDLERS: dict[
-    type | str,
-    Callable[..., DispersionImage]
-    | Callable[..., DispersionCurves]
-    | Callable[..., Stream]
+    str,
+    Callable[..., list[DispersionImage]]
+    | Callable[..., list[DispersionCurves]]
     | Callable[..., list[Stream]],
 ] = {
-    DispersionImage: load_dispersion_image,
-    DispersionCurves: load_dispersion_curves,
-    Stream: load_stream,
+    "dispersion_image": load_dispersion_image,
+    "dispersion_curves": load_dispersion_curves,
+    "stream": load_stream,
     "gero_passive": load_gero_passive,
     "gero_active": load_gero_active,
-    "segy": load_obspy,
-    "seg2": load_obspy,
-    "su": load_obspy,
+    "segy": load_segy,
 }
 
 PLOT_HANDLERS: dict[type, Callable[..., Figure]] = {

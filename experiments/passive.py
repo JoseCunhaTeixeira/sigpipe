@@ -1,17 +1,18 @@
 from pathlib import Path
 
-from sigproc.base.acquisition import Acquisition
-from sigproc.base.coordinate import Coordinate
-from sigproc.transformers.apodization import Apodize
-from sigproc.transformers.correlation import Correlate
-from sigproc.transformers.detrending import Detrend
-from sigproc.transformers.filtering import Filter
-from sigproc.transformers.loading import Load
-from sigproc.transformers.normalization import Normalize
-from sigproc.transformers.plotting import Plot
-from sigproc.transformers.slicing import Slice
-from sigproc.transformers.stacking import Stack
-from sigproc.transformers.whitening import Whiten
+from sigproc.base import Acquisition, Coordinate
+from sigproc.transformers import (
+    Apodize,
+    Correlate,
+    Detrend,
+    Filter,
+    Load,
+    Normalize,
+    Plot,
+    Slice,
+    Stack,
+    Whiten,
+)
 
 data_dir = Path("//drtvini/Echange/JCU/exemple donnees passives/data_passif_sain")
 file_paths = [

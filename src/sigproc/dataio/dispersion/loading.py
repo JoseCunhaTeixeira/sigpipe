@@ -1,4 +1,5 @@
 import ast
+from collections.abc import Sequence
 from pathlib import Path
 
 import h5py
@@ -18,75 +19,88 @@ from sigproc.base.dispersion import (
 
 
 def load_dispersion_image(
-    path: Path,
-    curves_path: Path | None = None,
-) -> DispersionImage:
+    file_paths: Sequence[Path],
+    curves_paths: Sequence[Path] | None = None,
+) -> list[DispersionImage]:
 
-    if not path.exists():
-        raise FileNotFoundError(path)
+    dispersion_curves_out: list[DispersionCurves] = []
+    if curves_paths is not None:
+        dispersion_curves_out = load_dispersion_curves(file_paths=curves_paths)
 
-    with h5py.File(path, "r") as f:
-        fv_map = np.asarray(
-            f["fv_map"][:],  # type: ignore
-            dtype=np.float32,
+    dispersion_images_out: list[DispersionImage] = []
+    for i, path in enumerate(file_paths):
+        if not path.exists():
+            raise FileNotFoundError(path)
+
+        with h5py.File(path, "r") as f:
+            fv_map = np.asarray(
+                f["fv_map"][:],  # type: ignore
+                dtype=np.float32,
+            )
+
+            fs = np.asarray(
+                f["fs"][:],  # type: ignore
+                dtype=np.float32,
+            )
+
+            vs = np.asarray(
+                f["vs"][:],  # type: ignore
+                dtype=np.float32,
+            )
+
+            type = f["type"][()].decode() if "type" in f else ""  # type: ignore
+
+            sources = tuple(Coordinate.from_tuple(source) for source in f["sources"][:])  # type: ignore
+
+            receivers = tuple(
+                tuples_to_coordinates(receiver_group)
+                for receiver_group in f["receivers"][:]  # type: ignore
+            )
+
+        acquisitions = tuple(
+            Acquisition(
+                source=source,
+                receivers=receiver_group,
+            )
+            for source, receiver_group in zip(
+                sources,
+                receivers,
+                strict=True,
+            )
         )
 
-        fs = np.asarray(
-            f["fs"][:],  # type: ignore
-            dtype=np.float32,
+        dispersion_curves = DispersionCurves(curves=())
+        if curves_paths is not None and dispersion_curves_out:
+            dispersion_curves = dispersion_curves_out[i]
+
+        dispersion_images_out.append(
+            DispersionImage(
+                fv_map=fv_map,
+                fs=fs,
+                vs=vs,
+                type=type,
+                acquisitions=acquisitions,
+                dispersion_curves=dispersion_curves,
+            )
         )
 
-        vs = np.asarray(
-            f["vs"][:],  # type: ignore
-            dtype=np.float32,
-        )
-
-        type = f["type"][()].decode() if "type" in f else ""  # type: ignore
-
-        sources = tuple(Coordinate.from_tuple(source) for source in f["sources"][:])  # type: ignore
-
-        receivers = tuple(
-            tuples_to_coordinates(receiver_group)
-            for receiver_group in f["receivers"][:]  # type: ignore
-        )
-
-    acquisitions = tuple(
-        Acquisition(
-            source=source,
-            receivers=receiver_group,
-        )
-        for source, receiver_group in zip(
-            sources,
-            receivers,
-            strict=True,
-        )
-    )
-
-    dispersion_curves = DispersionCurves(curves=())
-    if curves_path is not None:
-        dispersion_curves = load_dispersion_curves(path=curves_path)
-
-    return DispersionImage(
-        fv_map=fv_map,
-        fs=fs,
-        vs=vs,
-        type=type,
-        acquisitions=acquisitions,
-        dispersion_curves=dispersion_curves,
-    )
+    return dispersion_images_out
 
 
 def load_dispersion_curves(
-    path: Path,
-) -> DispersionCurves:
-    if not path.exists():
-        raise FileNotFoundError(path)
-    if path.suffix == ".txt":
-        return load_modeled_dispersion_curves(path=path)
-    elif path.suffix == ".csv":
-        return load_picked_dispersion_curves(path=path)
-    else:
-        raise TypeError(f"File must be .txt or .csv, got {path.suffix}")
+    file_paths: Sequence[Path],
+) -> list[DispersionCurves]:
+    dispersion_curves_out: list[DispersionCurves] = []
+    for path in file_paths:
+        if not path.exists():
+            raise FileNotFoundError(path)
+        if path.suffix == ".txt":
+            dispersion_curves_out.append(load_modeled_dispersion_curves(path=path))
+        elif path.suffix == ".csv":
+            dispersion_curves_out.append(load_picked_dispersion_curves(path=path))
+        else:
+            raise TypeError(f"File must be .txt or .csv, got {path.suffix}")
+    return dispersion_curves_out
 
 
 def load_picked_dispersion_curves(

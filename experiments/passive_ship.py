@@ -1,7 +1,6 @@
 from pathlib import Path
 
-from sigproc.base.acquisition import Acquisition
-from sigproc.base.coordinate import Coordinate
+from sigproc.base import Acquisition, Coordinate
 from sigproc.transformers import (
     Apodize,
     Correlate,
