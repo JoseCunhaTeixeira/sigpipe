@@ -20,7 +20,7 @@ from sigproc.dataio.dispersion.section import plot_dispersion_curve_section
 from sigproc.dataio.stream.loading import (
     load_gero_active,
     load_gero_passive,
-    load_segy,
+    load_segd,
     load_stream,
 )
 from sigproc.dataio.stream.plotting import plot_stream
@@ -43,7 +43,7 @@ LOAD_HANDLERS: dict[
     "stream": load_stream,
     "gero_passive": load_gero_passive,
     "gero_active": load_gero_active,
-    "segy": load_segy,
+    "segd": load_segd,
 }
 
 PLOT_HANDLERS: dict[type, Callable[..., Figure]] = {

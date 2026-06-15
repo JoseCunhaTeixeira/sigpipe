@@ -59,7 +59,7 @@ def load_stream(
     return streams_out
 
 
-def load_segy(
+def load_segd(
     file_paths: Sequence[Path],
     acquisitions: Sequence[Acquisition],
     sort: bool = False,
