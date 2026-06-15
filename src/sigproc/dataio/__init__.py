@@ -18,13 +18,13 @@ from .plot_config import (
     SAVING_DPI,
     SINGLE_COLUMN_CM,
 )
-from .stream.loading import load_gero_active, load_gero_passive, load_obspy, load_stream
+from .stream.loading import load_gero_active, load_gero_passive, load_segd, load_stream
 from .stream.plotting import plot_stream
 from .stream.saving import save_stream
 
 __all__ = [
     "load_stream",
-    "load_obspy",
+    "load_segd",
     "load_gero_active",
     "load_gero_passive",
     "plot_stream",

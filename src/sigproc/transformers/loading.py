@@ -19,7 +19,7 @@ class Load(Transformer):
             "stream",
             "dispersion_image",
             "dispersion_curves",
-            "segy",
+            "segd",
             "gero_active",
             "gero_passive",
         ],
