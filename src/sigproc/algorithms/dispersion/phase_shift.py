@@ -61,8 +61,8 @@ def phase_shift(
         raise ValueError(f"requires sampling_freq > 0 Hz, got {sampling_freq} Hz")
     if not (0 <= fmin < fmax):
         raise ValueError(f"requires 0 Hz <= fmin < fmax, got {fmin} Hz and {fmax} Hz")
-    if not (vmin < vmax):
-        raise ValueError(f"requires vmin < vmax, got {vmin} m/s and {vmax} m/s")
+    if not (0 <= vmin < vmax):
+        raise ValueError(f"requires 0 <= vmin < vmax, got {vmin} m/s and {vmax} m/s")
     if nv <= 0:
         raise ValueError(f"requires nv > 0, got {nv}")
 
