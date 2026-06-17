@@ -34,9 +34,6 @@ class Stack(Transformer):
         data: Sequence[T],
     ) -> list[T]:
 
-        if self.method == "none":
-            return list(data)
-
         if not isinstance(data, Sequence) or isinstance(data, (str, bytes)):
             raise TypeError(f"Expected Sequence[Stream], got {type(data).__name__}")
 
@@ -45,6 +42,9 @@ class Stack(Transformer):
 
         if not all(isinstance(x, type(data[0])) for x in data):
             raise TypeError("All elements must have the same type")
+
+        if self.method == "none":
+            return list(data)
 
         first = data[0]
 

@@ -1,5 +1,6 @@
 from .apodization import Apodize
 from .beamforming import Beamform
+from .composites.directional_correlation import DirectionalCorrelation
 from .composites.double_correlation import BidirectionalCorrelate
 from .correlation import Correlate
 from .detrending import Detrend
@@ -25,6 +26,7 @@ __all__ = [
     "Apodize",
     "Beamform",
     "BidirectionalCorrelate",
+    "DirectionalCorrelation",
     "Correlate",
     "Detrend",
     "Dispersion",

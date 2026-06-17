@@ -21,9 +21,6 @@ class Apodize(Transformer):
 
     def transform(self, data: Sequence[Stream]) -> list[Stream]:
 
-        if self.method == "none":
-            return list(data)
-
         algorithm = APODIZATION_METHODS.get(self.method)
         if algorithm is None:
             raise ValueError(
@@ -39,6 +36,9 @@ class Apodize(Transformer):
 
         if not all(isinstance(s, Stream) for s in data):
             raise TypeError("All elements must be Stream")
+
+        if self.method == "none":
+            return list(data)
 
         streams_out: list[Stream] = []
         for stream in data:

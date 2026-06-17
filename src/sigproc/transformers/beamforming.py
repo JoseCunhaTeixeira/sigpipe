@@ -22,9 +22,6 @@ class Beamform(Transformer):
 
     def transform(self, data: Sequence[Stream]) -> list[Stream] | list[Beam]:
 
-        if self.method == "none":
-            return list(data)
-
         algorithm = BEAMFORMING_METHODS.get(self.method)
         if algorithm is None:
             raise ValueError(
@@ -40,6 +37,9 @@ class Beamform(Transformer):
 
         if not all(isinstance(s, Stream) for s in data):
             raise TypeError("All elements must be Stream")
+
+        if self.method == "none":
+            return list(data)
 
         beams_out: list[Beam] = []
         for stream in data:

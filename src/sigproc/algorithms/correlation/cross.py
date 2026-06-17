@@ -29,7 +29,7 @@ def correlate_cross(
 
     trace_source = stream.xt[virtual_source_index, :]
     for i_receiver, trace_receiver in enumerate(stream.xt):
-        correl = correlate(trace_source, trace_receiver, mode="full")
+        correl = correlate(trace_receiver, trace_source, mode="full")
         mid = correl.size // 2
         causal = correl[mid:]
         acausal = correl[: mid + 1][::-1]

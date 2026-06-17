@@ -31,9 +31,6 @@ class Pick(Transformer):
 
     def transform(self, data: Sequence[T]) -> list[T]:
 
-        if self.method == "none":
-            return list(data)
-
         if not isinstance(data, Sequence) or isinstance(data, (str, bytes)):
             raise TypeError(f"Expected Sequence, got {type(data).__name__}")
 
@@ -42,6 +39,9 @@ class Pick(Transformer):
 
         if not all(isinstance(s, (Stream, DispersionImage)) for s in data):
             raise TypeError("All elements must be Stream or DispersionImage")
+
+        if self.method == "none":
+            return list(data)
 
         first = data[0]
 

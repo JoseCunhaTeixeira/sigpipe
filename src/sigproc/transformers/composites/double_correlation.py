@@ -7,7 +7,7 @@ from sigproc.transformers.correlation import Correlate
 from sigproc.transformers.flipping import Flip
 
 
-class BidirectionalCorrelate(Transformer[Stream, Stream]):
+class BidirectionalCorrelate(Transformer):
     """
     Double correlation transformer for linear arrays.
     """
@@ -23,9 +23,6 @@ class BidirectionalCorrelate(Transformer[Stream, Stream]):
         data: Sequence[Stream],
     ) -> list[Stream]:
 
-        if self.method == "none":
-            return list(data)
-
         if not isinstance(data, Sequence) or isinstance(data, (str, bytes)):
             raise TypeError(f"Expected Sequence[Stream], got {type(data).__name__}")
 
@@ -34,6 +31,9 @@ class BidirectionalCorrelate(Transformer[Stream, Stream]):
 
         if len(data) == 0:
             raise ValueError("Empty input sequence")
+
+        if self.method == "none":
+            return list(data)
 
         left = Correlate(
             method=self.method,

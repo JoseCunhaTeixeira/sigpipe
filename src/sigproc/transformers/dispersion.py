@@ -22,9 +22,6 @@ class Dispersion(Transformer):
 
     def transform(self, data: Sequence[Stream]) -> list[Stream] | list[DispersionImage]:
 
-        if self.method == "none":
-            return list(data)
-
         algorithm = DISPERSION_METHODS.get(self.method)
         if algorithm is None:
             raise ValueError(
@@ -40,6 +37,9 @@ class Dispersion(Transformer):
 
         if not all(isinstance(s, Stream) for s in data):
             raise TypeError("All elements must be Stream")
+
+        if self.method == "none":
+            return list(data)
 
         dispersion_images_out: list[DispersionImage] = []
         for stream in data:
