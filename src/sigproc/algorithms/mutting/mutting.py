@@ -21,6 +21,9 @@ def _apply_lower_mute(trace: np.ndarray, idx: int, taper: int) -> None:
     """
     n = trace.size
 
+    if idx > n:
+        return
+
     idx = np.clip(idx, 0, n)
 
     if taper <= 0:
@@ -44,6 +47,9 @@ def _apply_upper_mute(trace: np.ndarray, idx: int, taper: int) -> None:
         1 1 1 | taper | 0 0 0
     """
     n = trace.size
+
+    if idx > n:
+        return
 
     idx = np.clip(idx, 0, n)
 
@@ -97,14 +103,14 @@ def mute(
             _apply_upper_mute(trace, idx, taper)
 
     if vmin is not None:
-        tlims = stream.acquisition.offsets / vmin
+        tlims = stream.acquisition.offsets / (vmin + 1e-12)
 
         for i_trace, tlim in enumerate(tlims):
             idx = np.searchsorted(ts, tlim)
             _apply_upper_mute(xt[i_trace], idx, taper)
 
     if vmax is not None:
-        tlims = stream.acquisition.offsets / vmax
+        tlims = stream.acquisition.offsets / (vmax + 1e-12)
 
         for i_trace, tlim in enumerate(tlims):
             idx = np.searchsorted(ts, tlim)

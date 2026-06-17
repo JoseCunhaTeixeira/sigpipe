@@ -14,13 +14,16 @@ class Dispersion(Transformer):
 
     def __init__(
         self,
-        method: Literal["group", "phase"],
+        method: Literal["none", "group", "phase"],
         **params,
     ):
         self.method = method
         self.params = params
 
-    def transform(self, data: Sequence[Stream]) -> list[DispersionImage]:
+    def transform(self, data: Sequence[Stream]) -> list[Stream] | list[DispersionImage]:
+
+        if self.method == "none":
+            return list(data)
 
         algorithm = DISPERSION_METHODS.get(self.method)
         if algorithm is None:

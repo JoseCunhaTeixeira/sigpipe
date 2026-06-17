@@ -23,13 +23,16 @@ class Pick(Transformer):
 
     def __init__(
         self,
-        method: Literal["maximum"],
+        method: Literal["none", "maximum"],
         **params,
     ):
         self.method = method
         self.params = params
 
     def transform(self, data: Sequence[T]) -> list[T]:
+
+        if self.method == "none":
+            return list(data)
 
         if not isinstance(data, Sequence) or isinstance(data, (str, bytes)):
             raise TypeError(f"Expected Sequence, got {type(data).__name__}")

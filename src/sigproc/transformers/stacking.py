@@ -23,7 +23,7 @@ class Stack(Transformer):
 
     def __init__(
         self,
-        method: Literal["linear", "root", "phase_weighted"],
+        method: Literal["none", "linear", "root", "phase_weighted"],
         **params,
     ):
         self.method = method
@@ -33,6 +33,9 @@ class Stack(Transformer):
         self,
         data: Sequence[T],
     ) -> list[T]:
+
+        if self.method == "none":
+            return list(data)
 
         if not isinstance(data, Sequence) or isinstance(data, (str, bytes)):
             raise TypeError(f"Expected Sequence[Stream], got {type(data).__name__}")

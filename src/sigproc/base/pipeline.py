@@ -20,7 +20,12 @@ class Pipeline:
             ]
         )
 
-    def run(self, data: Any = None, save_log: bool = False) -> Any:
+    def run(
+        self,
+        data: Any = None,
+        save_log: bool = False,
+        show_log: bool = True,
+    ) -> Any:
 
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
 
@@ -29,19 +34,21 @@ class Pipeline:
         log_path = log_dir / f"{timestamp}.log"
         logger = self._create_logger(log_path, save_log)
 
-        logger.info("=" * 80)
-        logger.info("Pipeline started")
-        logger.info("Pipeline: %s", self)
+        if show_log:
+            logger.info("=" * 80)
+            logger.info("Pipeline started")
+            logger.info("Pipeline: %s", self)
 
         total_start = perf_counter()
 
         for i, step in enumerate(self.steps):
-            logger.info(
-                "[%d/%d] Running %s",
-                i + 1,
-                len(self.steps),
-                step.name,
-            )
+            if show_log:
+                logger.info(
+                    "[%d/%d] Running %s",
+                    i + 1,
+                    len(self.steps),
+                    step.name,
+                )
 
             start = perf_counter()
 
@@ -50,28 +57,30 @@ class Pipeline:
 
                 duration = perf_counter() - start
 
-                logger.info(
-                    "%s completed in %.2f s",
-                    step.name,
-                    duration,
-                )
+                if show_log:
+                    logger.info(
+                        "%s completed in %.2f s",
+                        step.name,
+                        duration,
+                    )
 
             except Exception:
-                logger.exception(
-                    "%s failed",
-                    step.name,
-                )
-
+                if show_log:
+                    logger.exception(
+                        "%s failed",
+                        step.name,
+                    )
                 raise
 
         total_duration = perf_counter() - total_start
 
-        logger.info(
-            "Pipeline completed in %.2f s",
-            total_duration,
-        )
+        if show_log:
+            logger.info(
+                "Pipeline completed in %.2f s",
+                total_duration,
+            )
 
-        logger.info("=" * 80)
+            logger.info("=" * 80)
 
         return data
 

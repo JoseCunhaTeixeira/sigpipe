@@ -1,3 +1,4 @@
+import warnings
 from collections.abc import Sequence
 from pathlib import Path
 
@@ -81,7 +82,12 @@ def load_segd(
 
     streams_out: list[Stream] = []
     for path, acquisition in zip(file_paths, acquisitions):
-        ob_stream = read_obspy(path)
+        with warnings.catch_warnings():
+            warnings.filterwarnings(
+                "ignore",
+                module=r"obspy\.io\.seg2\.seg2",
+            )
+            ob_stream = read_obspy(path)
         sampling_freq = ob_stream[0].stats.sampling_rate
         nx = len(ob_stream)
         nt = ob_stream[0].stats.npts  # type: ignore

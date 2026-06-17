@@ -14,6 +14,7 @@ class Whiten(Transformer):
     def __init__(
         self,
         method: Literal[
+            "none",
             "onebit",
             "onebit_apod",
             "savgol",
@@ -26,6 +27,9 @@ class Whiten(Transformer):
         self.params = params
 
     def transform(self, data: Sequence[Stream]) -> list[Stream]:
+
+        if self.method == "none":
+            return list(data)
 
         algorithm = WHITENING_METHODS.get(self.method)
         if algorithm is None:

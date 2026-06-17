@@ -1,9 +1,17 @@
+from enum import Enum
+
 import matplotlib.pyplot as plt
 import numpy as np
 from matplotlib.figure import Figure
 
 from sigproc.base.dispersion import DispersionCurves, DispersionImage
 from sigproc.dataio.plot_config import CM, DISP_DPI, HEIGHT_CM, SINGLE_COLUMN_CM
+
+
+class FrequencyUnity(str, Enum):
+    HZ = "Hz"
+    KHZ = "kHz"
+    KHZMM = "kH.mm"
 
 
 def plot_dispersion_image(
@@ -17,6 +25,7 @@ def plot_dispersion_image(
     normalize: bool = False,
     show_cbar: bool = False,
     show_legend: bool = False,
+    unity: FrequencyUnity = FrequencyUnity.HZ,
 ) -> Figure:
     """
     Plot a frequency-velocity dispersion image.
@@ -27,7 +36,11 @@ def plot_dispersion_image(
         if normalize
         else dispersion_image.fv_map
     )
-    fs_plot, xlabel = _scale_frequency(dispersion_image.fs, thickness)
+    fs_plot, xlabel = _scale_frequency(
+        fs=dispersion_image.fs,
+        thickness=thickness,
+        unity=unity,
+    )
     fig, ax = plt.subplots(
         figsize=(SINGLE_COLUMN_CM * CM, HEIGHT_CM * CM),
         dpi=DISP_DPI,
@@ -56,8 +69,9 @@ def plot_dispersion_image(
     if picked_curves is not None:
         for picked_curve in picked_curves:
             picked_fs, _ = _scale_frequency(
-                picked_curve.fs,
-                thickness,
+                fs=picked_curve.fs,
+                thickness=thickness,
+                unity=unity,
             )
             ax.plot(
                 picked_fs,
@@ -70,8 +84,9 @@ def plot_dispersion_image(
         if dispersion_image.dispersion_curves:
             for picked_curve in dispersion_image.dispersion_curves:
                 picked_fs, _ = _scale_frequency(
-                    picked_curve.fs,
-                    thickness,
+                    fs=picked_curve.fs,
+                    thickness=thickness,
+                    unity=unity,
                 )
                 ax.plot(
                     picked_fs,
@@ -84,8 +99,9 @@ def plot_dispersion_image(
     if modeled_curves is not None:
         for modeled_curve in modeled_curves:
             model_fs, _ = _scale_frequency(
-                modeled_curve.fs,
-                thickness,
+                fs=modeled_curve.fs,
+                thickness=thickness,
+                unity=unity,
             )
             ax.plot(
                 model_fs,
@@ -123,6 +139,7 @@ def plot_dispersion_curves(
     fmax: float | None = None,
     vmin: float | None = None,
     vmax: float | None = None,
+    unity: FrequencyUnity = FrequencyUnity.HZ,
 ) -> Figure:
     """
     Plot dispersion curves.
@@ -137,8 +154,9 @@ def plot_dispersion_curves(
         cmap = plt.colormaps["viridis"]
         for i, picked_curve in enumerate(picked_curves):
             picked_fs, xlabel = _scale_frequency(
-                picked_curve.fs,
-                thickness,
+                fs=picked_curve.fs,
+                thickness=thickness,
+                unity=unity,
             )
             ax.plot(
                 picked_fs,
@@ -151,8 +169,9 @@ def plot_dispersion_curves(
     if modeled_curves is not None:
         for modeled_curve in modeled_curves:
             model_fs, xlabel = _scale_frequency(
-                modeled_curve.fs,
-                thickness,
+                fs=modeled_curve.fs,
+                thickness=thickness,
+                unity=unity,
             )
             ax.plot(
                 model_fs,
@@ -206,9 +225,17 @@ def _validate_bounds(
 
 def _scale_frequency(
     fs: np.ndarray,
-    thickness: float | None,
+    unity: FrequencyUnity = FrequencyUnity.HZ,
+    thickness: float | None = None,
 ) -> tuple[np.ndarray, str]:
     """Scale frequency axis and return axis label."""
-    if thickness is not None:
+    if unity == FrequencyUnity.HZ:
+        return fs, "Frequency [Hz]"
+    elif unity == FrequencyUnity.KHZ:
+        return fs * 1e-3, "Frequency [kHz]"
+    elif unity == FrequencyUnity.KHZMM and thickness is not None:
         return fs * thickness, "Frequency x Thickness [kHz.mm]"
-    return fs * 1e-3, "Frequency [kHz]"
+    else:
+        raise ValueError(
+            f"unity and thickness combination not handled, got {unity} and {thickness}"
+        )

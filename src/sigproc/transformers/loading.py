@@ -50,6 +50,6 @@ class Load(Transformer):
             )
 
         return handler(
-            path=self.file_paths,
+            file_paths=self.file_paths,
             **self.params,
         )

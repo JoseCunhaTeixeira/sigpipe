@@ -15,7 +15,7 @@ class Correlate(Transformer):
 
     def __init__(
         self,
-        method: Literal["cross"],
+        method: Literal["none", "cross"],
         virtual_source_index: int,
         **params,
     ):
@@ -24,6 +24,9 @@ class Correlate(Transformer):
         self.params = params
 
     def transform(self, data: Sequence[Stream]) -> list[Stream]:
+
+        if self.method == "none":
+            return list(data)
 
         algorithm = CORRELATION_METHODS.get(self.method)
         if algorithm is None:

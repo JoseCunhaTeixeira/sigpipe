@@ -14,13 +14,16 @@ class Beamform(Transformer):
 
     def __init__(
         self,
-        method: Literal["cross"],
+        method: Literal["none", "cross"],
         **params,
     ):
         self.method = method
         self.params = params
 
-    def transform(self, data: Sequence[Stream]) -> list[Beam]:
+    def transform(self, data: Sequence[Stream]) -> list[Stream] | list[Beam]:
+
+        if self.method == "none":
+            return list(data)
 
         algorithm = BEAMFORMING_METHODS.get(self.method)
         if algorithm is None:

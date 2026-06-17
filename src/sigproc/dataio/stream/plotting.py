@@ -17,7 +17,6 @@ def plot_stream(
     fig, ax = plt.subplots(
         figsize=(SINGLE_COLUMN_CM * CM, HEIGHT_CM * CM), dpi=DISP_DPI
     )
-    ts *= 1e3  # s to ms
     if normalize:
         scales = np.max(np.abs(xt), axis=1, keepdims=True)
         xt /= scales + 1e-12
@@ -31,7 +30,7 @@ def plot_stream(
             where=(trace > 1e-6),
             color="black",
         )
-        if i_trace % 5 == 0:
+        if i_trace % 10 == 0:
             ax.text(
                 y_position,
                 ts[0],
@@ -46,7 +45,7 @@ def plot_stream(
             for arrival in trace_arrivals:
                 ax.scatter(
                     y_position,
-                    arrival.time * 1e3,
+                    arrival.time,
                     color="red",
                     marker="+",
                     s=40,
@@ -57,7 +56,7 @@ def plot_stream(
     ax.set_xticklabels([])
     ax.set_ylim(ts[0], ts[-1])
     ax.set_xlim(-2, (nx - 1) * spacing + 2)
-    ax.set_ylabel("Time [ms]")
+    ax.set_ylabel("Time [s]")
     ax.set_xlabel("Receiver [#]")
     ax.xaxis.set_label_coords(0.5, 1.13)
     ax.invert_yaxis()

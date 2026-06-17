@@ -13,13 +13,16 @@ class Apodize(Transformer):
 
     def __init__(
         self,
-        method: Literal["hanning"],
+        method: Literal["none", "hanning"],
         **params,
     ):
         self.method = method
         self.params = params
 
     def transform(self, data: Sequence[Stream]) -> list[Stream]:
+
+        if self.method == "none":
+            return list(data)
 
         algorithm = APODIZATION_METHODS.get(self.method)
         if algorithm is None:

@@ -1,6 +1,8 @@
 from collections.abc import Sequence
+from typing import Literal
 
 from sigproc.algorithms.mutting.mutting import mute
+from sigproc.algorithms.mutting.registry import MUTTING_METHODS
 from sigproc.base.stream import Stream
 from sigproc.base.transformer import Transformer
 
@@ -12,11 +14,23 @@ class Mute(Transformer):
 
     def __init__(
         self,
+        method: Literal["none", "mute"] = "mute",
         **params,
     ):
+        self.method = method
         self.params = params
 
     def transform(self, data: Sequence[Stream]) -> list[Stream]:
+
+        if self.method == "none":
+            return list(data)
+
+        algorithm = MUTTING_METHODS.get(self.method)
+        if algorithm is None:
+            raise ValueError(
+                f"Unknown normalizing method '{self.method}'. "
+                f"Available methods: {list(MUTTING_METHODS.keys())}"
+            )
 
         if not isinstance(data, Sequence) or isinstance(data, (str, bytes)):
             raise TypeError(f"Expected Sequence[Stream], got {type(data).__name__}")

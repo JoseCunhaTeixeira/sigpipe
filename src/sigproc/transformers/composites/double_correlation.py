@@ -14,16 +14,17 @@ class BidirectionalCorrelate(Transformer[Stream, Stream]):
 
     def __init__(
         self,
-        method: Literal["cross"],
-        **params,
+        method: Literal["none", "cross"],
     ):
-        self.method: Literal["cross"] = method
-        self.params = params
+        self.method: Literal["none", "cross"] = method
 
     def transform(
         self,
         data: Sequence[Stream],
     ) -> list[Stream]:
+
+        if self.method == "none":
+            return list(data)
 
         if not isinstance(data, Sequence) or isinstance(data, (str, bytes)):
             raise TypeError(f"Expected Sequence[Stream], got {type(data).__name__}")
