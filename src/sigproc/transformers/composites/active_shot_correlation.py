@@ -7,9 +7,9 @@ from sigproc.transformers.correlation import Correlate
 from sigproc.transformers.flipping import Flip
 
 
-class DirectionalCorrelation(Transformer):
+class ActiveShotCorrelation(Transformer):
     """
-    Directional correlation depending on the source position for active acquisitions.
+    Correlation depending on the source position for active acquisitions.
     """
 
     def __init__(

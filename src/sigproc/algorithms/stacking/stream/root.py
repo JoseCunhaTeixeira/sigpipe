@@ -6,7 +6,7 @@ from sigproc.base.stream import Stream
 def stack_root(
     streams: list[Stream],
     *,
-    power: int = 2,
+    n: int = 2,
 ) -> Stream:
     ref_shot = streams[0]
     ref_nx = ref_shot.nx
@@ -18,7 +18,7 @@ def stack_root(
     for i_receiver in range(ref_shot.nx):
         out_xt[i_receiver, :] = rs(
             xt=cube[:, i_receiver, :],
-            power=power,
+            n=n,
         )
     return Stream(
         xt=out_xt,
@@ -31,14 +31,14 @@ def stack_root(
 def rs(
     xt: np.ndarray,
     *,
-    power: int = 2,
+    n: int = 2,
 ) -> np.ndarray:
     """nth-root stack according to Schimmel and Paulssen (1997)."""
     if not isinstance(xt, np.ndarray) or xt.ndim != 2:
         raise TypeError("xt must be a 2D numpy array: [ntraces, nt]")
-    if power < 1:
-        msg = f"power {power} must be greater or equal to 1"
+    if n < 1:
+        msg = f"n {n} must be greater or equal to 1"
         raise ValueError(msg)
-    r = np.mean(np.sign(xt) * np.abs(xt) ** (1 / power), axis=0)
-    trace_stacked = np.sign(r) * np.abs(r) ** power
+    r = np.mean(np.sign(xt) * np.abs(xt) ** (1 / n), axis=0)
+    trace_stacked = np.sign(r) * np.abs(r) ** n
     return trace_stacked
