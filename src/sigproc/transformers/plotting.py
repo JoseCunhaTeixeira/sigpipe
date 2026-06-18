@@ -21,8 +21,8 @@ class Plot(Transformer):
         self,
         folder_path: Path,
         file_name: str = "",
-        **params,
-    ):
+        **params: object,
+    ) -> None:
         self.folder_path = folder_path
         self.file_name = file_name
         self.params = params

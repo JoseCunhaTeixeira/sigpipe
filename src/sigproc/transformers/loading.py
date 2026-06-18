@@ -1,8 +1,9 @@
 from collections.abc import Sequence
 from pathlib import Path
+from typing import Literal
 
-from typing_extensions import Literal
-
+from sigproc.base.dispersion import DispersionCurves, DispersionImage
+from sigproc.base.stream import Stream
 from sigproc.base.transformer import Transformer
 from sigproc.dataio.registry import LOAD_HANDLERS
 
@@ -23,12 +24,10 @@ class Load(Transformer):
             "gero_active",
             "gero_passive",
         ],
-        **params,
-    ):
+        **params: object,
+    ) -> None:
         if not isinstance(file_paths, Sequence) or isinstance(file_paths, (str, bytes)):
-            raise TypeError(
-                f"Expected Sequence for file_paths, got {type(file_paths).__name__}"
-            )
+            raise TypeError(f"Expected Sequence for file_paths, got {type(file_paths).__name__}")
 
         if len(file_paths) == 0:
             raise ValueError("file_paths is empty")
@@ -40,7 +39,10 @@ class Load(Transformer):
         self.data_type = data_type.lower()
         self.params = params
 
-    def transform(self, data=None):
+    def transform(
+        self,
+        data: object = None,  # noqa: ARG002
+    ) -> list[Stream] | list[DispersionImage] | list[DispersionCurves]:
 
         handler = LOAD_HANDLERS.get(self.data_type)
 

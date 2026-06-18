@@ -16,8 +16,8 @@ class Slice(Transformer):
         self,
         segment_duration: float,
         segment_step: float,
-        **params,
-    ):
+        **params: object,
+    ) -> None:
         self.segment_duration = segment_duration
         self.segment_step = segment_step
         self.params = params
@@ -34,9 +34,7 @@ class Slice(Transformer):
             raise TypeError("all elements in sequence must be Stream")
 
         if self.segment_duration <= 0:
-            raise ValueError(
-                f"requires segment_duration > 0 s, got {self.segment_duration} s"
-            )
+            raise ValueError(f"requires segment_duration > 0 s, got {self.segment_duration} s")
 
         if self.segment_step <= 0:
             raise ValueError(f"requires segment_step > 0 s, got {self.segment_step} s")

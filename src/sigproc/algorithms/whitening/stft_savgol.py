@@ -17,9 +17,7 @@ def whiten_stft_savgol(
         raise ValueError("sfft_window_duration_sec must be > 0")
     fft_size = int(sfft_window_duration_sec * stream.sampling_freq)
     if fft_size < 2:
-        raise ValueError(
-            "FFT size too small; increase window duration or sampling_freq"
-        )
+        raise ValueError("FFT size too small; increase window duration or sampling_freq")
     _, _, data_fft = stft(stream.xt, nperseg=fft_size)
     _, n_freqs, _ = data_fft.shape
     if savgol_window_size_pts < 3:
@@ -34,9 +32,7 @@ def whiten_stft_savgol(
     if savgol_order < 0:
         raise ValueError("savgol_order must be >= 0")
     if savgol_order >= savgol_window_size_pts:
-        raise ValueError(
-            "savgol_order must be strictly less than savgol_window_size_pts"
-        )
+        raise ValueError("savgol_order must be strictly less than savgol_window_size_pts")
     if epsilon <= 0:
         raise ValueError("epsilon must be > 0")
     data_fft_whitened = np.empty_like(data_fft, dtype=np.complex128)

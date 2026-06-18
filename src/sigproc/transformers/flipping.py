@@ -1,20 +1,20 @@
 from collections.abc import Sequence
 
-from sigproc.algorithms.flipping.flipping import flip
+from sigproc.algorithms.flipping.flipping import FlipAxis, flip
 from sigproc.base.stream import Stream
 from sigproc.base.transformer import Transformer
 
 
 class Flip(Transformer):
-    """
-    Flipping transformer.
-    """
+    """Flip transformer."""
 
     def __init__(
         self,
-        **params,
-    ):
-        self.params = params
+        axis: FlipAxis = FlipAxis.SPACE,
+        flip_acquisition: bool = False,
+    ) -> None:
+        self.axis = axis
+        self.flip_acquisition = flip_acquisition
 
     def transform(self, data: Sequence[Stream]) -> list[Stream]:
 
@@ -31,7 +31,8 @@ class Flip(Transformer):
         for stream in data:
             stream_out = flip(
                 stream=stream,
-                **self.params,
+                axis=self.axis,
+                flip_acquisition=self.flip_acquisition,
             )
             streams_out.append(stream_out)
 

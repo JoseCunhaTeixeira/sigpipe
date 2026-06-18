@@ -9,7 +9,7 @@ from sigproc.base.stream import Stream
 def save_stream(
     stream: Stream,
     path: Path,
-    **kwargs,
+    **kwargs: object,
 ) -> None:
     path = path.with_suffix(".hd5")
     source = stream.acquisition.source.to_tuple()

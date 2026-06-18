@@ -35,15 +35,9 @@ def beamform_cross(
     freqs = torch.fft.rfftfreq(nt, d=1 / stream.sampling_freq)
     omegas = 2 * torch.pi * freqs
 
-    if fmin is not None:
-        fmin = max(fmin, min(freqs))
-    else:
-        fmin = min(freqs)
+    fmin = max(fmin, min(freqs)) if fmin is not None else min(freqs)
 
-    if fmax is not None:
-        fmax = min(fmax, max(freqs))
-    else:
-        fmax = max(freqs)
+    fmax = min(fmax, max(freqs)) if fmax is not None else max(freqs)
 
     if isinstance(medium_velocity, DispersionCurve):
         fmin = max(fmin, min(medium_velocity.fs))
@@ -54,13 +48,13 @@ def beamform_cross(
     omegas_lim = omegas[freq_idx]
 
     if isinstance(medium_velocity, DispersionCurve):
-        vs = torch.from_numpy(
-            np.interp(freqs_lim, medium_velocity.fs, medium_velocity.vs)
-        ).to(freqs_lim.device)
+        vs = torch.from_numpy(np.interp(freqs_lim, medium_velocity.fs, medium_velocity.vs)).to(
+            freqs_lim.device
+        )
         traveltimes = distances_to_all_gridpoints[:, :, None] / vs
-        greens_functions = torch.exp(
-            -1j * omegas_lim[None, None, :] * traveltimes[:, :, :]
-        ).type(torch.complex64)
+        greens_functions = torch.exp(-1j * omegas_lim[None, None, :] * traveltimes[:, :, :]).type(
+            torch.complex64
+        )
     else:
         traveltimes = distances_to_all_gridpoints / medium_velocity
         greens_functions = torch.exp(

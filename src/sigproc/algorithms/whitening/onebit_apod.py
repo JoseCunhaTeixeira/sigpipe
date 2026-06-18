@@ -20,9 +20,7 @@ def whiten_onebit_apod(
             f"the frequency band width ({fmax - fmin} Hz)"
         )
     if stream.nt < 2:
-        raise ValueError(
-            f"signal length nt ({stream.nt} samples) too small for FFT processing"
-        )
+        raise ValueError(f"signal length nt ({stream.nt} samples) too small for FFT processing")
     df = stream.sampling_freq / stream.nt
     if int((fmax - fmin) / df) < 2:
         raise ValueError(

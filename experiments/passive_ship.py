@@ -28,9 +28,7 @@ file_paths = [
     data_dir / "20250311101406_passive_rep9.hdf5",
 ]
 
-saving_dir = Path(
-    "/Users/JC287771/Documents/Work/data/2026-05-29_essai_imagerie_invent/results"
-)
+saving_dir = Path("/Users/JC287771/Documents/Work/data/2026-05-29_essai_imagerie_invent/results")
 
 source = Coordinate(x=0, y=0, z=0)
 receivers = (

@@ -68,9 +68,7 @@ def load_segd(
 ) -> list[Stream]:
 
     if not isinstance(acquisitions, Sequence) or isinstance(acquisitions, (str, bytes)):
-        raise TypeError(
-            f"Expected Sequence for acquisitions, got {type(acquisitions).__name__}"
-        )
+        raise TypeError(f"Expected Sequence for acquisitions, got {type(acquisitions).__name__}")
 
     if len(file_paths) != len(acquisitions):
         raise ValueError(
@@ -81,7 +79,7 @@ def load_segd(
         raise TypeError("All elements in acquisitions must be Acquisition")
 
     streams_out: list[Stream] = []
-    for path, acquisition in zip(file_paths, acquisitions):
+    for path, acquisition in zip(file_paths, acquisitions, strict=False):
         with warnings.catch_warnings():
             warnings.filterwarnings(
                 "ignore",
@@ -153,10 +151,7 @@ def load_gero_passive(
             raise FileNotFoundError(path)
         with h5py.File(path, "r") as f:
             if key not in f:
-                raise ValueError(
-                    f"Missing dataset '{key}'. "
-                    f"Available objects: {[key for key in f.keys()]}"
-                )
+                raise ValueError(f"Missing dataset '{key}'. Available objects: {list(f)}")
             record = np.array(
                 f[key][:],  # type: ignore
                 dtype=np.float32,
@@ -197,8 +192,7 @@ def load_gero_passive(
                     sampling_freq,
                 ):
                     raise ValueError(
-                        f"Sampling frequency mismatch "
-                        f"({sampling_freq} != {file_sampling_freq})"
+                        f"Sampling frequency mismatch ({sampling_freq} != {file_sampling_freq})"
                     )
 
             ts = compute_time_vector(
@@ -244,9 +238,7 @@ def load_gero_active(
 ) -> list[Stream]:
 
     if not isinstance(acquisitions, Sequence) or isinstance(acquisitions, (str, bytes)):
-        raise TypeError(
-            f"Expected Sequence for acquisitions, got {type(acquisitions).__name__}"
-        )
+        raise TypeError(f"Expected Sequence for acquisitions, got {type(acquisitions).__name__}")
 
     if len(file_paths) != len(acquisitions):
         raise ValueError(
@@ -264,10 +256,7 @@ def load_gero_active(
         streams_per_file = []
         with h5py.File(path, "r") as f:
             if key not in f:
-                raise ValueError(
-                    f"Missing dataset '{key}'. "
-                    f"Available objects: {[key for key in f.keys()]}"
-                )
+                raise ValueError(f"Missing dataset '{key}'. Available objects: {list(f)}")
             shots = np.array(
                 f[key][:],  # type: ignore
                 dtype=np.float32,
@@ -310,8 +299,7 @@ def load_gero_active(
             if file_sampling_freq is None:
                 if sampling_freq is None:
                     raise ValueError(
-                        "Missing 'fs' attribute. "
-                        f"Available attributes: {list(f[key].attrs.keys())}"
+                        f"Missing 'fs' attribute. Available attributes: {list(f[key].attrs.keys())}"
                     )
             else:
                 file_sampling_freq = float(file_sampling_freq)
@@ -322,11 +310,10 @@ def load_gero_active(
                     sampling_freq,
                 ):
                     raise ValueError(
-                        f"Sampling frequency mismatch "
-                        f"({sampling_freq} != {file_sampling_freq})"
+                        f"Sampling frequency mismatch ({sampling_freq} != {file_sampling_freq})"
                     )
 
-        for shot, acquisition in zip(shots, acquisitions):
+        for shot, acquisition in zip(shots, acquisitions, strict=False):
             if shot.shape[0] != len(acquisition.receivers):
                 raise ValueError(
                     "requires shot.shape[0] = number of receivers. "

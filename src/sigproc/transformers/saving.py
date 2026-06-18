@@ -17,8 +17,8 @@ class Save(Transformer):
         self,
         folder_path: Path,
         file_name: str = "",
-        **params,
-    ):
+        **params: object,
+    ) -> None:
         self.folder_path = folder_path
         self.file_name = file_name
         self.params = params
@@ -46,9 +46,7 @@ class Save(Transformer):
 
         for i, obj in enumerate(data):
             file_name = (
-                f"{self.file_name}_{i:04d}"
-                if self.file_name
-                else f"{type(obj).__name__}_{i:04d}"
+                f"{self.file_name}_{i:04d}" if self.file_name else f"{type(obj).__name__}_{i:04d}"
             )
             handler(
                 obj,

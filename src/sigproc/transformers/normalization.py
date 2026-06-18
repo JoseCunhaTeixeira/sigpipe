@@ -14,8 +14,8 @@ class Normalize(Transformer):
     def __init__(
         self,
         method: Literal["none", "onebit"],
-        **params,
-    ):
+        **params: object,
+    ) -> None:
         self.method = method
         self.params = params
 

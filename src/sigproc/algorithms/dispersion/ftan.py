@@ -27,7 +27,7 @@ def dispersion_ftan(
     if stream.acquisition.is_unknown:
         raise ValueError("dispersion has unknown acquisition")
     dispersion_images = []
-    for trace, offset in zip(stream.xt, stream.acquisition.offsets):
+    for trace, offset in zip(stream.xt, stream.acquisition.offsets, strict=False):
         f0s, vs, fv_map = ftan(
             trace=trace,
             offset=offset,
@@ -82,9 +82,7 @@ def ftan(
     if not (0 < fmin < fmax):
         raise ValueError(f"requires 0 Hz < fmin < fmax, got {fmin} Hz and {fmax} Hz")
     if not (0 < vmin < vmax):
-        raise ValueError(
-            f"requires 0 m/s < vmin < vmax, got {vmin} m/s and {vmax} m/s)"
-        )
+        raise ValueError(f"requires 0 m/s < vmin < vmax, got {vmin} m/s and {vmax} m/s)")
     if nf <= 0 or nv <= 0:
         raise ValueError(f"requires nf > 0 and nv > 0, got {nf} and {nv}")
     if alpha <= 0:

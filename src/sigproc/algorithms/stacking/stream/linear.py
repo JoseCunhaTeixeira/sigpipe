@@ -10,9 +10,7 @@ def stack_linear(
         raise ValueError("list cannot be empty.")
     reference = streams[0]
 
-    if any(
-        stream.nx != reference.nx or stream.nt != reference.nt for stream in streams
-    ):
+    if any(stream.nx != reference.nx or stream.nt != reference.nt for stream in streams):
         raise ValueError("Inconsistent Stream dimensions.")
 
     if any(stream.sampling_freq != reference.sampling_freq for stream in streams):

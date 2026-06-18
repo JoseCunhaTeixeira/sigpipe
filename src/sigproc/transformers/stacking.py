@@ -24,8 +24,8 @@ class Stack(Transformer):
     def __init__(
         self,
         method: Literal["none", "linear", "root", "phase_weighted"],
-        **params,
-    ):
+        **params: object,
+    ) -> None:
         self.method = method
         self.params = params
 
@@ -57,7 +57,7 @@ class Stack(Transformer):
                 )
             return [algorithm_stream(data, **self.params)]
 
-        elif isinstance(first, DispersionImage):
+        if isinstance(first, DispersionImage):
             algorithm_image = DISPERSION_IMAGE_STACKING_METHODS.get(self.method)
             if algorithm_image is None:
                 raise ValueError(
@@ -66,5 +66,4 @@ class Stack(Transformer):
                 )
             return [algorithm_image(data, **self.params)]
 
-        else:
-            raise TypeError(f"No save handler for {type(first).__name__}")
+        raise TypeError(f"No save handler for {type(first).__name__}")

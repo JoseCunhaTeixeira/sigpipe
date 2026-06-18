@@ -21,8 +21,8 @@ def segment_slice(
             f"requires 0 s < t_slice_start < t_slice_end <= record duration, got {t_slice_start}, {t_slice_end}, {stream.ts[-1]}"
         )
     dt = stream.ts[1] - stream.ts[0]
-    i_start = int(round(t_slice_start / dt))
-    i_end = int(round(t_slice_end / dt))
+    i_start = round(t_slice_start / dt)
+    i_end = round(t_slice_end / dt)
     ts_slice = stream.ts[i_start : i_end + 1]
     xt_slice = stream.xt[:, i_start : i_end + 1]
     return Stream(

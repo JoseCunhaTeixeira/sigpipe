@@ -3,7 +3,7 @@ from numpy.fft import fft, fftfreq
 from scipy.fft import rfft, rfftfreq
 from scipy.fftpack import next_fast_len
 
-from sigproc.algorithms.flipping.flipping import flip
+from sigproc.algorithms.flipping.flipping import FlipAxis, flip
 from sigproc.base.stream import Stream
 
 
@@ -54,6 +54,6 @@ def selection_fk(
         return None
 
     if flip_negatives and fk_ratio > 0:
-        return flip(stream=stream, axis="space", flip_acquisition=False)
+        return flip(stream=stream, axis=FlipAxis.SPACE, flip_acquisition=False)
 
     return stream

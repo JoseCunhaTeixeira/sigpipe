@@ -19,9 +19,7 @@ def correlate_cross(
         )
 
     if part.lower() not in {"causal", "acausal", "both"}:
-        raise ValueError(
-            f"part must be 'causal', 'acausal' or 'both, got {part.lower()!r}"
-        )
+        raise ValueError(f"part must be 'causal', 'acausal' or 'both, got {part.lower()!r}")
 
     ts_out = np.arange(stream.nt) / stream.sampling_freq
     xt_out_causal = np.zeros((stream.nx, len(ts_out)), dtype=np.float32)
@@ -54,7 +52,7 @@ def correlate_cross(
                 acquisition=acquisition_out,
             ),
         )
-    elif part.lower() == "acausal":
+    if part.lower() == "acausal":
         return (
             Stream(
                 xt=xt_out_acausal,

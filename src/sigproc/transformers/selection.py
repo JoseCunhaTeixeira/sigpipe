@@ -15,8 +15,8 @@ class Selection(Transformer):
     def __init__(
         self,
         method: Literal["none", "fk"],
-        **params,
-    ):
+        **params: object,
+    ) -> None:
         self.method = method
         self.params = params
 
@@ -60,5 +60,4 @@ class Selection(Transformer):
                     streams_out.append(stream_out)
             return streams_out
 
-        else:
-            raise TypeError(f"No save handler for {type(first).__name__}")
+        raise TypeError(f"No save handler for {type(first).__name__}")

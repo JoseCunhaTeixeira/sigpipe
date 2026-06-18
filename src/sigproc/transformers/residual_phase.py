@@ -9,7 +9,7 @@ from sigproc.base.transformer import Transformer
 
 
 class ArrivalResidualPhase(Transformer[Stream, Stream]):
-    def __init__(self, f0: float):
+    def __init__(self, f0: float) -> None:
         self.f0 = float(f0)
 
     def transform(
@@ -21,9 +21,7 @@ class ArrivalResidualPhase(Transformer[Stream, Stream]):
 
         for stream in data:
             if stream.arrivals is None:
-                raise ValueError(
-                    "ComputePhase requires arrivals. Run Pick before ComputePhase."
-                )
+                raise ValueError("ComputePhase requires arrivals. Run Pick before ComputePhase.")
 
             trace_arrivals_new = []
 
@@ -33,14 +31,7 @@ class ArrivalResidualPhase(Transformer[Stream, Stream]):
                 for arrival in trace_arrivals:
                     k = np.argmin(np.abs(stream.ts - arrival.time))
 
-                    residual_phase = np.angle(
-                        stream.xt_analytic[itrace, k]
-                        * np.exp(-1j * 2 * np.pi * self.f0 * arrival.time)
-                    )
-
-                    # residual_phase = (
-                    #     stream.xt_phase[itrace, k] - 2 * np.pi * self.f0 * arrival.time
-                    # )
+                    residual_phase = stream.xt_phase[itrace, k] - 2 * np.pi * self.f0 * arrival.time
 
                     arrivals_new.append(
                         replace(

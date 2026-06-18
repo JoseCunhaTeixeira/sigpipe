@@ -12,9 +12,11 @@ class Pad(Transformer):
 
     def __init__(
         self,
-        **params,
-    ):
-        self.params = params
+        n: int,
+        taper: int = 0,
+    ) -> None:
+        self.n = n
+        self.taper = taper
 
     def transform(self, data: Sequence[Stream]) -> list[Stream]:
 
@@ -31,7 +33,8 @@ class Pad(Transformer):
         for stream in data:
             stream_out = pad(
                 stream=stream,
-                **self.params,
+                n=self.n,
+                taper=self.taper,
             )
             streams_out.append(stream_out)
 

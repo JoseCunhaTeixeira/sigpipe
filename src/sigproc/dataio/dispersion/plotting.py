@@ -1,4 +1,4 @@
-from enum import Enum
+from enum import StrEnum
 
 import matplotlib.pyplot as plt
 import numpy as np
@@ -8,7 +8,7 @@ from sigproc.base.dispersion import DispersionCurves, DispersionImage
 from sigproc.dataio.plot_config import CM, DISP_DPI, HEIGHT_CM, SINGLE_COLUMN_CM
 
 
-class FrequencyUnity(str, Enum):
+class FrequencyUnity(StrEnum):
     HZ = "Hz"
     KHZ = "kHz"
     KHZMM = "kH.mm"
@@ -31,11 +31,7 @@ def plot_dispersion_image(
     Plot a frequency-velocity dispersion image.
     """
     _validate_bounds(lbmin, lbmax)
-    fv_plot = (
-        _normalize_rows(dispersion_image.fv_map)
-        if normalize
-        else dispersion_image.fv_map
-    )
+    fv_plot = _normalize_rows(dispersion_image.fv_map) if normalize else dispersion_image.fv_map
     fs_plot, xlabel = _scale_frequency(
         fs=dispersion_image.fs,
         thickness=thickness,
@@ -117,9 +113,7 @@ def plot_dispersion_image(
         "": "Velocity [m/s]",
     }
     if vlabel not in ylabel_map:
-        raise ValueError(
-            f"Unknown vlabel '{vlabel}'. Expected one of {tuple(ylabel_map)}."
-        )
+        raise ValueError(f"Unknown vlabel '{vlabel}'. Expected one of {tuple(ylabel_map)}.")
     ax.set_xlabel(xlabel)
     ax.set_ylabel(ylabel_map[vlabel])
     ax.set_xlim(fs_plot[0], fs_plot[-1])
@@ -187,9 +181,7 @@ def plot_dispersion_curves(
         "": "Velocity [m/s]",
     }
     if vlabel not in ylabel_map:
-        raise ValueError(
-            f"Unknown vlabel '{vlabel}'. Expected one of {tuple(ylabel_map)}."
-        )
+        raise ValueError(f"Unknown vlabel '{vlabel}'. Expected one of {tuple(ylabel_map)}.")
     ax.set_xlabel(xlabel)
     ax.set_ylabel(ylabel_map[vlabel])
     ax.grid(True, linestyle="--", linewidth=0.5, alpha=0.5)
@@ -231,11 +223,8 @@ def _scale_frequency(
     """Scale frequency axis and return axis label."""
     if unity == FrequencyUnity.HZ:
         return fs, "Frequency [Hz]"
-    elif unity == FrequencyUnity.KHZ:
+    if unity == FrequencyUnity.KHZ:
         return fs * 1e-3, "Frequency [kHz]"
-    elif unity == FrequencyUnity.KHZMM and thickness is not None:
+    if unity == FrequencyUnity.KHZMM and thickness is not None:
         return fs * thickness, "Frequency x Thickness [kHz.mm]"
-    else:
-        raise ValueError(
-            f"unity and thickness combination not handled, got {unity} and {thickness}"
-        )
+    raise ValueError(f"unity and thickness combination not handled, got {unity} and {thickness}")

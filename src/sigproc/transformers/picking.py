@@ -24,8 +24,8 @@ class Pick(Transformer):
     def __init__(
         self,
         method: Literal["none", "maximum"],
-        **params,
-    ):
+        **params: object,
+    ) -> None:
         self.method = method
         self.params = params
 
@@ -54,7 +54,7 @@ class Pick(Transformer):
                 )
             return [algorithm_stream(stream, **self.params) for stream in data]
 
-        elif isinstance(first, DispersionImage):
+        if isinstance(first, DispersionImage):
             algorithm_stream = DISPERSION_PICKING_METHODS.get(self.method)
             if algorithm_stream is None:
                 raise ValueError(
@@ -63,5 +63,4 @@ class Pick(Transformer):
                 )
             return [algorithm_stream(stream, **self.params) for stream in data]
 
-        else:
-            raise TypeError(f"No save handler for {type(first).__name__}")
+        raise TypeError(f"No save handler for {type(first).__name__}")

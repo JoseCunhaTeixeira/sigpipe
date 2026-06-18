@@ -17,20 +17,13 @@ class Correlate(Transformer):
         self,
         method: Literal["none", "cross"],
         virtual_source_index: int,
-        **params,
-    ):
+        **params: object,
+    ) -> None:
         self.method = method
         self.virtual_source_index = virtual_source_index
         self.params = params
 
     def transform(self, data: Sequence[Stream]) -> list[Stream]:
-
-        algorithm = CORRELATION_METHODS.get(self.method)
-        if algorithm is None:
-            raise ValueError(
-                f"Unknown normalizing method '{self.method}'. "
-                f"Available methods: {list(CORRELATION_METHODS.keys())}"
-            )
 
         if not isinstance(data, Sequence) or isinstance(data, (str, bytes)):
             raise TypeError(f"Expected Sequence[Stream], got {type(data).__name__}")
@@ -43,6 +36,13 @@ class Correlate(Transformer):
 
         if self.method == "none":
             return list(data)
+
+        algorithm = CORRELATION_METHODS.get(self.method)
+        if algorithm is None:
+            raise ValueError(
+                f"Unknown normalizing method '{self.method}'. "
+                f"Available methods: {list(CORRELATION_METHODS.keys())}"
+            )
 
         streams_out: list[Stream] = []
         for stream in data:

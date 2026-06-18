@@ -14,8 +14,8 @@ class Detrend(Transformer):
     def __init__(
         self,
         method: Literal["none", "linear", "constant"],
-        **params,
-    ):
+        **params: object,
+    ) -> None:
         self.method = method
         self.params = params
 

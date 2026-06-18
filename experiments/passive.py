@@ -23,9 +23,7 @@ file_paths = [
     data_dir / "20250328_162804_1_5.gero",
 ]
 
-saving_dir = Path(
-    "/Users/JC287771/Documents/Work/data/2026-05-09_passive_tests/results"
-)
+saving_dir = Path("/Users/JC287771/Documents/Work/data/2026-05-09_passive_tests/results")
 
 source = Coordinate(x=0, y=0, z=0)
 receivers = (

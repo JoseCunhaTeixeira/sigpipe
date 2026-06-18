@@ -11,7 +11,7 @@ from sigproc.base.dispersion import DispersionCurves, DispersionImage
 def save_dispersion_image(
     dispersion_image: DispersionImage,
     path: Path,
-    **kwargs,
+    **kwargs: object,
 ) -> None:
     sources = []
     receivers = []
@@ -37,10 +37,10 @@ def save_dispersion_curves(
     path: Path,
 ) -> None:
     if dispersion_curves:
-        path = path.with_name(
-            path.name.replace("DispersionImage", "DispersionCurves")
-        ).with_suffix(".csv")
-        with open(path, "w", encoding="utf-8") as file:
+        path = path.with_name(path.name.replace("DispersionImage", "DispersionCurves")).with_suffix(
+            ".csv"
+        )
+        with path.open("w", encoding="utf-8") as file:
             for dispersion_curve in dispersion_curves:
                 sources = []
                 receivers = []

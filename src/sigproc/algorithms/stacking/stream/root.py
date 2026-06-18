@@ -40,5 +40,4 @@ def rs(
         msg = f"n {n} must be greater or equal to 1"
         raise ValueError(msg)
     r = np.mean(np.sign(xt) * np.abs(xt) ** (1 / n), axis=0)
-    trace_stacked = np.sign(r) * np.abs(r) ** n
-    return trace_stacked
+    return np.sign(r) * np.abs(r) ** n

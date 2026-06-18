@@ -17,7 +17,7 @@ class Acquisition:
         object.__setattr__(self, "offsets", offsets)
         offsets.setflags(write=False)
 
-    def __eq__(self, other):
+    def __eq__(self, other: object) -> bool:
         if not isinstance(other, Acquisition):
             return NotImplemented
 
@@ -38,9 +38,7 @@ class Acquisition:
         return any(np.isnan(v) for v in values)
 
     @staticmethod
-    def compute_offsets(
-        source: Coordinate, receivers: tuple[Coordinate, ...]
-    ) -> np.ndarray:
+    def compute_offsets(source: Coordinate, receivers: tuple[Coordinate, ...]) -> np.ndarray:
         return np.array(
             [source.distance_to(r) for r in receivers],
             dtype=np.float32,

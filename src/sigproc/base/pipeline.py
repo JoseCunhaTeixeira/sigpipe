@@ -1,31 +1,35 @@
+from __future__ import annotations
+
 import logging
 from datetime import datetime
 from pathlib import Path
 from time import perf_counter
-from typing import Any
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from collections.abc import Iterable
+
+    from sigproc.base.transformer import Transformer
 
 
 class Pipeline:
-    def __init__(self, steps):
-        self.steps = list(steps)
+    def __init__(self, steps: Iterable[Transformer]) -> None:
+        self.steps: list[Transformer] = list(steps)
 
-    def __rshift__(
-        self,
-        other,
-    ) -> Pipeline:
-        return Pipeline(
-            [
-                *self.steps,
-                other,
-            ]
-        )
+    def __rshift__(self, other: Transformer | Pipeline) -> Pipeline:
+        if isinstance(other, Pipeline):
+            return Pipeline([*self.steps, *other.steps])
+        return Pipeline([*self.steps, other])
+
+    def __repr__(self) -> str:
+        return " >> ".join(step.name for step in self.steps)
 
     def run(
         self,
-        data: Any = None,
+        data: Any = None,  # noqa: ANN401
         save_log: bool = False,
         show_log: bool = True,
-    ) -> Any:
+    ) -> Any:  # noqa: ANN401
 
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
 
@@ -106,6 +110,3 @@ class Pipeline:
             logger.addHandler(file_handler)
 
         return logger
-
-    def __repr__(self):
-        return " >> ".join(step.name for step in self.steps)

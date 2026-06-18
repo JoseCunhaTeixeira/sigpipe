@@ -21,8 +21,8 @@ class Whiten(Transformer):
             "stft_onebit",
             "stft_savgol",
         ],
-        **params,
-    ):
+        **params: object,
+    ) -> None:
         self.method = method
         self.params = params
 

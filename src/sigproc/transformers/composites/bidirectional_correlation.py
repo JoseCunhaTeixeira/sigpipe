@@ -1,6 +1,7 @@
 from collections.abc import Sequence
 from typing import Literal
 
+from sigproc.algorithms import FlipAxis
 from sigproc.base.stream import Stream
 from sigproc.base.transformer import Transformer
 from sigproc.transformers.correlation import Correlate
@@ -15,7 +16,7 @@ class BidirectionalCorrelate(Transformer):
     def __init__(
         self,
         method: Literal["none", "cross"],
-    ):
+    ) -> None:
         self.method: Literal["none", "cross"] = method
 
     def transform(
@@ -48,7 +49,7 @@ class BidirectionalCorrelate(Transformer):
         ).transform(data)
 
         right = Flip(
-            axis="space",
+            axis=FlipAxis.SPACE,
             flip_acquisition=False,
         ).transform(right)
 

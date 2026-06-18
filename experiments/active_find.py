@@ -34,9 +34,11 @@ file_paths = [
 ]
 
 modeled_curves = load_dispersion_curves(
-    path=Path(
-        "/Users/JC287771/Documents/Work/data/2026-05-29_essai_imagerie_invent/models/disp_1.72mm.txt"
-    )
+    file_paths=[
+        Path(
+            "/Users/JC287771/Documents/Work/data/2026-05-29_essai_imagerie_invent/models/disp_1.72mm.txt"
+        )
+    ]
 )
 
 SOURCES = (
@@ -166,13 +168,11 @@ def run() -> None:
     ]
 
     for sources_to_load, receivers_to_load, folder_path in zip(
-        source_windows, receiver_windows, saving_dirs
+        source_windows, receiver_windows, saving_dirs, strict=False
     ):
         sources = tuple(SOURCES[i] for i in sources_to_load)
         receivers = tuple(RECEIVERS[i] for i in receivers_to_load)
-        acquisitions = [
-            Acquisition(source=source, receivers=receivers) for source in sources
-        ]
+        acquisitions = [Acquisition(source=source, receivers=receivers) for source in sources]
 
         run_pipeline(
             acquisitions=acquisitions,

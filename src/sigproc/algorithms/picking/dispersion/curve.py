@@ -10,14 +10,29 @@ from sigproc.base.dispersion import (
 
 def pick_curves(
     dispersion_image: DispersionImage,
-    fmins: list[float] | list[None] = [None],
-    fmaxs: list[float] | list[None] = [None],
-    vmins: list[float] | list[None] = [None],
-    vmaxs: list[float] | list[None] = [None],
-    lbdmins: list[float] | list[None] = [None],
-    lbdmaxs: list[float] | list[None] = [None],
-    labels: list[str] = ["unknown"],
+    fmins: list[float | None] | None = None,
+    fmaxs: list[float | None] | None = None,
+    vmins: list[float | None] | None = None,
+    vmaxs: list[float | None] | None = None,
+    lbdmins: list[float | None] | None = None,
+    lbdmaxs: list[float | None] | None = None,
+    labels: list[str] | None = None,
 ) -> DispersionImage:
+
+    if fmins is None:
+        fmins = [None]
+    if fmaxs is None:
+        fmaxs = [None]
+    if vmins is None:
+        vmins = [None]
+    if vmaxs is None:
+        vmaxs = [None]
+    if lbdmins is None:
+        lbdmins = [None]
+    if lbdmaxs is None:
+        lbdmaxs = [None]
+    if labels is None:
+        labels = ["unknown"]
 
     dispersion_curves: list[DispersionCurve] = (
         list(dispersion_image.dispersion_curves)
@@ -39,7 +54,7 @@ def pick_curves(
         )
 
     for fmin, fmax, vmin, vmax, lbdmin, lbdmax, label in zip(
-        fmins, fmaxs, vmins, vmaxs, lbdmins, lbdmaxs, labels
+        fmins, fmaxs, vmins, vmaxs, lbdmins, lbdmaxs, labels, strict=False
     ):
         fs = dispersion_image.fs.copy()
         vs = dispersion_image.vs.copy()
@@ -87,10 +102,7 @@ def pick_curves(
                 picked_vs[valid],
             )
 
-        if (len(picked_vs) / 2) % 2 == 0:
-            wl = len(picked_vs) // 2 + 1
-        else:
-            wl = len(picked_vs) // 2
+        wl = len(picked_vs) // 2 + 1 if len(picked_vs) / 2 % 2 == 0 else len(picked_vs) // 2
         picked_vs = np.asarray(
             savgol_filter(picked_vs, window_length=wl, polyorder=2),
             dtype=np.float32,

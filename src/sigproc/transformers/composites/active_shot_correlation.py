@@ -1,6 +1,7 @@
 from collections.abc import Sequence
 from typing import Literal
 
+from sigproc.algorithms import FlipAxis
 from sigproc.base.stream import Stream
 from sigproc.base.transformer import Transformer
 from sigproc.transformers.correlation import Correlate
@@ -15,7 +16,7 @@ class ActiveShotCorrelation(Transformer):
     def __init__(
         self,
         method: Literal["none", "cross"],
-    ):
+    ) -> None:
         self.method: Literal["none", "cross"] = method
 
     def transform(
@@ -38,9 +39,7 @@ class ActiveShotCorrelation(Transformer):
         streams_out = []
 
         for stream in data:
-            if (
-                stream.acquisition.source.x <= stream.acquisition.receivers[0].x
-            ):  # Source at left
+            if stream.acquisition.source.x <= stream.acquisition.receivers[0].x:  # Source at left
                 virtual_source_index = 0
             elif (
                 stream.acquisition.source.x >= stream.acquisition.receivers[-1].x
@@ -57,7 +56,7 @@ class ActiveShotCorrelation(Transformer):
 
             if virtual_source_index == -1:
                 correl = Flip(
-                    axis="space",
+                    axis=FlipAxis.SPACE,
                     flip_acquisition=False,
                 ).transform(correl)
 

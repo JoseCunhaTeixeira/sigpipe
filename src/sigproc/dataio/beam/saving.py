@@ -11,7 +11,7 @@ from sigproc.base.coordinate import (
 def save_beam(
     beam: Beam,
     path: Path,
-    **kwargs,
+    **kwargs: object,
 ) -> None:
     path = path.with_suffix(".hd5")
     source = beam.acquisition.source.to_tuple()

@@ -15,8 +15,8 @@ class Beamform(Transformer):
     def __init__(
         self,
         method: Literal["none", "cross"],
-        **params,
-    ):
+        **params: object,
+    ) -> None:
         self.method = method
         self.params = params
 

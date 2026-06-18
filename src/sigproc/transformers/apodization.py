@@ -14,8 +14,8 @@ class Apodize(Transformer):
     def __init__(
         self,
         method: Literal["none", "hanning"],
-        **params,
-    ):
+        **params: object,
+    ) -> None:
         self.method = method
         self.params = params
 

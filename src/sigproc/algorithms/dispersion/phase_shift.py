@@ -72,9 +72,7 @@ def phase_shift(
     fs = compute_frequency_vector(nt=nt, sampling_freq=sampling_freq)
     mask = (fs >= fmin) & (fs <= fmax)
     if not np.any(mask):
-        raise ValueError(
-            f"no frequencies found in the requested band ({fmin} to {fmax} Hz)"
-        )
+        raise ValueError(f"no frequencies found in the requested band ({fmin} to {fmax} Hz)")
     fs = fs[mask]
     xf = xf[:, mask]
     vs = np.linspace(vmin, vmax, nv)

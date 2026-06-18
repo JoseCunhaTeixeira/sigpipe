@@ -23,10 +23,11 @@ from .stacking import Stack
 from .whitening import Whiten
 
 __all__ = [
+    "ActiveShotCorrelation",
     "Apodize",
+    "ArrivalResidualPhase",
     "Beamform",
     "BidirectionalCorrelate",
-    "ActiveShotCorrelation",
     "Correlate",
     "Detrend",
     "Dispersion",
@@ -41,7 +42,6 @@ __all__ = [
     "Pick",
     "Plot",
     "PlotSection",
-    "ArrivalResidualPhase",
     "Save",
     "Selection",
     "Slice",

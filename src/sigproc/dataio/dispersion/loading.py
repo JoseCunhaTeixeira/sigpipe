@@ -148,8 +148,7 @@ def load_picked_dispersion_curves(
                 )
 
                 receivers = tuple(
-                    tuples_to_coordinates(receiver_group)
-                    for receiver_group in raw_receivers
+                    tuples_to_coordinates(receiver_group) for receiver_group in raw_receivers
                 )
 
             elif line == "frequency_Hz,phase_velocity_m/s":

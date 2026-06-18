@@ -59,9 +59,7 @@ def plot_dispersion_curve_section(
         "": "Velocity [m/s]",
     }
     if vlabel not in clabel_map:
-        raise ValueError(
-            f"Unknown vlabel '{vlabel}'. Expected one of {tuple(clabel_map)}."
-        )
+        raise ValueError(f"Unknown vlabel '{vlabel}'. Expected one of {tuple(clabel_map)}.")
     cbar.set_label(clabel_map[vlabel])
 
     ax.set_xlabel("Position [#]")

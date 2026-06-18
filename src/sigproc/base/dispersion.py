@@ -1,3 +1,4 @@
+from collections.abc import Iterator
 from dataclasses import dataclass
 
 import numpy as np
@@ -28,13 +29,13 @@ class DispersionCurve:
 class DispersionCurves:
     curves: tuple[DispersionCurve, ...]
 
-    def __iter__(self):
+    def __iter__(self) -> Iterator[DispersionCurve]:
         return iter(self.curves)
 
-    def __len__(self):
+    def __len__(self) -> int:
         return len(self.curves)
 
-    def __getitem__(self, item):
+    def __getitem__(self, item: int) -> DispersionCurve:
         return self.curves[item]
 
 

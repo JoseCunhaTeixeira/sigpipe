@@ -27,9 +27,7 @@ def whiten_savgol(
     if savgol_order < 0:
         raise ValueError("savgol_order must be >= 0")
     if savgol_order >= savgol_window_size_pts:
-        raise ValueError(
-            "savgol_order must be strictly less than savgol_window_size_pts"
-        )
+        raise ValueError("savgol_order must be strictly less than savgol_window_size_pts")
     if epsilon <= 0:
         raise ValueError("epsilon must be > 0")
     data_fft = np.array(fft(stream.xt, axis=-1), dtype=np.complex64)

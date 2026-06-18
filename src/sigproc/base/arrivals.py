@@ -1,3 +1,4 @@
+from collections.abc import Iterator
 from dataclasses import dataclass
 
 
@@ -19,11 +20,11 @@ class TraceArrivals:
                 return arrival
         return None
 
-    def __iter__(self):
+    def __iter__(self) -> Iterator[Arrival]:
         return iter(self.arrivals)
 
-    def __len__(self):
+    def __len__(self) -> int:
         return len(self.arrivals)
 
-    def __getitem__(self, item):
+    def __getitem__(self, item: int) -> Arrival:
         return self.arrivals[item]

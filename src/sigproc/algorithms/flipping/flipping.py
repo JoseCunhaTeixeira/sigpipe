@@ -1,30 +1,38 @@
-from typing import Literal
+from enum import StrEnum
 
 from sigproc.base.acquisition import Acquisition
 from sigproc.base.stream import Stream
 
 
+class FlipAxis(StrEnum):
+    SPACE = "space"
+    TIME = "time"
+
+
 def flip(
     stream: Stream,
-    axis: Literal["space", "time"] = "space",
+    axis: FlipAxis = FlipAxis.SPACE,
     flip_acquisition: bool = False,
 ) -> Stream:
-    if axis.lower() not in {"space", "time"}:
-        raise ValueError(f"axis must be 'space' or 'time, got {axis.lower()!r}")
+    axis = FlipAxis(axis)
+
     xt = stream.xt.copy()
     acquisition = stream.acquisition
-    if axis.lower() == "space":
+
+    if axis is FlipAxis.SPACE:
         xt = xt[::-1, :]
         if flip_acquisition:
             acquisition = Acquisition(
                 source=stream.acquisition.source,
                 receivers=tuple(reversed(stream.acquisition.receivers)),
             )
-    elif axis.lower() == "time":
+    elif axis is FlipAxis.TIME:
         xt = xt[:, ::-1]
+
     arrivals = None
     if stream.arrivals is not None:
         arrivals = tuple(reversed(stream.arrivals))
+
     return Stream(
         xt=xt,
         ts=stream.ts,

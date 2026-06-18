@@ -14,14 +14,12 @@ def plot_stream(
     xt = stream.xt.copy()
     nx = stream.nx
     ts = stream.ts.copy()
-    fig, ax = plt.subplots(
-        figsize=(SINGLE_COLUMN_CM * CM, HEIGHT_CM * CM), dpi=DISP_DPI
-    )
+    fig, ax = plt.subplots(figsize=(SINGLE_COLUMN_CM * CM, HEIGHT_CM * CM), dpi=DISP_DPI)
     if normalize:
         scales = np.max(np.abs(xt), axis=1, keepdims=True)
         xt /= scales + 1e-12
     y_positions = np.arange(nx) * spacing
-    for i_trace, (trace, y_position) in enumerate(zip(xt, y_positions)):
+    for i_trace, (trace, y_position) in enumerate(zip(xt, y_positions, strict=False)):
         ax.plot(y_position + trace, ts, color="black", lw=0.5)
         ax.fill_betweenx(
             ts,
@@ -39,9 +37,7 @@ def plot_stream(
                 va="bottom",
             )
     if stream.arrivals is not None:
-        for i_trace, (trace, trace_arrivals, y_position) in enumerate(
-            zip(xt, stream.arrivals, y_positions)
-        ):
+        for trace_arrivals, y_position in zip(stream.arrivals, y_positions, strict=False):
             for arrival in trace_arrivals:
                 ax.scatter(
                     y_position,

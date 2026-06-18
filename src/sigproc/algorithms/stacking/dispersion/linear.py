@@ -31,11 +31,7 @@ def stack_linear(
     )
 
     acquisitions = (
-        tuple(
-            acquisition
-            for disp in dispersion_images
-            for acquisition in disp.acquisitions
-        )
+        tuple(acquisition for disp in dispersion_images for acquisition in disp.acquisitions)
         if stack_acquisitions
         else reference.acquisitions
     )

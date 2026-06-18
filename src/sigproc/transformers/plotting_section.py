@@ -20,8 +20,8 @@ class PlotSection(Transformer):
     def __init__(
         self,
         folder_path: Path,
-        **params,
-    ):
+        **params: object,
+    ) -> None:
         self.folder_path = folder_path
         self.params = params
 
