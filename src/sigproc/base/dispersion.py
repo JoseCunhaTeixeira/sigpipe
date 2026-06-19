@@ -25,6 +25,11 @@ class DispersionCurve:
         self.fs.setflags(write=False)
         self.vs.setflags(write=False)
 
+        if len(self.fs) != len(self.vs):
+            raise ValueError(
+                f"fs and vs arrays must have the same length, got {len(self.fs)} and {len(self.vs)}"
+            )
+
         if self.vs_std is not None:
             vs_std = np.asarray(self.vs_std, dtype=np.float32)
             object.__setattr__(self, "vs_std", vs_std)
