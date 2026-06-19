@@ -13,6 +13,7 @@ class DispersionCurve:
     label: str
     type: str
     acquisitions: tuple[Acquisition, ...]
+    vs_std: np.ndarray | None = None
 
     def __post_init__(self) -> None:
         fs = np.asarray(self.fs, dtype=np.float32)
@@ -23,6 +24,11 @@ class DispersionCurve:
 
         self.fs.setflags(write=False)
         self.vs.setflags(write=False)
+
+        if self.vs_std is not None:
+            vs_std = np.asarray(self.vs_std, dtype=np.float32)
+            object.__setattr__(self, "vs_std", vs_std)
+            self.vs_std.setflags(write=False)
 
 
 @dataclass(slots=True, frozen=True)

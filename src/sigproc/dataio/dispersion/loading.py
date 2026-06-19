@@ -127,6 +127,7 @@ def load_picked_dispersion_curves(
         receivers: tuple[tuple[Coordinate, ...], ...] = ()
 
         data_start = None
+        has_std = False
 
         for i, line in enumerate(lines):
             if line.startswith("label:"):
@@ -151,7 +152,11 @@ def load_picked_dispersion_curves(
                     tuples_to_coordinates(receiver_group) for receiver_group in raw_receivers
                 )
 
-            elif line == "frequency_Hz,phase_velocity_m/s":
+            elif line in (
+                "frequency_Hz,phase_velocity_m/s",
+                "frequency_Hz,phase_velocity_m/s,velocity_std_m/s",
+            ):
+                has_std = line.endswith("velocity_std_m/s")
                 data_start = i + 1
                 break
 
@@ -160,11 +165,14 @@ def load_picked_dispersion_curves(
 
         fs = []
         vs = []
+        vs_std: list[float] | None = [] if has_std else None
 
         for line in lines[data_start:]:
-            f, v = line.split(",")
-            fs.append(float(f))
-            vs.append(float(v))
+            parts = line.split(",")
+            fs.append(float(parts[0]))
+            vs.append(float(parts[1]))
+            if vs_std is not None:
+                vs_std.append(float(parts[2]))
 
         acquisitions = tuple(
             Acquisition(
@@ -185,6 +193,7 @@ def load_picked_dispersion_curves(
                 label=label,
                 type=curve_type,
                 acquisitions=acquisitions,
+                vs_std=np.asarray(vs_std, dtype=np.float32) if vs_std is not None else None,
             )
         )
 

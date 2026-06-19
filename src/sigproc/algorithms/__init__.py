@@ -6,6 +6,7 @@ from .dispersion.registry import DISPERSION_METHODS
 from .filtering.registry import FILTERING_METHODS
 from .flipping.flipping import FlipAxis
 from .normalization.registry import NORMALIZATION_METHODS
+from .picking.dispersion.curve import lorentzian_uncertainty
 from .picking.registry import DISPERSION_PICKING_METHODS, STREAM_PICKING_METHODS
 from .selection.registy import STREAM_SELECTION_METHODS
 from .stacking.registry import (
@@ -27,4 +28,5 @@ __all__ = [
     "STREAM_SELECTION_METHODS",
     "STREAM_STACKING_METHODS",
     "FlipAxis",
+    "lorentzian_uncertainty",
 ]

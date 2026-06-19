@@ -25,6 +25,7 @@ def plot_dispersion_image(
     normalize: bool = False,
     show_cbar: bool = False,
     show_legend: bool = False,
+    show_errorbars: bool = False,
     unity: FrequencyUnity = FrequencyUnity.HZ,
 ) -> Figure:
     """
@@ -69,11 +70,15 @@ def plot_dispersion_image(
                 thickness=thickness,
                 unity=unity,
             )
-            ax.plot(
+            ax.errorbar(
                 picked_fs,
                 picked_curve.vs,
+                yerr=picked_curve.vs_std if show_errorbars else None,
+                fmt="-",
                 color="white",
                 linewidth=0.5,
+                elinewidth=0.5,
+                capsize=0,
                 label=picked_curve.label,
             )
     else:
@@ -84,11 +89,15 @@ def plot_dispersion_image(
                     thickness=thickness,
                     unity=unity,
                 )
-                ax.plot(
+                ax.errorbar(
                     picked_fs,
                     picked_curve.vs,
+                    yerr=picked_curve.vs_std if show_errorbars else None,
+                    fmt="-",
                     color="white",
                     linewidth=0.5,
+                    elinewidth=0.5,
+                    capsize=0,
                     label=picked_curve.label,
                 )
 
@@ -133,6 +142,7 @@ def plot_dispersion_curves(
     fmax: float | None = None,
     vmin: float | None = None,
     vmax: float | None = None,
+    show_errorbars: bool = False,
     unity: FrequencyUnity = FrequencyUnity.HZ,
 ) -> Figure:
     """
@@ -152,11 +162,15 @@ def plot_dispersion_curves(
                 thickness=thickness,
                 unity=unity,
             )
-            ax.plot(
+            ax.errorbar(
                 picked_fs,
                 picked_curve.vs,
+                yerr=picked_curve.vs_std if show_errorbars else None,
+                fmt="-",
                 color=cmap(i / max(len(picked_curves) - 1, 1)),
                 linewidth=0.5,
+                elinewidth=0.5,
+                capsize=0,
                 label=picked_curve.label,
             )
         vlabel = picked_curves[0].type.lower()

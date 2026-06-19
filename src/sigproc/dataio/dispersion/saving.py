@@ -51,7 +51,17 @@ def save_dispersion_curves(
                 file.write(f"type: {dispersion_curve.type}\n")
                 file.write(f"sources: {tuple(sources)}\n")
                 file.write(f"receivers: {tuple(receivers)}\n")
-                file.write("frequency_Hz,phase_velocity_m/s\n")
-                for f, v in zip(dispersion_curve.fs, dispersion_curve.vs, strict=True):
-                    file.write(f"{float(f):.6f},{float(v):.6f}\n")
+                if dispersion_curve.vs_std is not None:
+                    file.write("frequency_Hz,phase_velocity_m/s,velocity_std_m/s\n")
+                    for f, v, std in zip(
+                        dispersion_curve.fs,
+                        dispersion_curve.vs,
+                        dispersion_curve.vs_std,
+                        strict=True,
+                    ):
+                        file.write(f"{float(f):.6f},{float(v):.6f},{float(std):.6f}\n")
+                else:
+                    file.write("frequency_Hz,phase_velocity_m/s\n")
+                    for f, v in zip(dispersion_curve.fs, dispersion_curve.vs, strict=True):
+                        file.write(f"{float(f):.6f},{float(v):.6f}\n")
                 file.write("\n---\n\n")

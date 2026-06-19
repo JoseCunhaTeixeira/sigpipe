@@ -1,11 +1,45 @@
 import numpy as np
 from scipy.signal import medfilt, savgol_filter
 
+from sigproc.base.acquisition import Acquisition
 from sigproc.base.dispersion import (
     DispersionCurve,
     DispersionCurves,
     DispersionImage,
 )
+
+
+def lorentzian_uncertainty(
+    fs: np.ndarray,
+    vs: np.ndarray,
+    acquisitions: tuple[Acquisition, ...],
+    a: float = 0.5,
+) -> np.ndarray:
+    """Per-point phase-velocity uncertainty from the receiver array's resolving power.
+
+    Lorentzian resolution formula: a tighter array (more receivers, smaller
+    spacing) resolves velocity more precisely, so its curve gets a smaller
+    uncertainty. Receiver count and spacing are taken from the curve's own
+    acquisition geometry (assumed uniform, from the first two receivers).
+    """
+
+    receivers = acquisitions[0].receivers
+    n_receivers = len(receivers)
+    dx = abs(receivers[1].x - receivers[0].x)
+
+    fs = np.asarray(fs, dtype=np.float64)
+    vs = np.asarray(vs, dtype=np.float64)
+
+    fac = 10 ** (1 / np.sqrt(n_receivers * dx))
+    dc_left = 1 / (1 / vs - 1 / (2 * fs * n_receivers * fac * dx))
+    dc_right = 1 / (1 / vs + 1 / (2 * fs * n_receivers * fac * dx))
+    resolution = np.abs(dc_left - dc_right)
+
+    raw = (10**-a) * resolution
+    uncertainty = np.where(raw > 0.4 * vs, 0.4 * vs, raw)
+    uncertainty = np.where(raw < 5, 5, uncertainty)
+
+    return uncertainty.astype(np.float32)
 
 
 def pick_curves(
@@ -115,6 +149,7 @@ def pick_curves(
                 label=label,
                 acquisitions=dispersion_image.acquisitions,
                 type=dispersion_image.type,
+                vs_std=lorentzian_uncertainty(fs, picked_vs, dispersion_image.acquisitions),
             )
         )
 
