@@ -8,7 +8,7 @@ from sigproc.base.stream import Stream
 
 def pick_arrivals(
     stream: Stream,
-    label: str = "unknown",
+    label: str = "",
     traces_to_pick: Sequence[int] | None = None,
     tmins: Sequence[float] | None = None,
     tmaxs: Sequence[float] | None = None,

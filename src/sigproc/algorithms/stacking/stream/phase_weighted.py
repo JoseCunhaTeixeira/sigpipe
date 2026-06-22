@@ -46,4 +46,4 @@ def pws(
     anal_sig = np.array(hilbert(xt, N=nfft, axis=-1), np.complex64)[:, :npts]
     instant_phase = anal_sig / (np.abs(anal_sig) + 1e-12)
     phase_stack = np.abs(np.mean(instant_phase, axis=0)) ** nu
-    return np.mean(xt, axis=0) * phase_stack
+    return np.asarray(np.mean(xt, axis=0) * phase_stack, dtype=xt.dtype)

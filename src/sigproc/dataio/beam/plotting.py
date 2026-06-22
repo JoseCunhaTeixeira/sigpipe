@@ -18,7 +18,7 @@ def plot_beamforming(
         dpi=DISP_DPI,
     )
     pcm = ax.pcolormesh(beam.xs, beam.ys, beam.xy_map.T, cmap="PuOr", vmin=-1, vmax=1)
-    ax.scatter(*stations.T, marker="v", s=25, label="station", ec="k", lw=0.5)
+    ax.scatter(stations[:, 0], stations[:, 1], marker="v", s=25, label="station", ec="k", lw=0.5)
     if show_cbar:
         fig.colorbar(pcm, ax=ax, pad=0.02, aspect=40)
     ax.set_xlabel("x [m]")

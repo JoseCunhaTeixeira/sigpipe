@@ -9,6 +9,7 @@ from obspy import read as read_obspy
 from sigproc.base.acquisition import UNKNOWN_ACQUISITION, Acquisition
 from sigproc.base.coordinate import Coordinate, tuples_to_coordinates
 from sigproc.base.stream import Stream
+from sigproc.dataio._h5 import dataset
 
 
 def load_stream(
@@ -21,19 +22,19 @@ def load_stream(
 
         with h5py.File(path, "r") as file:
             xt = np.asarray(
-                file["xt"][:],  # type: ignore
+                dataset(file, "xt")[:],
                 dtype=np.float32,
             )
 
             ts = np.asarray(
-                file["ts"][:],  # type: ignore
+                dataset(file, "ts")[:],
                 dtype=np.float32,
             )
 
-            sampling_freq = float(file["sampling_freq"][()])  # type: ignore
+            sampling_freq = float(dataset(file, "sampling_freq")[()])
 
-            source = tuple(file["source"][:])  # type: ignore
-            receivers = list(file["receivers"][:])  # type: ignore
+            source = tuple(dataset(file, "source")[:])
+            receivers = list(dataset(file, "receivers")[:])
 
         acquisition = Acquisition(
             source=Coordinate(*source),
@@ -88,7 +89,7 @@ def load_segd(
             ob_stream = read_obspy(path)
         sampling_freq = ob_stream[0].stats.sampling_rate
         nx = len(ob_stream)
-        nt = ob_stream[0].stats.npts  # type: ignore
+        nt = ob_stream[0].stats.npts
         xt = np.zeros((nx, nt), dtype=np.float32)
         for i, trace in enumerate(ob_stream):
             xt[i, :] = trace.data
@@ -153,7 +154,7 @@ def load_gero_passive(
             if key not in f:
                 raise ValueError(f"Missing dataset '{key}'. Available objects: {list(f)}")
             record = np.array(
-                f[key][:],  # type: ignore
+                dataset(f, key)[:],
                 dtype=np.float32,
             )
 
@@ -258,7 +259,7 @@ def load_gero_active(
             if key not in f:
                 raise ValueError(f"Missing dataset '{key}'. Available objects: {list(f)}")
             shots = np.array(
-                f[key][:],  # type: ignore
+                dataset(f, key)[:],
                 dtype=np.float32,
             )
 

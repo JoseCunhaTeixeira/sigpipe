@@ -13,10 +13,10 @@ if TYPE_CHECKING:
 
 
 class Pipeline:
-    def __init__(self, steps: Iterable[Transformer]) -> None:
-        self.steps: list[Transformer] = list(steps)
+    def __init__(self, steps: Iterable[Transformer[Any, Any]]) -> None:
+        self.steps: list[Transformer[Any, Any]] = list(steps)
 
-    def __rshift__(self, other: Transformer | Pipeline) -> Pipeline:
+    def __rshift__(self, other: Transformer[Any, Any] | Pipeline) -> Pipeline:
         if isinstance(other, Pipeline):
             return Pipeline([*self.steps, *other.steps])
         return Pipeline([*self.steps, other])

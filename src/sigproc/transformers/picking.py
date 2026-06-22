@@ -1,22 +1,16 @@
 from collections.abc import Sequence
-from typing import Literal, TypeVar
+from typing import Literal, cast
 
 from sigproc.algorithms.picking.registry import (
     DISPERSION_PICKING_METHODS,
     STREAM_PICKING_METHODS,
 )
-from sigproc.base.dispersion import DispersionImage
+from sigproc.base.dispersion_image import DispersionImage
 from sigproc.base.stream import Stream
 from sigproc.base.transformer import Transformer
 
-T = TypeVar(
-    "T",
-    Stream,
-    DispersionImage,
-)
 
-
-class Pick(Transformer):
+class Pick[T: (Stream, DispersionImage)](Transformer[T, T]):
     """
     Picking transformer.
     """
@@ -31,14 +25,7 @@ class Pick(Transformer):
 
     def transform(self, data: Sequence[T]) -> list[T]:
 
-        if not isinstance(data, Sequence) or isinstance(data, (str, bytes)):
-            raise TypeError(f"Expected Sequence, got {type(data).__name__}")
-
-        if len(data) == 0:
-            raise ValueError("Empty input sequence")
-
-        if not all(isinstance(s, (Stream, DispersionImage)) for s in data):
-            raise TypeError("All elements must be Stream or DispersionImage")
+        self.validate_sequence(data, Stream, DispersionImage)
 
         if self.method == "none":
             return list(data)
@@ -49,18 +36,18 @@ class Pick(Transformer):
             algorithm_stream = STREAM_PICKING_METHODS.get(self.method)
             if algorithm_stream is None:
                 raise ValueError(
-                    f"Unknown normalizing method '{self.method}'. "
+                    f"Unknown stream picking method '{self.method}'. "
                     f"Available methods: {list(STREAM_PICKING_METHODS.keys())}"
                 )
-            return [algorithm_stream(stream, **self.params) for stream in data]
+            return cast(list[T], [algorithm_stream(stream, **self.params) for stream in data])
 
         if isinstance(first, DispersionImage):
             algorithm_stream = DISPERSION_PICKING_METHODS.get(self.method)
             if algorithm_stream is None:
                 raise ValueError(
-                    f"Unknown normalizing method '{self.method}'. "
+                    f"Unknown dispersion picking method '{self.method}'. "
                     f"Available methods: {list(DISPERSION_PICKING_METHODS.keys())}"
                 )
-            return [algorithm_stream(stream, **self.params) for stream in data]
+            return cast(list[T], [algorithm_stream(stream, **self.params) for stream in data])
 
-        raise TypeError(f"No save handler for {type(first).__name__}")
+        raise TypeError(f"No picking handler for {type(first).__name__}")

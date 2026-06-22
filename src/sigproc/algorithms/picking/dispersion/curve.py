@@ -2,17 +2,18 @@ import numpy as np
 from scipy.signal import medfilt, savgol_filter
 
 from sigproc.base.acquisition import Acquisition
-from sigproc.base.dispersion import (
+from sigproc.base.dispersion_curve import (
     DispersionCurve,
-    DispersionCurves,
-    DispersionImage,
+    DispersionCurvesImage,
+    Mode,
 )
+from sigproc.base.dispersion_image import DispersionImage
 
 
 def lorentzian_uncertainty(
     fs: np.ndarray,
     vs: np.ndarray,
-    acquisitions: tuple[Acquisition, ...],
+    acquisition: Acquisition,
     a: float = 0.5,
 ) -> np.ndarray:
     """Per-point phase-velocity uncertainty from the receiver array's resolving power.
@@ -23,7 +24,7 @@ def lorentzian_uncertainty(
     acquisition geometry (assumed uniform, from the first two receivers).
     """
 
-    receivers = acquisitions[0].receivers
+    receivers = acquisition.receivers
     n_receivers = len(receivers)
     dx = abs(receivers[1].x - receivers[0].x)
 
@@ -51,6 +52,7 @@ def pick_curves(
     lbdmins: list[float | None] | None = None,
     lbdmaxs: list[float | None] | None = None,
     labels: list[str] | None = None,
+    modes: list[int] | None = None,
 ) -> DispersionImage:
 
     if fmins is None:
@@ -66,7 +68,9 @@ def pick_curves(
     if lbdmaxs is None:
         lbdmaxs = [None]
     if labels is None:
-        labels = ["unknown"]
+        labels = [""]
+    if modes is None:
+        modes = list(range(len(labels)))
 
     dispersion_curves: list[DispersionCurve] = (
         list(dispersion_image.dispersion_curves)
@@ -74,21 +78,23 @@ def pick_curves(
         else []
     )
 
-    if (
-        len(fmins)
-        != len(fmaxs)
-        != len(vmins)
-        != len(vmaxs)
-        != len(lbdmins)
-        != len(lbdmaxs)
-        != len(labels)
-    ):
+    lengths = {
+        len(fmins),
+        len(fmaxs),
+        len(vmins),
+        len(vmaxs),
+        len(lbdmins),
+        len(lbdmaxs),
+        len(labels),
+        len(modes),
+    }
+    if len(lengths) > 1:
         raise ValueError(
-            "requires same length for fmins, fmaxs, vmins, vmaxs, lbdmins, lbdmaxs, labels"
+            "requires same length for fmins, fmaxs, vmins, vmaxs, lbdmins, lbdmaxs, labels, modes"
         )
 
-    for fmin, fmax, vmin, vmax, lbdmin, lbdmax, label in zip(
-        fmins, fmaxs, vmins, vmaxs, lbdmins, lbdmaxs, labels, strict=False
+    for fmin, fmax, vmin, vmax, lbdmin, lbdmax, label, mode in zip(
+        fmins, fmaxs, vmins, vmaxs, lbdmins, lbdmaxs, labels, modes, strict=False
     ):
         fs = dispersion_image.fs.copy()
         vs = dispersion_image.vs.copy()
@@ -146,10 +152,10 @@ def pick_curves(
             DispersionCurve(
                 fs=fs,
                 vs=picked_vs,
-                label=label,
-                acquisitions=dispersion_image.acquisitions,
+                mode=Mode(label if label else "M", mode),
+                acquisition=dispersion_image.acquisition,
                 type=dispersion_image.type,
-                vs_std=lorentzian_uncertainty(fs, picked_vs, dispersion_image.acquisitions),
+                vs_err=lorentzian_uncertainty(fs, picked_vs, dispersion_image.acquisition),
             )
         )
 
@@ -158,6 +164,6 @@ def pick_curves(
         fs=dispersion_image.fs,
         vs=dispersion_image.vs,
         type=dispersion_image.type,
-        acquisitions=dispersion_image.acquisitions,
-        dispersion_curves=DispersionCurves(curves=tuple(dispersion_curves)),
+        acquisition=dispersion_image.acquisition,
+        dispersion_curves=DispersionCurvesImage(dispersion_curves=tuple(dispersion_curves)),
     )

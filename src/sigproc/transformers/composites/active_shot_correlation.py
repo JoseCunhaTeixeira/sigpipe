@@ -8,7 +8,7 @@ from sigproc.transformers.correlation import Correlate
 from sigproc.transformers.flipping import Flip
 
 
-class ActiveShotCorrelation(Transformer):
+class ActiveShotCorrelation(Transformer[Stream, Stream]):
     """
     Correlation depending on the source position for active acquisitions.
     """
@@ -24,14 +24,7 @@ class ActiveShotCorrelation(Transformer):
         data: Sequence[Stream],
     ) -> list[Stream]:
 
-        if not isinstance(data, Sequence) or isinstance(data, (str, bytes)):
-            raise TypeError(f"Expected Sequence[Stream], got {type(data).__name__}")
-
-        if not all(isinstance(s, Stream) for s in data):
-            raise TypeError("All elements must be Stream")
-
-        if len(data) == 0:
-            raise ValueError("Empty input sequence")
+        self.validate_sequence(data, Stream)
 
         if self.method == "none":
             return list(data)

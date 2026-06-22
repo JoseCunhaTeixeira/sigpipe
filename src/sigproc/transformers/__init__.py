@@ -8,6 +8,7 @@ from .dispersion import Dispersion
 from .filtering import Filter
 from .flipping import Flip
 from .getting import GetArrivals, GetDispersionCurves
+from .invert import Invert
 from .loading import Load
 from .mutting import Mute
 from .normalization import Normalize
@@ -35,6 +36,7 @@ __all__ = [
     "Flip",
     "GetArrivals",
     "GetDispersionCurves",
+    "Invert",
     "Load",
     "Mute",
     "Normalize",

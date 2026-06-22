@@ -12,6 +12,8 @@ dependencies = [
     "pandas",
     "torch",
     "obspy",
+    "disba",
+    "bayesbay",
 ]
 
 [build-system]
@@ -23,3 +25,24 @@ build-backend = "setuptools.build_meta"
 
 [tool.setuptools.packages.find]
 where = ["src"]
+
+[tool.setuptools.package-data]
+sigproc = ["py.typed"]
+
+[tool.mypy]
+python_version = "3.14"
+strict = true
+
+[[tool.mypy.overrides]]
+module = [
+    "bayesbay.*",
+    "disba.*",
+    "scipy.*",
+    "h5py.*",
+    "torch.*",
+    "obspy.*",
+    "pandas.*",
+    "matplotlib.*",
+    "pyyaml.*",
+]
+ignore_missing_imports = true

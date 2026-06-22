@@ -7,6 +7,8 @@ from scipy.signal import hilbert
 from sigproc.base.acquisition import Acquisition
 from sigproc.base.arrivals import TraceArrivals
 
+from ._repr import array_repr
+
 
 @dataclass(slots=True, frozen=True)
 class Stream:
@@ -31,26 +33,25 @@ class Stream:
 
     @property
     def nt(self) -> int:
-        return self.ts.shape[0]
+        return int(self.ts.shape[0])
 
     @property
     def nx(self) -> int:
-        return self.xt.shape[0]
+        return int(self.xt.shape[0])
 
     @property
     def xt_analytic(self) -> np.ndarray:
         npts = np.shape(self.xt)[1]
         nfft = next_fast_len(npts)
-        z = np.array(hilbert(self.xt, N=nfft, axis=1), np.complex64)[:, :npts]
-        return z
+        return np.array(hilbert(self.xt, N=nfft, axis=1), np.complex64)[:, :npts]
 
     @property
     def xt_envelope(self) -> np.ndarray:
-        return np.abs(self.xt_analytic).astype(np.float32)
+        return np.asarray(np.abs(self.xt_analytic), dtype=np.float32)
 
     @property
     def xt_phase(self) -> np.ndarray:
-        return np.angle(self.xt_analytic).astype(np.float32)
+        return np.asarray(np.angle(self.xt_analytic), dtype=np.float32)
 
     def validate_shot_inputs(self) -> None:
         if self.xt.ndim != 2:
@@ -80,3 +81,10 @@ class Stream:
 
             if not all(isinstance(a, TraceArrivals) for a in self.arrivals):
                 raise TypeError("All arrivals must be TraceArrivals")
+
+    def __repr__(self) -> str:
+        return (
+            f"Stream(xt={array_repr(self.xt)}, ts={array_repr(self.ts)}, "
+            f"sampling_freq={self.sampling_freq!r}, acquisition={self.acquisition!r}, "
+            f"arrivals={self.arrivals!r})"
+        )

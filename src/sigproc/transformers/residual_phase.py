@@ -17,6 +17,8 @@ class ArrivalResidualPhase(Transformer[Stream, Stream]):
         data: Sequence[Stream],
     ) -> list[Stream]:
 
+        self.validate_sequence(data, Stream)
+
         out = []
 
         for stream in data:

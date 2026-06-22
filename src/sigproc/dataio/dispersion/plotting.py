@@ -4,8 +4,15 @@ import matplotlib.pyplot as plt
 import numpy as np
 from matplotlib.figure import Figure
 
-from sigproc.base.dispersion import DispersionCurves, DispersionImage
-from sigproc.dataio.plot_config import CM, DISP_DPI, HEIGHT_CM, SINGLE_COLUMN_CM
+from sigproc.base.dispersion_curve import DispersionCurves, VelocityType
+from sigproc.base.dispersion_image import DispersionImage
+from sigproc.dataio.plot_config import (
+    CM,
+    DISP_DPI,
+    HEIGHT_CM,
+    SINGLE_COLUMN_CM,
+    VELOCITY_TYPE_LABELS,
+)
 
 
 class FrequencyUnity(StrEnum):
@@ -73,13 +80,13 @@ def plot_dispersion_image(
             ax.errorbar(
                 picked_fs,
                 picked_curve.vs,
-                yerr=picked_curve.vs_std if show_errorbars else None,
+                yerr=picked_curve.vs_err if show_errorbars else None,
                 fmt="-",
                 color="white",
                 linewidth=0.5,
                 elinewidth=0.5,
                 capsize=0,
-                label=picked_curve.label,
+                label=f"{picked_curve.mode.wave}{picked_curve.mode.number}",
             )
     else:
         if dispersion_image.dispersion_curves:
@@ -92,13 +99,13 @@ def plot_dispersion_image(
                 ax.errorbar(
                     picked_fs,
                     picked_curve.vs,
-                    yerr=picked_curve.vs_std if show_errorbars else None,
+                    yerr=picked_curve.vs_err if show_errorbars else None,
                     fmt="-",
                     color="white",
                     linewidth=0.5,
                     elinewidth=0.5,
                     capsize=0,
-                    label=picked_curve.label,
+                    label=f"{picked_curve.mode.wave}{picked_curve.mode.number}",
                 )
 
     if modeled_curves is not None:
@@ -113,18 +120,10 @@ def plot_dispersion_image(
                 modeled_curve.vs,
                 color="red",
                 linewidth=0.5,
-                label=modeled_curve.label,
+                label=f"{modeled_curve.mode.wave}{modeled_curve.mode.number}",
             )
-    vlabel = dispersion_image.type.lower()
-    ylabel_map = {
-        "phase": "Phase velocity [m/s]",
-        "group": "Group velocity [m/s]",
-        "": "Velocity [m/s]",
-    }
-    if vlabel not in ylabel_map:
-        raise ValueError(f"Unknown vlabel '{vlabel}'. Expected one of {tuple(ylabel_map)}.")
     ax.set_xlabel(xlabel)
-    ax.set_ylabel(ylabel_map[vlabel])
+    ax.set_ylabel(VELOCITY_TYPE_LABELS[dispersion_image.type])
     ax.set_xlim(fs_plot[0], fs_plot[-1])
     ax.set_ylim(dispersion_image.vs[0], dispersion_image.vs[-1])
     if show_legend is True:
@@ -153,7 +152,7 @@ def plot_dispersion_curves(
         dpi=DISP_DPI,
     )
     xlabel = "Frequency [kHz]"
-    vlabel = ""
+    vtype = VelocityType.UNKNOWN
     if picked_curves is not None:
         cmap = plt.colormaps["viridis"]
         for i, picked_curve in enumerate(picked_curves):
@@ -165,15 +164,15 @@ def plot_dispersion_curves(
             ax.errorbar(
                 picked_fs,
                 picked_curve.vs,
-                yerr=picked_curve.vs_std if show_errorbars else None,
+                yerr=picked_curve.vs_err if show_errorbars else None,
                 fmt="-",
                 color=cmap(i / max(len(picked_curves) - 1, 1)),
                 linewidth=0.5,
                 elinewidth=0.5,
                 capsize=0,
-                label=picked_curve.label,
+                label=f"{picked_curve.mode.wave}{picked_curve.mode.number}",
             )
-        vlabel = picked_curves[0].type.lower()
+        vtype = picked_curves[0].type
     if modeled_curves is not None:
         for modeled_curve in modeled_curves:
             model_fs, xlabel = _scale_frequency(
@@ -186,18 +185,11 @@ def plot_dispersion_curves(
                 modeled_curve.vs,
                 color="red",
                 linewidth=0.5,
-                label=modeled_curve.label,
+                label=f"{modeled_curve.mode.wave}{modeled_curve.mode.number}",
             )
-        vlabel = modeled_curves[0].type.lower()
-    ylabel_map = {
-        "phase": "Phase velocity [m/s]",
-        "group": "Group velocity [m/s]",
-        "": "Velocity [m/s]",
-    }
-    if vlabel not in ylabel_map:
-        raise ValueError(f"Unknown vlabel '{vlabel}'. Expected one of {tuple(ylabel_map)}.")
+        vtype = modeled_curves[0].type
     ax.set_xlabel(xlabel)
-    ax.set_ylabel(ylabel_map[vlabel])
+    ax.set_ylabel(VELOCITY_TYPE_LABELS[vtype])
     ax.grid(True, linestyle="--", linewidth=0.5, alpha=0.5)
     if fmin is not None and fmax is not None:
         ax.set_xlim(0.90 * fmin * 1e-3, 1.05 * fmax * 1e-3)
@@ -213,7 +205,7 @@ def _normalize_rows(array: np.ndarray) -> np.ndarray:
     """Normalize each row independently to [0, 1]."""
     row_min = np.min(array, axis=1, keepdims=True)
     row_max = np.max(array, axis=1, keepdims=True)
-    return (array - row_min) / (row_max - row_min + 1e-12)
+    return np.asarray((array - row_min) / (row_max - row_min + 1e-12), dtype=array.dtype)
 
 
 def _validate_bounds(

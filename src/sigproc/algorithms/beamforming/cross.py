@@ -3,7 +3,7 @@ import torch
 
 from sigproc.base.beamforming import Beam
 from sigproc.base.coordinate import coordinates_to_tuples
-from sigproc.base.dispersion import DispersionCurve
+from sigproc.base.dispersion_curve import DispersionCurve
 from sigproc.base.stream import Stream
 
 

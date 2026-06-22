@@ -1,6 +1,6 @@
 from collections.abc import Callable
 
-from sigproc.base.dispersion import DispersionImage
+from sigproc.base.dispersion_image import DispersionImage
 from sigproc.base.stream import Stream
 
 from .dispersion.linear import stack_linear as ls_dispersion_image

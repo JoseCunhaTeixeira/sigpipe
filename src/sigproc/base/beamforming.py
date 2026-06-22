@@ -4,6 +4,8 @@ import numpy as np
 
 from sigproc.base.acquisition import Acquisition
 
+from ._repr import array_repr
+
 
 @dataclass(slots=True, frozen=True)
 class Beam:
@@ -24,3 +26,9 @@ class Beam:
         self.xy_map.setflags(write=False)
         self.xs.setflags(write=False)
         self.ys.setflags(write=False)
+
+    def __repr__(self) -> str:
+        return (
+            f"Beam(xy_map={array_repr(self.xy_map)}, xs={array_repr(self.xs)}, "
+            f"ys={array_repr(self.ys)}, acquisition={self.acquisition!r})"
+        )

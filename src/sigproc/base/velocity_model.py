@@ -1,29 +1,31 @@
+from collections.abc import Iterator
 from dataclasses import dataclass
-from typing import Literal
 
 import numpy as np
+from scipy.interpolate import interp1d
 
 from sigproc.base.coordinate import Coordinate
 
 
 @dataclass(slots=True, frozen=True)
-class VelocityModel1D:
-    vs: tuple[float, ...]
-    std: tuple[float, ...]
+class VelocityModel:
+    vs_s: tuple[float, ...]
+    vs_p: tuple[float, ...]
+    rhos: tuple[float, ...]
+    vs_s_std: tuple[float, ...]
     thicknesses: tuple[float, ...]
     position: Coordinate
-    label: Literal["Vp", "Vs", "unknown"] = "unknown"
 
     def __post_init__(self) -> None:
-        if not (len(self.thicknesses) == len(self.vs) == len(self.std)):
+        if not (len(self.thicknesses) == len(self.vs_s) == len(self.vs_s_std)):
             raise ValueError(
-                "thicknesses, vs, and std arrays must have the same length, "
-                f"got {len(self.thicknesses)}, {len(self.vs)}, and {len(self.std)}"
+                "thicknesses, vs_s, and vs_s_std arrays must have the same length, "
+                f"got {len(self.thicknesses)}, {len(self.vs_s)}, and {len(self.vs_s_std)}"
             )
 
     @property
     def n_layers(self) -> int:
-        return len(self.vs)
+        return len(self.vs_s)
 
     @property
     def depths(self) -> tuple[float, ...]:
@@ -56,54 +58,130 @@ class VelocityModel1D:
 
         return out
 
-    def sample(self, elevations: np.ndarray) -> np.ndarray:
+    def sample_vs(self, elevations: np.ndarray) -> np.ndarray:
         """Sample Vs values at elevations."""
-        return self._sample_values(elevations, self.vs)
+        return self._sample_values(elevations, self.vs_s)
 
-    def sample_std(self, elevations: np.ndarray) -> np.ndarray:
-        """Sample standard deviation values at elevations."""
-        return self._sample_values(elevations, self.std)
+    def sample_vp(self, elevations: np.ndarray) -> np.ndarray:
+        """Sample Vp values at elevations."""
+        return self._sample_values(elevations, self.vs_p)
+
+    def sample_rho(self, elevations: np.ndarray) -> np.ndarray:
+        """Sample density values at elevations."""
+        return self._sample_values(elevations, self.rhos)
+
+    def sample_vs_std(self, elevations: np.ndarray) -> np.ndarray:
+        """Sample Vs standard deviation values at elevations."""
+        return self._sample_values(elevations, self.vs_s_std)
+
+    def _transition_depths(self) -> np.ndarray:
+        """Depths of layer centers and layer-boundary midpoints, from the surface down."""
+        depths = [0.0]
+        for i, thickness in enumerate(self.thicknesses):
+            depths.append(depths[-1] + thickness / 2)
+            if i == self.n_layers - 1:
+                break
+            depths.append(depths[-1] + thickness / 2)
+        return np.array(depths, dtype=np.float64)
+
+    def _transition_values(self, values: tuple[float, ...]) -> np.ndarray:
+        """Values at layer centers, with boundaries softened to the average of adjacent layers."""
+        profile = [values[0]]
+        for i in range(self.n_layers):
+            profile.append(values[i])
+            if i == self.n_layers - 1:
+                break
+            profile.append((values[i] + values[i + 1]) / 2)
+        return np.array(profile, dtype=np.float64)
+
+    def smoothed(self, dz: float, depth_max: float) -> VelocityModel:
+        """
+        Resample the blocky layered model onto a continuous, uniform-dz depth profile.
+
+        Layer boundaries are softened by averaging adjacent layers, then the
+        profile is extended flat down to depth_max and cubic-interpolated.
+        """
+        depths = self._transition_depths()
+
+        profiles = {
+            "vs_s": self._transition_values(self.vs_s),
+            "vs_p": self._transition_values(self.vs_p),
+            "rhos": self._transition_values(self.rhos),
+            "vs_s_std": self._transition_values(self.vs_s_std),
+        }
+
+        if depths[-1] < depth_max:
+            extra_depths = np.arange(depths[-1] + dz, depth_max, dz)
+            extra_depths = np.append(extra_depths, depth_max)
+            depths = np.concatenate((depths, extra_depths))
+            pad = np.ones_like(extra_depths)
+            profiles = {key: np.concatenate((p, pad * p[-1])) for key, p in profiles.items()}
+
+        smooth_depths = np.arange(depths[0], depths[-1], dz)
+        smoothed = {
+            key: interp1d(depths, p, kind="cubic")(smooth_depths) for key, p in profiles.items()
+        }
+
+        n = smooth_depths.shape[0]
+        return VelocityModel(
+            vs_s=tuple(smoothed["vs_s"].tolist()),
+            vs_p=tuple(smoothed["vs_p"].tolist()),
+            rhos=tuple(smoothed["rhos"].tolist()),
+            vs_s_std=tuple(smoothed["vs_s_std"].tolist()),
+            thicknesses=tuple([dz] * n),
+            position=self.position,
+        )
 
 
 @dataclass(slots=True, frozen=True)
-class VelocitySection:
-    velocity_models_1d: tuple[VelocityModel1D, ...]
+class VelocityModels:
+    velocity_models: tuple[VelocityModel, ...]
 
     def __post_init__(self) -> None:
-        if len(self.velocity_models_1d) == 0:
-            raise ValueError("velocity_models_1d must contain at least one profile")
+        if len(self.velocity_models) == 0:
+            raise ValueError("At least one velocity model is required")
 
-        if not all(isinstance(vm, VelocityModel1D) for vm in self.velocity_models_1d):
-            raise TypeError(
-                "All elements of velocity_models_1d must be instances of VelocityModel1D"
-            )
+        if not all(isinstance(vm, VelocityModel) for vm in self.velocity_models):
+            raise TypeError("All elements of velocity_models must be instances of VelocityModel")
 
-        if not all(vm.label == self.velocity_models_1d[0].label for vm in self.velocity_models_1d):
-            raise ValueError("All velocity profiles must have the same label (Vp, Vs, or unknown)")
+    def __iter__(self) -> Iterator[VelocityModel]:
+        return iter(self.velocity_models)
 
-        xs = [vm.position.x for vm in self.velocity_models_1d]
+    def __len__(self) -> int:
+        return len(self.velocity_models)
+
+    def __getitem__(self, item: int) -> VelocityModel:
+        return self.velocity_models[item]
+
+
+@dataclass(slots=True, frozen=True)
+class VelocityModelsSection(VelocityModels):
+    def __post_init__(self) -> None:
+        super().__post_init__()
+
+        xs = [vm.position.x for vm in self.velocity_models]
         if len(xs) != len(set(xs)):
-            raise ValueError("All velocity profiles must have unique x coordinates")
+            raise ValueError("All velocity profiles must have unique x coordinate")
 
         ordered = tuple(
             sorted(
-                self.velocity_models_1d,
+                self.velocity_models,
                 key=lambda vm: vm.position.x,
             )
         )
-        object.__setattr__(self, "velocity_models_1d", ordered)
+        object.__setattr__(self, "velocity_models", ordered)
 
     @property
     def xs(self) -> np.ndarray:
         return np.array(
-            [vm.position.x for vm in self.velocity_models_1d],
+            [vm.position.x for vm in self.velocity_models],
             dtype=np.float32,
         )
 
     @property
     def topography(self) -> np.ndarray:
         return np.array(
-            [vm.position.z for vm in self.velocity_models_1d],
+            [vm.position.z for vm in self.velocity_models],
             dtype=np.float32,
         )
 
@@ -111,9 +189,9 @@ class VelocitySection:
         self,
         dz: float = 0.01,
         dx: float | None = None,
-    ) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+    ) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
         profile_xs = np.array(
-            [vm.position.x for vm in self.velocity_models_1d],
+            [vm.position.x for vm in self.velocity_models],
             dtype=np.float32,
         )
 
@@ -122,14 +200,14 @@ class VelocitySection:
                 raise ValueError("dx must be given when there is only one profile")
             dx = float(np.min(np.diff(profile_xs)))
 
-        min_thickness = min(float(np.min(vm.thicknesses)) for vm in self.velocity_models_1d)
+        min_thickness = min(float(np.min(vm.thicknesses)) for vm in self.velocity_models)
 
         if dz > min_thickness:
             raise ValueError(
                 f"dz ({dz}) must be smaller than the minimum layer thickness ({min_thickness})"
             )
 
-        tops = [vm.position.z for vm in self.velocity_models_1d]
+        tops = [vm.position.z for vm in self.velocity_models]
 
         bases = [
             vm.position.z
@@ -141,7 +219,7 @@ class VelocitySection:
                     )
                 )
             )
-            for vm in self.velocity_models_1d
+            for vm in self.velocity_models
         ]
 
         top = max(tops)
@@ -150,13 +228,23 @@ class VelocitySection:
         nz = int(np.floor((top - bottom) / dz)) + 1
         zs = (top - np.arange(nz, dtype=np.float32) * dz).astype(np.float32)
 
-        per_profile_vs = np.array(
-            [vm.sample(zs) for vm in self.velocity_models_1d],
+        per_profile_vs_s = np.array(
+            [vm.sample_vs(zs) for vm in self.velocity_models],
             dtype=np.float32,
         )
 
-        per_profile_std = np.array(
-            [vm.sample_std(zs) for vm in self.velocity_models_1d],
+        per_profile_vs_p = np.array(
+            [vm.sample_vp(zs) for vm in self.velocity_models],
+            dtype=np.float32,
+        )
+
+        per_profile_rhos = np.array(
+            [vm.sample_rho(zs) for vm in self.velocity_models],
+            dtype=np.float32,
+        )
+
+        per_profile_vs_s_std = np.array(
+            [vm.sample_vs_std(zs) for vm in self.velocity_models],
             dtype=np.float32,
         )
 
@@ -166,7 +254,9 @@ class VelocitySection:
 
         nearest = np.abs(xs[:, None] - profile_xs[None, :]).argmin(axis=1)
 
-        vs_grid = per_profile_vs[nearest]
-        std_grid = per_profile_std[nearest]
+        vs_s_grid = per_profile_vs_s[nearest]
+        vs_p_grid = per_profile_vs_p[nearest]
+        rhos_grid = per_profile_rhos[nearest]
+        vs_s_std_grid = per_profile_vs_s_std[nearest]
 
-        return xs, zs, vs_grid, std_grid
+        return xs, zs, vs_s_grid, vs_p_grid, rhos_grid, vs_s_std_grid

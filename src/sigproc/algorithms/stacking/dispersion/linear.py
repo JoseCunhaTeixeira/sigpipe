@@ -1,12 +1,11 @@
 import numpy as np
 
-from sigproc.base.dispersion import DispersionImage
+from sigproc.base.acquisition import UNKNOWN_ACQUISITION
+from sigproc.base.dispersion_image import DispersionImage
 
 
 def stack_linear(
     dispersion_images: list[DispersionImage],
-    *,
-    stack_acquisitions: bool = True,
 ) -> DispersionImage:
     if not dispersion_images:
         raise ValueError("list cannot be empty.")
@@ -30,16 +29,10 @@ def stack_linear(
         axis=0,
     )
 
-    acquisitions = (
-        tuple(acquisition for disp in dispersion_images for acquisition in disp.acquisitions)
-        if stack_acquisitions
-        else reference.acquisitions
-    )
-
     return DispersionImage(
         fv_map=fv_stack,
         fs=reference.fs,
         vs=reference.vs,
         type=reference.type,
-        acquisitions=acquisitions,
+        acquisition=UNKNOWN_ACQUISITION,
     )

@@ -1,7 +1,8 @@
 import numpy as np
 from scipy.fft import rfft, rfftfreq
 
-from sigproc.base.dispersion import DispersionImage
+from sigproc.base.dispersion_curve import VelocityType
+from sigproc.base.dispersion_image import DispersionImage
 from sigproc.base.stream import Stream
 
 
@@ -30,8 +31,8 @@ def dispersion_phase_shift(
         fv_map=fv_map,
         fs=fs,
         vs=vs,
-        type="phase",
-        acquisitions=(stream.acquisition,),
+        type=VelocityType.PHASE,
+        acquisition=stream.acquisition,
     )
 
 
@@ -97,4 +98,4 @@ def compute_frequency_vector(nt: int, sampling_freq: float) -> np.ndarray:
         raise ValueError(f"requires nt > 0, got {nt}")
     if sampling_freq <= 0:
         raise ValueError(f"requires sampling_freq > 0 Hz, got {sampling_freq} Hz")
-    return rfftfreq(n=nt, d=1 / sampling_freq)
+    return np.asarray(rfftfreq(n=nt, d=1 / sampling_freq))

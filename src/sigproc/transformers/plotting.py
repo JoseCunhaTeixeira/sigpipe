@@ -1,18 +1,15 @@
 from collections.abc import Sequence
 from pathlib import Path
-from typing import TypeVar
 
 from matplotlib import pyplot as plt
 from matplotlib.figure import Figure
 
 from sigproc.base.transformer import Transformer
 from sigproc.dataio.plot_config import SAVING_DPI
-from sigproc.dataio.registry import PLOT_HANDLERS
-
-T = TypeVar("T")
+from sigproc.dataio.registry import PLOT_HANDLERS, resolve_handler
 
 
-class Plot(Transformer):
+class Plot[T](Transformer[T, T]):
     """
     Plotting transformer.
     """
@@ -29,14 +26,7 @@ class Plot(Transformer):
 
     def transform(self, data: Sequence[T]) -> Sequence[T]:
 
-        if not isinstance(data, Sequence) or isinstance(data, (str, bytes)):
-            raise TypeError(f"Expected Sequence, got {type(data).__name__}")
-
-        if len(data) == 0:
-            raise ValueError("Empty input sequence")
-
-        if not all(isinstance(x, type(data[0])) for x in data):
-            raise TypeError("All elements must have the same type")
+        self.validate_homogeneous_sequence(data)
 
         self.folder_path.mkdir(
             parents=True,
@@ -44,9 +34,9 @@ class Plot(Transformer):
         )
 
         first = data[0]
-        handler = PLOT_HANDLERS.get(type(first))
+        handler = resolve_handler(PLOT_HANDLERS, first)
         if handler is None:
-            raise TypeError(f"No save handler for {type(first).__name__}")
+            raise TypeError(f"No plot handler for {type(first).__name__}")
 
         for i, obj in enumerate(data):
             figure = handler(

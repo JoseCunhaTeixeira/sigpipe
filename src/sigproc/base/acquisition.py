@@ -1,21 +1,14 @@
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 
 import numpy as np
 
-from sigproc.base.coordinate import Coordinate
+from sigproc.base.coordinate import UNKNOWN_COORDINATE, Coordinate
 
 
 @dataclass(slots=True, frozen=True)
 class Acquisition:
     source: Coordinate
     receivers: tuple[Coordinate, ...]
-
-    offsets: np.ndarray = field(init=False)
-
-    def __post_init__(self) -> None:
-        offsets = self.compute_offsets(self.source, self.receivers)
-        object.__setattr__(self, "offsets", offsets)
-        offsets.setflags(write=False)
 
     def __eq__(self, other: object) -> bool:
         if not isinstance(other, Acquisition):
@@ -37,15 +30,28 @@ class Acquisition:
             values.extend([receiver.x, receiver.y, receiver.z])
         return any(np.isnan(v) for v in values)
 
-    @staticmethod
-    def compute_offsets(source: Coordinate, receivers: tuple[Coordinate, ...]) -> np.ndarray:
+    @property
+    def offsets(self) -> np.ndarray:
         return np.array(
-            [source.distance_to(r) for r in receivers],
+            [self.source.distance_to(r) for r in self.receivers],
             dtype=np.float32,
         )
 
+    @property
+    def middle_position(self) -> Coordinate:
+        points = (self.source, *self.receivers)
+        return Coordinate(
+            x=(min(p.x for p in points) + max(p.x for p in points)) / 2,
+            y=(min(p.y for p in points) + max(p.y for p in points)) / 2,
+            z=(min(p.z for p in points) + max(p.z for p in points)) / 2,
+        )
+
+    @property
+    def xmid(self) -> float:
+        return (min(p.x for p in self.receivers) + max(p.x for p in self.receivers)) / 2
+
 
 UNKNOWN_ACQUISITION = Acquisition(
-    source=Coordinate(np.nan, np.nan, np.nan),
-    receivers=(Coordinate(np.nan, np.nan, np.nan),),
+    source=UNKNOWN_COORDINATE,
+    receivers=(UNKNOWN_COORDINATE,),
 )

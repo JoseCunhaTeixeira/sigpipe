@@ -1,20 +1,17 @@
 from collections.abc import Sequence
 from pathlib import Path
-from typing import TypeVar
 
 from matplotlib import pyplot as plt
 from matplotlib.figure import Figure
 
 from sigproc.base.transformer import Transformer
 from sigproc.dataio.plot_config import SAVING_DPI
-from sigproc.dataio.registry import SECTION_HANDLERS
-
-T = TypeVar("T")
+from sigproc.dataio.registry import SECTION_HANDLERS, resolve_handler
 
 
-class PlotSection(Transformer):
+class PlotSection[T](Transformer[T, T]):
     """
-    Section olitting transformer.
+    Section plotting transformer.
     """
 
     def __init__(
@@ -27,14 +24,7 @@ class PlotSection(Transformer):
 
     def transform(self, data: Sequence[T]) -> Sequence[T]:
 
-        if not isinstance(data, Sequence) or isinstance(data, (str, bytes)):
-            raise TypeError(f"Expected Sequence, got {type(data).__name__}")
-
-        if len(data) == 0:
-            raise ValueError("Empty input sequence")
-
-        if not all(isinstance(x, type(data[0])) for x in data):
-            raise TypeError("All elements must have the same type")
+        self.validate_homogeneous_sequence(data)
 
         self.folder_path.mkdir(
             parents=True,
@@ -42,9 +32,9 @@ class PlotSection(Transformer):
         )
 
         first = data[0]
-        handler = SECTION_HANDLERS.get(type(first))
+        handler = resolve_handler(SECTION_HANDLERS, first)
         if handler is None:
-            raise TypeError(f"No save handler for {type(first).__name__}")
+            raise TypeError(f"No section-plot handler for {type(first).__name__}")
 
         for i, obj in enumerate(data):
             figure = handler(

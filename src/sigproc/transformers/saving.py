@@ -1,14 +1,11 @@
 from collections.abc import Sequence
 from pathlib import Path
-from typing import TypeVar
 
 from sigproc.base.transformer import Transformer
-from sigproc.dataio.registry import SAVE_HANDLERS
-
-T = TypeVar("T")
+from sigproc.dataio.registry import SAVE_HANDLERS, resolve_handler
 
 
-class Save(Transformer):
+class Save[T](Transformer[T, T]):
     """
     Saving transformer.
     """
@@ -25,14 +22,7 @@ class Save(Transformer):
 
     def transform(self, data: Sequence[T]) -> Sequence[T]:
 
-        if not isinstance(data, Sequence) or isinstance(data, (str, bytes)):
-            raise TypeError(f"Expected Sequence, got {type(data).__name__}")
-
-        if len(data) == 0:
-            raise ValueError("Empty input sequence")
-
-        if not all(isinstance(x, type(data[0])) for x in data):
-            raise TypeError("All elements must have the same type")
+        self.validate_homogeneous_sequence(data)
 
         self.folder_path.mkdir(
             parents=True,
@@ -40,7 +30,7 @@ class Save(Transformer):
         )
 
         first = data[0]
-        handler = SAVE_HANDLERS.get(type(first))
+        handler = resolve_handler(SAVE_HANDLERS, first)
         if handler is None:
             raise TypeError(f"No save handler for {type(first).__name__}")
 

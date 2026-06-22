@@ -11,11 +11,15 @@ from sigproc.base.coordinate import (
     Coordinate,
     tuples_to_coordinates,
 )
-from sigproc.base.dispersion import (
+from sigproc.base.dispersion_curve import (
     DispersionCurve,
     DispersionCurves,
-    DispersionImage,
+    DispersionCurvesImage,
+    Mode,
+    VelocityType,
 )
+from sigproc.base.dispersion_image import DispersionImage
+from sigproc.dataio._h5 import dataset
 
 
 def load_dispersion_image(
@@ -34,52 +38,44 @@ def load_dispersion_image(
 
         with h5py.File(path, "r") as f:
             fv_map = np.asarray(
-                f["fv_map"][:],  # type: ignore
+                dataset(f, "fv_map")[:],
                 dtype=np.float32,
             )
 
             fs = np.asarray(
-                f["fs"][:],  # type: ignore
+                dataset(f, "fs")[:],
                 dtype=np.float32,
             )
 
             vs = np.asarray(
-                f["vs"][:],  # type: ignore
+                dataset(f, "vs")[:],
                 dtype=np.float32,
             )
 
-            type = f["type"][()].decode() if "type" in f else ""  # type: ignore
+            type = dataset(f, "type")[()].decode() if "type" in f else ""
 
-            sources = tuple(Coordinate.from_tuple(source) for source in f["sources"][:])  # type: ignore
+            source = Coordinate.from_tuple(dataset(f, "source")[:])
 
-            receivers = tuple(
-                tuples_to_coordinates(receiver_group)
-                for receiver_group in f["receivers"][:]  # type: ignore
-            )
+            receivers = tuples_to_coordinates(dataset(f, "receivers")[:])
 
-        acquisitions = tuple(
-            Acquisition(
-                source=source,
-                receivers=receiver_group,
-            )
-            for source, receiver_group in zip(
-                sources,
-                receivers,
-                strict=True,
-            )
+        acquisition = Acquisition(
+            source=source,
+            receivers=receivers,
         )
 
-        dispersion_curves = DispersionCurves(curves=())
+        dispersion_curves: DispersionCurvesImage | None = None
         if curves_paths is not None and dispersion_curves_out:
-            dispersion_curves = dispersion_curves_out[i]
+            dispersion_curves = DispersionCurvesImage(
+                dispersion_curves=dispersion_curves_out[i].dispersion_curves,
+            )
 
         dispersion_images_out.append(
             DispersionImage(
                 fv_map=fv_map,
                 fs=fs,
                 vs=vs,
-                type=type,
-                acquisitions=acquisitions,
+                type=VelocityType(type),
+                acquisition=acquisition,
                 dispersion_curves=dispersion_curves,
             )
         )
@@ -95,15 +91,15 @@ def load_dispersion_curves(
         if not path.exists():
             raise FileNotFoundError(path)
         if path.suffix == ".txt":
-            dispersion_curves_out.append(load_modeled_dispersion_curves(path=path))
+            dispersion_curves_out.append(_load_modeled_dispersion_curves(path=path))
         elif path.suffix == ".csv":
-            dispersion_curves_out.append(load_picked_dispersion_curves(path=path))
+            dispersion_curves_out.append(_load_picked_dispersion_curves(path=path))
         else:
             raise TypeError(f"File must be .txt or .csv, got {path.suffix}")
     return dispersion_curves_out
 
 
-def load_picked_dispersion_curves(
+def _load_picked_dispersion_curves(
     path: Path,
 ) -> DispersionCurves:
 
@@ -120,37 +116,34 @@ def load_picked_dispersion_curves(
     for block in blocks:
         lines = [line.strip() for line in block.splitlines() if line.strip()]
 
-        label = ""
-        curve_type = ""
-
-        sources: tuple[Coordinate, ...] = ()
-        receivers: tuple[tuple[Coordinate, ...], ...] = ()
+        type = ""
+        mode = Mode("X", 999)
+        source = None
+        receivers = None
 
         data_start = None
         has_std = False
 
         for i, line in enumerate(lines):
-            if line.startswith("label:"):
-                label = line.removeprefix("label:").strip()
+            if line.startswith("type:"):
+                type = line.removeprefix("type:").strip()
 
-            elif line.startswith("type:"):
-                curve_type = line.removeprefix("type:").strip()
+            elif line.startswith("mode:"):
+                mode = Mode(*ast.literal_eval(line.removeprefix("mode:").strip()))
 
-            elif line.startswith("sources:"):
-                raw_sources = ast.literal_eval(
-                    line.removeprefix("sources:").strip(),
+            elif line.startswith("source:"):
+                raw_source = ast.literal_eval(
+                    line.removeprefix("source:").strip(),
                 )
 
-                sources = tuple(Coordinate.from_tuple(source) for source in raw_sources)
+                source = Coordinate.from_tuple(raw_source)
 
             elif line.startswith("receivers:"):
                 raw_receivers = ast.literal_eval(
                     line.removeprefix("receivers:").strip(),
                 )
 
-                receivers = tuple(
-                    tuples_to_coordinates(receiver_group) for receiver_group in raw_receivers
-                )
+                receivers = tuples_to_coordinates(raw_receivers)
 
             elif line in (
                 "frequency_Hz,phase_velocity_m/s",
@@ -160,49 +153,45 @@ def load_picked_dispersion_curves(
                 data_start = i + 1
                 break
 
+        if source is None or receivers is None:
+            acquisition = UNKNOWN_ACQUISITION
+        else:
+            acquisition = Acquisition(
+                source=source,
+                receivers=receivers,
+            )
+
         if data_start is None:
             raise ValueError(f"Could not find frequency table in '{path}'.")
 
         fs = []
         vs = []
-        vs_std: list[float] | None = [] if has_std else None
+        vs_err: list[float] | None = [] if has_std else None
 
         for line in lines[data_start:]:
             parts = line.split(",")
             fs.append(float(parts[0]))
             vs.append(float(parts[1]))
-            if vs_std is not None:
-                vs_std.append(float(parts[2]))
-
-        acquisitions = tuple(
-            Acquisition(
-                source=source,
-                receivers=receiver_group,
-            )
-            for source, receiver_group in zip(
-                sources,
-                receivers,
-                strict=True,
-            )
-        )
+            if vs_err is not None:
+                vs_err.append(float(parts[2]))
 
         curves.append(
             DispersionCurve(
                 fs=np.asarray(fs, dtype=np.float32),
                 vs=np.asarray(vs, dtype=np.float32),
-                label=label,
-                type=curve_type,
-                acquisitions=acquisitions,
-                vs_std=np.asarray(vs_std, dtype=np.float32) if vs_std is not None else None,
+                mode=mode,
+                type=VelocityType(type),
+                acquisition=acquisition,
+                vs_err=np.asarray(vs_err, dtype=np.float32) if vs_err is not None else None,
             )
         )
 
     return DispersionCurves(
-        curves=tuple(curves),
+        dispersion_curves=tuple(curves),
     )
 
 
-def load_modeled_dispersion_curves(
+def _load_modeled_dispersion_curves(
     path: Path,
 ) -> DispersionCurves:
 
@@ -252,12 +241,12 @@ def load_modeled_dispersion_curves(
             DispersionCurve(
                 fs=fs * 1e6,
                 vs=vs * 1e3,
-                label=col.strip(),
-                acquisitions=(UNKNOWN_ACQUISITION,),
-                type="",
+                mode=Mode(*ast.literal_eval(col.strip())),
+                acquisition=UNKNOWN_ACQUISITION,
+                type=VelocityType.UNKNOWN,
             )
         )
 
     return DispersionCurves(
-        curves=tuple(curves),
+        dispersion_curves=tuple(curves),
     )

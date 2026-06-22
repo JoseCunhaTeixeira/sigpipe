@@ -66,3 +66,6 @@ def tuples_to_coordinates(
     coords: Sequence[TupleCoordinate],
 ) -> tuple[Coordinate, ...]:
     return tuple(Coordinate.from_tuple(t) for t in coords)
+
+
+UNKNOWN_COORDINATE = Coordinate(float("nan"), float("nan"), float("nan"))

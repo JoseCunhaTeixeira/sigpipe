@@ -2,7 +2,8 @@ import numpy as np
 from scipy.fft import fft, fftfreq, ifft
 from scipy.signal import hilbert
 
-from sigproc.base.dispersion import DispersionImage
+from sigproc.base.dispersion_curve import VelocityType
+from sigproc.base.dispersion_image import DispersionImage
 from sigproc.base.stream import Stream
 
 
@@ -46,8 +47,8 @@ def dispersion_ftan(
                 fv_map=fv_map,
                 fs=f0s,
                 vs=vs,
-                type="group",
-                acquisitions=(stream.acquisition,),
+                type=VelocityType.GROUP,
+                acquisition=stream.acquisition,
             )
         )
     return dispersion_images
