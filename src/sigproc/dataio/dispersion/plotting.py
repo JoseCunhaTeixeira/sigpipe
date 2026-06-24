@@ -26,6 +26,7 @@ def plot_dispersion_image(
     *,
     picked_curves: DispersionCurves | None = None,
     modeled_curves: DispersionCurves | None = None,
+    full_modeled_curves: DispersionCurves | None = None,
     thickness: float | None = None,
     lbmin: float | None = None,
     lbmax: float | None = None,
@@ -37,6 +38,13 @@ def plot_dispersion_image(
 ) -> Figure:
     """
     Plot a frequency-velocity dispersion image.
+
+    `picked_curves`/`modeled_curves` are drawn at their own frequencies
+    (dots+line for picked, dots only for modeled). `full_modeled_curves` is
+    for forward-modeled curves spanning the image's full frequency axis
+    across every mode the model supports (drawn as a plain line, no markers)
+    — e.g. to show all superior modes a model predicts, not just the picked
+    ones.
     """
     _validate_bounds(lbmin, lbmax)
     fv_plot = _normalize_rows(dispersion_image.fv_map) if normalize else dispersion_image.fv_map
@@ -65,11 +73,16 @@ def plot_dispersion_image(
             ax.plot(
                 fs_plot,
                 fs_plot * bound,
-                color="black",
-                linewidth=0.5,
+                color="grey",
+                linestyle="--",
+                linewidth=1.0,
                 label="λ",
+                zorder=1,
             )
 
+    # Observed/picked curves always render behind modeled/full_modeled ones,
+    # regardless of draw order, so they're never hidden by a curve drawn on
+    # top of them.
     if picked_curves is not None:
         for picked_curve in picked_curves:
             picked_fs, _ = _scale_frequency(
@@ -81,12 +94,14 @@ def plot_dispersion_image(
                 picked_fs,
                 picked_curve.vs,
                 yerr=picked_curve.vs_err if show_errorbars else None,
-                fmt="-",
+                fmt="o-",
                 color="white",
+                ms=1 if show_errorbars else 1.5,
                 linewidth=0.5,
                 elinewidth=0.5,
                 capsize=0,
                 label=f"{picked_curve.mode.wave}{picked_curve.mode.number}",
+                zorder=2,
             )
     else:
         if dispersion_image.dispersion_curves:
@@ -100,12 +115,14 @@ def plot_dispersion_image(
                     picked_fs,
                     picked_curve.vs,
                     yerr=picked_curve.vs_err if show_errorbars else None,
-                    fmt="-",
+                    fmt="o-",
                     color="white",
+                    ms=1 if show_errorbars else 1.5,
                     linewidth=0.5,
                     elinewidth=0.5,
                     capsize=0,
                     label=f"{picked_curve.mode.wave}{picked_curve.mode.number}",
+                    zorder=2,
                 )
 
     if modeled_curves is not None:
@@ -115,12 +132,31 @@ def plot_dispersion_image(
                 thickness=thickness,
                 unity=unity,
             )
-            ax.plot(
+            ax.errorbar(
                 model_fs,
                 modeled_curve.vs,
-                color="red",
-                linewidth=0.5,
+                fmt="o",
+                color="orange",
+                ms=2,
+                linewidth=1.0,
+                elinewidth=0.5,
                 label=f"{modeled_curve.mode.wave}{modeled_curve.mode.number}",
+                zorder=3,
+            )
+
+    if full_modeled_curves is not None:
+        for full_modeled_curve in full_modeled_curves:
+            full_model_fs, _ = _scale_frequency(
+                fs=full_modeled_curve.fs,
+                thickness=thickness,
+                unity=unity,
+            )
+            ax.plot(
+                full_model_fs,
+                full_modeled_curve.vs,
+                color="orange",
+                linewidth=1.0,
+                zorder=4,
             )
     ax.set_xlabel(xlabel)
     ax.set_ylabel(VELOCITY_TYPE_LABELS[dispersion_image.type])
@@ -171,6 +207,7 @@ def plot_dispersion_curves(
                 elinewidth=0.5,
                 capsize=0,
                 label=f"{picked_curve.mode.wave}{picked_curve.mode.number}",
+                zorder=2,
             )
         vtype = picked_curves[0].type
     if modeled_curves is not None:
@@ -186,6 +223,7 @@ def plot_dispersion_curves(
                 color="red",
                 linewidth=0.5,
                 label=f"{modeled_curve.mode.wave}{modeled_curve.mode.number}",
+                zorder=3,
             )
         vtype = modeled_curves[0].type
     ax.set_xlabel(xlabel)

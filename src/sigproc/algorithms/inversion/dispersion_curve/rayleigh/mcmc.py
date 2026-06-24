@@ -1,3 +1,5 @@
+import contextlib
+import io
 from collections.abc import Callable
 from typing import cast
 
@@ -166,13 +168,23 @@ def inversion_mcmc(
         n_chains=n_chains,
     )
 
-    # Run inversion
+    # Run inversion. Force chains to run sequentially within this process: positions
+    # are already parallelized across worker processes by the caller, so letting
+    # bayesbay also spawn one process per chain (its default) would oversubscribe
+    # CPUs by n_workers x n_chains instead of just n_workers.
     inversion.run(
         n_iterations=n_iterations,
         burnin_iterations=n_burnin,
         save_every=150,
         verbose=False,
+        parallel_config={"n_jobs": 1},
     )
+
+    log_buffer = io.StringIO()
+    with contextlib.redirect_stdout(log_buffer):
+        for chain in inversion.chains:
+            chain.print_statistics()
+    log = log_buffer.getvalue()
 
     results = cast(dict[str, np.ndarray], inversion.get_results(concatenate_chains=True))
 
@@ -189,8 +201,10 @@ def inversion_mcmc(
     # Misfits, summed across all dispersion curves
     misfits = np.zeros(n_samples)
     n_points = 0
+    dpred: dict[int, np.ndarray] = {}
     for dispersion_curve in ordered_curves:
         d_pred = np.asarray(results[f"rayleigh_M{dispersion_curve.mode.number}.dpred"])
+        dpred[dispersion_curve.mode.number] = d_pred
         misfits += np.sum((dispersion_curve.vs - d_pred) ** 2, axis=1)
         n_points += len(dispersion_curve.vs)
     misfits = np.sqrt(misfits / n_points)
@@ -229,6 +243,10 @@ def inversion_mcmc(
         position=position,
     )
 
+    # Smoothed (cubic-interpolated, continuous-with-depth) best/median profiles
+    smooth_best = best.smoothed(dz, depth_max)
+    smooth_median = median.smoothed(dz, depth_max)
+
     # Ensemble model (per-depth median/std after rasterizing every sample)
     ensemble = _ensemble_model(
         sampled_Vs, sampled_thicknesses, Vp_Vs_ratio, dz, depth_max, position
@@ -238,7 +256,16 @@ def inversion_mcmc(
     samples.update({f"thick{i + 1}": sampled_thicknesses[i] for i in range(n_layers - 1)})
 
     return InversionResult(
-        best=best, median=median, ensemble=ensemble, n_layers=n_layers, samples=samples
+        best=best,
+        smooth_best=smooth_best,
+        median=median,
+        smooth_median=smooth_median,
+        ensemble=ensemble,
+        n_layers=n_layers,
+        samples=samples,
+        misfits=misfits,
+        dpred=dpred,
+        log=log,
     )
 
 

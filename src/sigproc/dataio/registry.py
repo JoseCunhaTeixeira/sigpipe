@@ -21,7 +21,7 @@ from sigproc.dataio.dispersion.plotting import (
 )
 from sigproc.dataio.dispersion.saving import save_dispersion_curves, save_dispersion_image
 from sigproc.dataio.dispersion.section import plot_dispersion_curves_section
-from sigproc.dataio.inversion.plotting import plot_inversion_result
+from sigproc.dataio.inversion.plotting import plot_density_curves
 from sigproc.dataio.inversion.saving import save_inversion_result
 from sigproc.dataio.stream.loading import (
     load_gero_active,
@@ -85,7 +85,7 @@ PLOT_HANDLERS: dict[type, Callable[..., Figure]] = {
     DispersionCurves: plot_dispersion_curves,
     Stream: plot_stream,
     VelocityModel: plot_velocity_models,
-    InversionResult: plot_inversion_result,
+    InversionResult: plot_density_curves,
     Beam: plot_beamforming,
 }
 

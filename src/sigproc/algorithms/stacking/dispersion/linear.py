@@ -1,6 +1,6 @@
 import numpy as np
 
-from sigproc.base.acquisition import UNKNOWN_ACQUISITION
+from sigproc.base.acquisition import Acquisition
 from sigproc.base.dispersion_image import DispersionImage
 
 
@@ -21,6 +21,9 @@ def stack_linear(
         if not np.allclose(disp.vs, reference.vs):
             raise ValueError("All velocity axes must match.")
 
+        if disp.acquisition.receivers != reference.acquisition.receivers:
+            raise ValueError("All dispersion images must share the same receivers.")
+
     fv_stack = np.mean(
         np.stack(
             [disp.fv_map for disp in dispersion_images],
@@ -29,10 +32,14 @@ def stack_linear(
         axis=0,
     )
 
+    acquisition = Acquisition(
+        source=reference.acquisition.receivers[0], receivers=reference.acquisition.receivers
+    )
+
     return DispersionImage(
         fv_map=fv_stack,
         fs=reference.fs,
         vs=reference.vs,
         type=reference.type,
-        acquisition=UNKNOWN_ACQUISITION,
+        acquisition=acquisition,
     )

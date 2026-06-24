@@ -2,7 +2,7 @@ from collections.abc import Iterator
 from dataclasses import dataclass
 
 import numpy as np
-from scipy.interpolate import interp1d
+from scipy.interpolate import PchipInterpolator
 
 from sigproc.base.coordinate import Coordinate
 
@@ -99,7 +99,10 @@ class VelocityModel:
         Resample the blocky layered model onto a continuous, uniform-dz depth profile.
 
         Layer boundaries are softened by averaging adjacent layers, then the
-        profile is extended flat down to depth_max and cubic-interpolated.
+        profile is extended flat down to depth_max and interpolated with a
+        shape-preserving PCHIP spline (stays within the local data range --
+        unlike a natural cubic spline, it can't ring/overshoot past nearby
+        control points on sharp, tightly-spaced layer contrasts).
         """
         depths = self._transition_depths()
 
@@ -118,9 +121,7 @@ class VelocityModel:
             profiles = {key: np.concatenate((p, pad * p[-1])) for key, p in profiles.items()}
 
         smooth_depths = np.arange(depths[0], depths[-1], dz)
-        smoothed = {
-            key: interp1d(depths, p, kind="cubic")(smooth_depths) for key, p in profiles.items()
-        }
+        smoothed = {key: PchipInterpolator(depths, p)(smooth_depths) for key, p in profiles.items()}
 
         n = smooth_depths.shape[0]
         return VelocityModel(
@@ -187,7 +188,7 @@ class VelocityModelsSection(VelocityModels):
 
     def to_grid(
         self,
-        dz: float = 0.01,
+        dz: float | None,
         dx: float | None = None,
     ) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
         profile_xs = np.array(
@@ -198,9 +199,12 @@ class VelocityModelsSection(VelocityModels):
         if dx is None:
             if len(profile_xs) < 2:
                 raise ValueError("dx must be given when there is only one profile")
-            dx = float(np.min(np.diff(profile_xs)))
+            dx = float(np.min(np.diff(profile_xs))) / 10
 
         min_thickness = min(float(np.min(vm.thicknesses)) for vm in self.velocity_models)
+
+        if dz is None:
+            dz = min_thickness / 10
 
         if dz > min_thickness:
             raise ValueError(

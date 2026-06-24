@@ -1,8 +1,8 @@
 import numpy as np
-from disba import PhaseDispersion
+from disba import DispersionError, PhaseDispersion
 
 from sigproc.base.acquisition import UNKNOWN_ACQUISITION
-from sigproc.base.dispersion_curve import DispersionCurve, Mode, VelocityType
+from sigproc.base.dispersion_curve import DispersionCurve, DispersionCurves, Mode, VelocityType
 
 
 def vp_rho_from_vs(
@@ -51,6 +51,55 @@ def fwd_rayleigh_phase(
         type=VelocityType.PHASE,
         acquisition=UNKNOWN_ACQUISITION,
     )
+
+
+def fwd_rayleigh_all_modes(
+    thickness_per_layer: list[float],
+    Vs_per_layer: list[float],
+    fs: np.ndarray,
+    Vp_Vs_ratio: float,
+) -> DispersionCurves | None:
+    """Forward-model every Rayleigh mode (0, 1, 2, ...) the model supports, across
+    the full given frequency axis, stopping at the first mode disba can't resolve.
+
+    Port of the old Streamlit app's `full_pred_modes` loop in `run_inversion.py`,
+    used to overlay all superior modes a model predicts on a dispersion image
+    (not just the picked ones). Returns None if not even the fundamental mode
+    can be resolved.
+    """
+    Vs_per_layer_arr = np.array(Vs_per_layer, dtype=np.float32)
+    Vp_per_layer_arr, rho_per_layer_arr = vp_rho_from_vs(Vs_per_layer_arr, Vp_Vs_ratio)
+    velocity_model = (
+        np.column_stack(
+            (thickness_per_layer, Vp_per_layer_arr, Vs_per_layer_arr, rho_per_layer_arr)
+        )
+        / 1_000
+    )  # m to km and kg/m^3 to g/cm^3
+    pd = PhaseDispersion(*velocity_model.T)
+
+    periods = (1 / fs[fs > 0])[::-1]  # Hz to s and reverse
+
+    curves: list[DispersionCurve] = []
+    mode = 0
+    while True:
+        try:
+            data = pd(periods, mode=mode, wave="rayleigh")
+        except DispersionError:
+            break
+        if data.period.shape[0] == 0:
+            break
+        curves.append(
+            DispersionCurve(
+                fs=(1 / data.period[::-1]).astype(np.float32),
+                vs=(data.velocity[::-1] * 1000).astype(np.float32),
+                mode=Mode("R", mode),
+                type=VelocityType.PHASE,
+                acquisition=UNKNOWN_ACQUISITION,
+            )
+        )
+        mode += 1
+
+    return DispersionCurves(dispersion_curves=tuple(curves)) if curves else None
 
 
 def fwd_function(

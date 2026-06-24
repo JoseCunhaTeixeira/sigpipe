@@ -8,7 +8,7 @@ from .flipping.flipping import FlipAxis
 from .inversion.registry import DISPERSION_CURVE_INVERSION_METHODS
 from .mutting.registry import MUTTING_METHODS
 from .normalization.registry import NORMALIZATION_METHODS
-from .picking.dispersion.curve import lorentzian_uncertainty
+from .picking.dispersion.curve import lorentzian_uncertainty, min_resolvable_wavelength
 from .picking.registry import DISPERSION_PICKING_METHODS, STREAM_PICKING_METHODS
 from .selection.registry import STREAM_SELECTION_METHODS
 from .stacking.registry import (
@@ -35,4 +35,5 @@ __all__ = [
     "WHITENING_METHODS",
     "FlipAxis",
     "lorentzian_uncertainty",
+    "min_resolvable_wavelength",
 ]

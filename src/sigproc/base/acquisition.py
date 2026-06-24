@@ -1,4 +1,6 @@
+import math
 from dataclasses import dataclass
+from itertools import pairwise
 
 import numpy as np
 
@@ -38,17 +40,43 @@ class Acquisition:
         )
 
     @property
-    def middle_position(self) -> Coordinate:
-        points = (self.source, *self.receivers)
-        return Coordinate(
-            x=(min(p.x for p in points) + max(p.x for p in points)) / 2,
-            y=(min(p.y for p in points) + max(p.y for p in points)) / 2,
-            z=(min(p.z for p in points) + max(p.z for p in points)) / 2,
-        )
+    def arc_midpoint(self) -> Coordinate:
+        """Point at the geometric middle of the receiver line, located by
+        arc length along the (x, z) ground-surface profile.
+
+        A min/max average of all receiver (and source) coordinates only
+        gives the right answer on flat or mildly-sloped ground -- on
+        irregular topography the highest and lowest points in a window
+        are rarely at its middle, so that average can land far from the
+        receiver line entirely. Walking the arc length instead finds the
+        point that actually splits the receiver line in half, the same
+        way PAC's window-naming midpoint does for x alone.
+        """
+        receivers = self.receivers
+        if len(receivers) == 1:
+            return receivers[0]
+
+        cumulative = [0.0]
+        for a, b in pairwise(receivers):
+            cumulative.append(cumulative[-1] + math.hypot(b.x - a.x, b.z - a.z))
+
+        half = cumulative[-1] / 2
+        for i in range(1, len(cumulative)):
+            if cumulative[i] >= half:
+                segment = cumulative[i] - cumulative[i - 1]
+                t = (half - cumulative[i - 1]) / segment if segment > 0 else 0.0
+                a, b = receivers[i - 1], receivers[i]
+                return Coordinate(
+                    x=a.x + t * (b.x - a.x),
+                    y=a.y + t * (b.y - a.y),
+                    z=a.z + t * (b.z - a.z),
+                )
+
+        return receivers[-1]
 
     @property
     def xmid(self) -> float:
-        return (min(p.x for p in self.receivers) + max(p.x for p in self.receivers)) / 2
+        return self.arc_midpoint.x
 
 
 UNKNOWN_ACQUISITION = Acquisition(

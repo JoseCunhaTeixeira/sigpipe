@@ -3,7 +3,7 @@ import numpy as np
 from matplotlib.figure import Figure
 
 from sigproc.base.velocity_model import VelocityModel
-from sigproc.dataio.plot_config import CM, DISP_DPI, DOUBLE_COLUMN_CM, HEIGHT_CM
+from sigproc.dataio.plot_config import CM, DISP_DPI, HEIGHT_CM, SINGLE_COLUMN_CM
 
 
 def plot_velocity_models(
@@ -12,9 +12,7 @@ def plot_velocity_models(
     show_std: bool = False,
 ) -> Figure:
     """
-    Plot one or more named velocity profiles (depth on the y-axis, inverted).
-
-    Left axis: Vs (solid) and Vp (dashed) together. Right axis: density.
+    Plot one or more named Vs profiles (depth on the y-axis, inverted).
 
     velocity_models maps a label (e.g. "Best", "Median", "Ensemble") to the
     profile to draw with that label, or a single VelocityModel.
@@ -22,10 +20,8 @@ def plot_velocity_models(
     if isinstance(velocity_models, VelocityModel):
         velocity_models = {"Model": velocity_models}
 
-    fig, (ax_v, ax_rho) = plt.subplots(
-        1,
-        2,
-        figsize=(DOUBLE_COLUMN_CM * CM, HEIGHT_CM * CM),
+    fig, ax_v = plt.subplots(
+        figsize=(SINGLE_COLUMN_CM * CM, HEIGHT_CM * CM),
         dpi=DISP_DPI,
     )
 
@@ -35,20 +31,12 @@ def plot_velocity_models(
         depth_max = max(depth_max, float(depths[-1]))
 
         vs_s = np.append(velocity_model.vs_s, velocity_model.vs_s[-1])
-        vs_p = np.append(velocity_model.vs_p, velocity_model.vs_p[-1])
-        rhos = np.append(velocity_model.rhos, velocity_model.rhos[-1])
 
-        (line,) = ax_v.step(vs_s, depths, where="post", label=f"{label} ($v_S$)", linewidth=1)
+        # where="pre": each layer's own Vs spans its own depth range (depths[i]
+        # to depths[i+1]); where="post" would draw the *next* layer's Vs there
+        # instead, collapsing the first layer to a zero-length point at depth 0.
+        (line,) = ax_v.step(vs_s, depths, where="pre", label=label, linewidth=1)
         color = line.get_color()
-        ax_v.step(
-            vs_p,
-            depths,
-            where="post",
-            label=f"{label} ($v_P$)",
-            linewidth=1,
-            linestyle="dashed",
-            color=color,
-        )
 
         if show_std:
             vs_s_std = np.append(velocity_model.vs_s_std, velocity_model.vs_s_std[-1])
@@ -56,23 +44,18 @@ def plot_velocity_models(
                 ax_v.step(
                     vs_s + sign * vs_s_std,
                     depths,
-                    where="post",
+                    where="pre",
                     color=color,
                     linewidth=0.5,
                     linestyle="dotted",
                     label="_nolegend_",
                 )
 
-        ax_rho.step(rhos, depths, where="post", label=label, linewidth=1, color=color)
-
-    for ax in (ax_v, ax_rho):
-        ax.invert_yaxis()
-        ax.set_ylim(depth_max, 0)
-        ax.set_ylabel("Depth [m]")
-        ax.legend(loc="upper center", bbox_to_anchor=(0.5, -0.2))
-
-    ax_v.set_xlabel("$v_S$, $v_P$ [m/s]")
-    ax_rho.set_xlabel("Density [kg/m$^3$]")
+    ax_v.invert_yaxis()
+    ax_v.set_ylim(depth_max, 0)
+    ax_v.set_ylabel("Depth [m]")
+    ax_v.legend(loc="upper center", bbox_to_anchor=(0.5, -0.2))
+    ax_v.set_xlabel("$v_S$ [m/s]")
     fig.tight_layout()
 
     return fig

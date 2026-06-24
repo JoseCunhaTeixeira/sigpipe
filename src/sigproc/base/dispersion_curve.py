@@ -107,6 +107,16 @@ class DispersionCurvesImage(DispersionCurves):
         if len(modes) != len(set(modes)):
             raise ValueError(f"Duplicate modes found in dispersion curves: {modes}")
 
+        # Sort by mode name and number
+        ordered = tuple(
+            sorted(
+                self.dispersion_curves,
+                key=lambda dc: (dc.mode.wave, dc.mode.number),
+            )
+        )
+
+        object.__setattr__(self, "dispersion_curves", ordered)
+
 
 @dataclass(slots=True, frozen=True)
 class DispersionCurvesSection(DispersionCurves):
@@ -154,7 +164,7 @@ class DispersionCurvesSection(DispersionCurves):
         if dx is None:
             if len(profile_xs) < 2:
                 raise ValueError("dx must be given when there is only one curve")
-            dx = float(np.min(np.diff(profile_xs)))
+            dx = float(np.min(np.diff(profile_xs))) / 10
 
         f_top = min(float(dc.fs.max()) for dc in self.dispersion_curves)
         f_bottom = max(float(dc.fs.min()) for dc in self.dispersion_curves)

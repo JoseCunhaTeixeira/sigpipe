@@ -1,4 +1,5 @@
 import numpy as np
+from scipy.interpolate import interp1d
 from scipy.signal import medfilt, savgol_filter
 
 from sigproc.base.acquisition import Acquisition
@@ -15,14 +16,21 @@ def lorentzian_uncertainty(
     vs: np.ndarray,
     acquisition: Acquisition,
     a: float = 0.5,
-) -> np.ndarray:
+) -> np.ndarray | None:
     """Per-point phase-velocity uncertainty from the receiver array's resolving power.
 
     Lorentzian resolution formula: a tighter array (more receivers, smaller
     spacing) resolves velocity more precisely, so its curve gets a smaller
     uncertainty. Receiver count and spacing are taken from the curve's own
     acquisition geometry (assumed uniform, from the first two receivers).
+
+    Returns None when the acquisition's geometry isn't known (e.g. a stacked
+    dispersion image whose shots don't share a single geometry) — there is
+    no array to derive a resolving power from.
     """
+
+    if acquisition.is_unknown or len(acquisition.receivers) < 2:
+        return None
 
     receivers = acquisition.receivers
     n_receivers = len(receivers)
@@ -43,6 +51,90 @@ def lorentzian_uncertainty(
     return uncertainty.astype(np.float32)
 
 
+def min_resolvable_wavelength(acquisition: Acquisition) -> float | None:
+    """Smallest wavelength a receiver array can reliably resolve (2x spacing,
+    the spatial Nyquist limit), or None when the array geometry isn't known.
+
+    Receiver spacing is taken from the first two receivers (assumed
+    uniform), same convention as lorentzian_uncertainty.
+    """
+    if acquisition.is_unknown or len(acquisition.receivers) < 2:
+        return None
+
+    receivers = acquisition.receivers
+    dx = abs(receivers[1].x - receivers[0].x)
+    return 2 * dx
+
+
+def resample_wavelength(
+    curve: DispersionCurve,
+    step: float = 1.0,
+    wmax: float | None = None,
+) -> DispersionCurve:
+    """Resample a picked curve onto a uniform wavelength grid.
+
+    Interpolates velocity (and uncertainty, if present) over wavelength
+    w = v/f at uniform steps, then converts back to frequency and re-sorts
+    by frequency. Port of the old Streamlit app's `dispersion.py::resamp`.
+    """
+    fs = np.asarray(curve.fs, dtype=np.float64)
+    vs = np.asarray(curve.vs, dtype=np.float64)
+    w = vs / fs
+
+    w_min = float(np.ceil(np.min(w) / step) * step)
+    w_max = float(np.floor(np.max(w) / step) * step)
+
+    if w_min >= w_max:
+        return DispersionCurve(
+            fs=fs[:1],
+            vs=vs[:1],
+            mode=curve.mode,
+            acquisition=curve.acquisition,
+            vs_err=curve.vs_err[:1] if curve.vs_err is not None else None,
+            type=curve.type,
+        )
+
+    n_steps = round((w_max - w_min) / step) + 1
+    w_resamp = np.linspace(w_min, w_max, n_steps)
+
+    vs_resamp = interp1d(w, vs, kind="linear")(w_resamp)
+    vs_err_resamp = (
+        interp1d(
+            w,
+            np.asarray(curve.vs_err, dtype=np.float64),
+            kind="linear",
+            fill_value="extrapolate",  # pyright: ignore[reportArgumentType] -- scipy's stub omits this valid literal
+        )(w_resamp)
+        if curve.vs_err is not None
+        else None
+    )
+
+    if wmax is not None and w_resamp.max() > wmax:
+        keep = w_resamp <= wmax
+        if not np.any(keep):
+            keep[0] = True
+        w_resamp = w_resamp[keep]
+        vs_resamp = vs_resamp[keep]
+        if vs_err_resamp is not None:
+            vs_err_resamp = vs_err_resamp[keep]
+
+    fs_resamp = vs_resamp / w_resamp
+    order = np.argsort(fs_resamp)
+    fs_resamp = fs_resamp[order]
+    vs_resamp = vs_resamp[order]
+    if vs_err_resamp is not None:
+        vs_err_resamp = vs_err_resamp[order]
+
+    return DispersionCurve(
+        fs=fs_resamp,
+        vs=vs_resamp,
+        mode=curve.mode,
+        acquisition=curve.acquisition,
+        vs_err=vs_err_resamp,
+        type=curve.type,
+    )
+
+
 def pick_curves(
     dispersion_image: DispersionImage,
     fmins: list[float | None] | None = None,
@@ -53,6 +145,7 @@ def pick_curves(
     lbdmaxs: list[float | None] | None = None,
     labels: list[str] | None = None,
     modes: list[int] | None = None,
+    resample_over_wavelength: bool = False,
 ) -> DispersionImage:
 
     if fmins is None:
@@ -148,16 +241,19 @@ def pick_curves(
             dtype=np.float32,
         )
 
-        dispersion_curves.append(
-            DispersionCurve(
-                fs=fs,
-                vs=picked_vs,
-                mode=Mode(label if label else "M", mode),
-                acquisition=dispersion_image.acquisition,
-                type=dispersion_image.type,
-                vs_err=lorentzian_uncertainty(fs, picked_vs, dispersion_image.acquisition),
-            )
+        picked_curve = DispersionCurve(
+            fs=fs,
+            vs=picked_vs,
+            mode=Mode(label if label else "M", mode),
+            acquisition=dispersion_image.acquisition,
+            type=dispersion_image.type,
+            vs_err=lorentzian_uncertainty(fs, picked_vs, dispersion_image.acquisition),
         )
+
+        if resample_over_wavelength:
+            picked_curve = resample_wavelength(picked_curve)
+
+        dispersion_curves.append(picked_curve)
 
     return DispersionImage(
         fv_map=dispersion_image.fv_map,
