@@ -1,6 +1,8 @@
 import warnings
+from pathlib import Path
 from typing import Literal
 
+import h5py
 import matplotlib.pyplot as plt
 import numpy as np
 from matplotlib.figure import Figure
@@ -49,6 +51,49 @@ def smooth_laterally(grid: np.ndarray) -> np.ndarray:
     for size in (4, 3, 2):
         smoothed = _nanmedian_filter_axis0(smoothed, size)
     return smoothed
+
+
+def save_velocity_models_sections(
+    sections: dict[str, VelocityModelsSection],
+    path: Path,
+    dz: float | None = None,
+    dx: float | None = None,
+) -> None:
+    """Save Vs(x, z) section grids for several model variants (e.g. best,
+    median, ensemble, ...) into one HDF5 file, one group per variant.
+
+    Each group holds that variant's own x positions, z elevations, and Vs(x, z)
+    grid (NaN where a position's model doesn't reach that elevation) --
+    variants are not forced onto a shared grid, since their depth extents can
+    legitimately differ (e.g. a blocky "best" model vs. a finely-resampled
+    "ensemble" model).
+    """
+    path = path.with_suffix(".hd5")
+    with h5py.File(path, "w") as file:
+        for name, section in sections.items():
+            xs, zs, vs_s_grid, _vs_p_grid, _rhos_grid, _vs_s_std_grid = section.to_grid(
+                dz=dz, dx=dx
+            )
+            group = file.create_group(name)
+            group.create_dataset("x", data=xs)
+            group.create_dataset("z", data=zs)
+            group.create_dataset("vs", data=vs_s_grid)
+
+
+def load_velocity_models_sections(
+    path: Path,
+) -> dict[str, tuple[np.ndarray, np.ndarray, np.ndarray]]:
+    """Load Vs(x, z) section grids previously written by
+    `save_velocity_models_sections`.
+
+    Returns a dict mapping each saved variant's name to its own (x, z, vs)
+    arrays -- mirrors the per-variant, non-shared-grid layout of the save side.
+    """
+    with h5py.File(path, "r") as file:
+        return {
+            name: (group["x"][()], group["z"][()], group["vs"][()])
+            for name, group in file.items()
+        }
 
 
 def plot_velocity_models_section(

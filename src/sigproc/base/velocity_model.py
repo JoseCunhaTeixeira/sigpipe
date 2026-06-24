@@ -196,8 +196,6 @@ class VelocityModelsSection(VelocityModels):
             dtype=np.float32,
         )
 
-        print(profile_xs)
-
         if dx is None:
             if len(profile_xs) < 2:
                 raise ValueError("dx must be given when there is only one profile")
