@@ -14,7 +14,7 @@ def save_beam(
     path: Path,
     **kwargs: object,
 ) -> None:
-    path = path.with_suffix(".hd5")
+    path = path.with_suffix(".hdf5")
     source = beam.acquisition.source.to_tuple()
     receivers = coordinates_to_tuples(beam.acquisition.receivers)
     with h5py.File(path, "w") as file:

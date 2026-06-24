@@ -12,7 +12,7 @@ def save_stream(
     path: Path,
     **kwargs: object,
 ) -> None:
-    path = path.with_suffix(".hd5")
+    path = path.with_suffix(".hdf5")
     source = stream.acquisition.source.to_tuple()
     receivers = coordinates_to_tuples(stream.acquisition.receivers)
     with h5py.File(path, "w") as file:

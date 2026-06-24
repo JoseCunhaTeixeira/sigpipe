@@ -13,7 +13,7 @@ from sigproc.dataio._h5 import dataset
 def load_beam(
     path: Path,
 ) -> Beam:
-    path = path.with_suffix(".hd5")
+    path = path.with_suffix(".hdf5")
 
     with h5py.File(path, "r") as file:
         xy_map = np.asarray(
@@ -34,11 +34,7 @@ def load_beam(
         source = tuple(dataset(file, "source")[:])
         receivers = list(dataset(file, "receivers")[:])
 
-        kind = (
-            dataset(file, "acquisition_kind")[()].decode()
-            if "acquisition_kind" in file
-            else ""
-        )
+        kind = dataset(file, "acquisition_kind")[()].decode() if "acquisition_kind" in file else ""
 
     acquisition = acquisition_from_kind(
         kind,

@@ -16,7 +16,7 @@ def save_dispersion_image(
     path: Path,
     **kwargs: object,
 ) -> None:
-    path = path.with_suffix(".hd5")
+    path = path.with_suffix(".hdf5")
     with h5py.File(path, "w") as file:
         file.create_dataset("fv_map", data=dispersion_image.fv_map)
         file.create_dataset("fs", data=dispersion_image.fs)
@@ -26,9 +26,7 @@ def save_dispersion_image(
         file.create_dataset(
             "receivers", data=coordinates_to_tuples(dispersion_image.acquisition.receivers)
         )
-        file.create_dataset(
-            "acquisition_kind", data=acquisition_kind(dispersion_image.acquisition)
-        )
+        file.create_dataset("acquisition_kind", data=acquisition_kind(dispersion_image.acquisition))
         for key, value in kwargs.items():
             file.create_dataset(key, data=value)
     if dispersion_image.dispersion_curves is not None:

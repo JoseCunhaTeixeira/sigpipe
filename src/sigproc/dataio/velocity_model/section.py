@@ -68,7 +68,7 @@ def save_velocity_models_sections(
     legitimately differ (e.g. a blocky "best" model vs. a finely-resampled
     "ensemble" model).
     """
-    path = path.with_suffix(".hd5")
+    path = path.with_suffix(".hdf5")
     with h5py.File(path, "w") as file:
         for name, section in sections.items():
             xs, zs, vs_s_grid, _vs_p_grid, _rhos_grid, _vs_s_std_grid = section.to_grid(
@@ -91,8 +91,7 @@ def load_velocity_models_sections(
     """
     with h5py.File(path, "r") as file:
         return {
-            name: (group["x"][()], group["z"][()], group["vs"][()])
-            for name, group in file.items()
+            name: (group["x"][()], group["z"][()], group["vs"][()]) for name, group in file.items()
         }
 
 
