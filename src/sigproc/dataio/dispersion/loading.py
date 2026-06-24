@@ -6,7 +6,7 @@ import h5py
 import numpy as np
 import pandas as pd
 
-from sigproc.base.acquisition import UNKNOWN_ACQUISITION, Acquisition
+from sigproc.base.acquisition import UNKNOWN_ACQUISITION, acquisition_from_kind
 from sigproc.base.coordinate import (
     Coordinate,
     tuples_to_coordinates,
@@ -58,7 +58,12 @@ def load_dispersion_image(
 
             receivers = tuples_to_coordinates(dataset(f, "receivers")[:])
 
-        acquisition = Acquisition(
+            kind = (
+                dataset(f, "acquisition_kind")[()].decode() if "acquisition_kind" in f else ""
+            )
+
+        acquisition = acquisition_from_kind(
+            kind,
             source=source,
             receivers=receivers,
         )
@@ -118,6 +123,7 @@ def _load_picked_dispersion_curves(
 
         type = ""
         mode = Mode("X", 999)
+        kind = ""
         source = None
         receivers = None
 
@@ -130,6 +136,9 @@ def _load_picked_dispersion_curves(
 
             elif line.startswith("mode:"):
                 mode = Mode(*ast.literal_eval(line.removeprefix("mode:").strip()))
+
+            elif line.startswith("acquisition_kind:"):
+                kind = line.removeprefix("acquisition_kind:").strip()
 
             elif line.startswith("source:"):
                 raw_source = ast.literal_eval(
@@ -156,7 +165,8 @@ def _load_picked_dispersion_curves(
         if source is None or receivers is None:
             acquisition = UNKNOWN_ACQUISITION
         else:
-            acquisition = Acquisition(
+            acquisition = acquisition_from_kind(
+                kind,
                 source=source,
                 receivers=receivers,
             )

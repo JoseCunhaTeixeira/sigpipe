@@ -161,10 +161,12 @@ class DispersionCurvesSection(DispersionCurves):
             dtype=np.float32,
         )
 
+        print(profile_xs)
+
         if dx is None:
             if len(profile_xs) < 2:
                 raise ValueError("dx must be given when there is only one curve")
-            dx = float(np.min(np.diff(profile_xs))) / 10
+            dx = float(np.min(np.diff(profile_xs))) / 100
 
         f_top = min(float(dc.fs.max()) for dc in self.dispersion_curves)
         f_bottom = max(float(dc.fs.min()) for dc in self.dispersion_curves)

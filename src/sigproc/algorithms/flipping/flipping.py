@@ -1,6 +1,5 @@
 from enum import StrEnum
 
-from sigproc.base.acquisition import Acquisition
 from sigproc.base.stream import Stream
 
 
@@ -22,7 +21,7 @@ def flip(
     if axis is FlipAxis.SPACE:
         xt = xt[::-1, :]
         if flip_acquisition:
-            acquisition = Acquisition(
+            acquisition = type(stream.acquisition)(
                 source=stream.acquisition.source,
                 receivers=tuple(reversed(stream.acquisition.receivers)),
             )

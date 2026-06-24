@@ -2,6 +2,7 @@ from pathlib import Path
 
 import h5py
 
+from sigproc.base.acquisition import acquisition_kind
 from sigproc.base.beamforming import Beam
 from sigproc.base.coordinate import (
     coordinates_to_tuples,
@@ -22,5 +23,6 @@ def save_beam(
         file.create_dataset("ys", data=beam.ys)
         file.create_dataset("source", data=tuple(source))
         file.create_dataset("receivers", data=receivers)
+        file.create_dataset("acquisition_kind", data=acquisition_kind(beam.acquisition))
         for key, value in kwargs.items():
             file.create_dataset(key, data=value)

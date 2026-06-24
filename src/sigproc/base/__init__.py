@@ -1,4 +1,11 @@
-from .acquisition import UNKNOWN_ACQUISITION, Acquisition
+from .acquisition import (
+    UNKNOWN_ACQUISITION,
+    Acquisition,
+    LinearAcquisition,
+    PlanarAcquisition,
+    acquisition_from_kind,
+    acquisition_kind,
+)
 from .arrivals import Arrival, TraceArrivals
 from .beamforming import Beam
 from .coordinate import (
@@ -34,8 +41,10 @@ __all__ = [
     "DispersionCurvesImage",
     "DispersionCurvesSection",
     "DispersionImage",
+    "LinearAcquisition",
     "Mode",
     "Pipeline",
+    "PlanarAcquisition",
     "Stream",
     "TraceArrivals",
     "Transformer",
@@ -44,6 +53,8 @@ __all__ = [
     "VelocityModels",
     "VelocityModelsSection",
     "VelocityType",
+    "acquisition_from_kind",
+    "acquisition_kind",
     "coordinates_to_tuples",
     "tuples_to_coordinates",
 ]

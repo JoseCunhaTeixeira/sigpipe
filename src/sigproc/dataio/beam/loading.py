@@ -4,7 +4,7 @@ from pathlib import Path
 import h5py
 import numpy as np
 
-from sigproc.base.acquisition import Acquisition
+from sigproc.base.acquisition import PlanarAcquisition, acquisition_from_kind
 from sigproc.base.beamforming import Beam
 from sigproc.base.coordinate import Coordinate, tuples_to_coordinates
 from sigproc.dataio._h5 import dataset
@@ -34,10 +34,23 @@ def load_beam(
         source = tuple(dataset(file, "source")[:])
         receivers = list(dataset(file, "receivers")[:])
 
-    acquisition = Acquisition(
+        kind = (
+            dataset(file, "acquisition_kind")[()].decode()
+            if "acquisition_kind" in file
+            else ""
+        )
+
+    acquisition = acquisition_from_kind(
+        kind,
         source=Coordinate(*source),
         receivers=tuples_to_coordinates(receivers),
     )
+
+    if not isinstance(acquisition, PlanarAcquisition):
+        raise TypeError(
+            f"Beam file '{path}' has no/unrecognized acquisition_kind tag "
+            f"(got {kind!r}); expected PlanarAcquisition"
+        )
 
     return Beam(
         xy_map=xy_map,

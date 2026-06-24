@@ -6,7 +6,7 @@ import h5py
 import numpy as np
 from obspy import read as read_obspy
 
-from sigproc.base.acquisition import UNKNOWN_ACQUISITION, Acquisition
+from sigproc.base.acquisition import UNKNOWN_ACQUISITION, Acquisition, acquisition_from_kind
 from sigproc.base.coordinate import Coordinate, tuples_to_coordinates
 from sigproc.base.stream import Stream
 from sigproc.dataio._h5 import dataset
@@ -36,7 +36,14 @@ def load_stream(
             source = tuple(dataset(file, "source")[:])
             receivers = list(dataset(file, "receivers")[:])
 
-        acquisition = Acquisition(
+            kind = (
+                dataset(file, "acquisition_kind")[()].decode()
+                if "acquisition_kind" in file
+                else ""
+            )
+
+        acquisition = acquisition_from_kind(
+            kind,
             source=Coordinate(*source),
             receivers=tuples_to_coordinates(receivers),
         )
@@ -44,7 +51,7 @@ def load_stream(
         if not acquisition.is_unknown and sort:
             order = np.argsort(acquisition.offsets)
             xt = xt[order]
-            acquisition = Acquisition(
+            acquisition = type(acquisition)(
                 source=acquisition.source,
                 receivers=tuple(acquisition.receivers[i] for i in order),
             )
@@ -120,7 +127,7 @@ def load_segd(
         if not acquisition.is_unknown and sort:
             order = np.argsort(acquisition.offsets)
             xt = xt[order]
-            acquisition = Acquisition(
+            acquisition = type(acquisition)(
                 source=acquisition.source,
                 receivers=tuple(acquisition.receivers[i] for i in order),
             )
@@ -210,7 +217,7 @@ def load_gero_passive(
         if not acquisition.is_unknown and sort:
             order = np.argsort(acquisition.offsets)
             record = record[order]
-            acquisition = Acquisition(
+            acquisition = type(acquisition)(
                 source=acquisition.source,
                 receivers=tuple(acquisition.receivers[i] for i in order),
             )
@@ -323,7 +330,7 @@ def load_gero_active(
             if not acquisition.is_unknown and sort:
                 order = np.argsort(acquisition.offsets)
                 shot = shot[order]
-                acquisition = Acquisition(
+                acquisition = type(acquisition)(
                     source=acquisition.source,
                     receivers=tuple(acquisition.receivers[i] for i in order),
                 )

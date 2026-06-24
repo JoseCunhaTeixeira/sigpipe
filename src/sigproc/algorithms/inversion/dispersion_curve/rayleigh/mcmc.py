@@ -11,7 +11,7 @@ from bayesbay.prior import Prior, UniformPrior
 from disba import DispersionError, PhaseDispersion
 
 from sigproc.base.coordinate import Coordinate
-from sigproc.base.dispersion_curve import DispersionCurves
+from sigproc.base.dispersion_curve import DispersionCurvesImage
 from sigproc.base.inversion import InversionResult
 from sigproc.base.velocity_model import VelocityModel
 
@@ -54,7 +54,7 @@ def _ensemble_model(
 
 
 def inversion_mcmc(
-    dispersion_curves: DispersionCurves,
+    dispersion_curves: DispersionCurvesImage,
     position: Coordinate,
     n_layers: int,
     thicknesses_min: tuple[float, ...],

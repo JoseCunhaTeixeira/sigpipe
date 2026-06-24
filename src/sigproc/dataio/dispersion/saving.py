@@ -3,6 +3,7 @@ from typing import TextIO
 
 import h5py
 
+from sigproc.base.acquisition import acquisition_kind
 from sigproc.base.coordinate import (
     coordinates_to_tuples,
 )
@@ -24,6 +25,9 @@ def save_dispersion_image(
         file.create_dataset("source", data=dispersion_image.acquisition.source.to_tuple())
         file.create_dataset(
             "receivers", data=coordinates_to_tuples(dispersion_image.acquisition.receivers)
+        )
+        file.create_dataset(
+            "acquisition_kind", data=acquisition_kind(dispersion_image.acquisition)
         )
         for key, value in kwargs.items():
             file.create_dataset(key, data=value)
@@ -55,6 +59,7 @@ def _write_dispersion_curve(
 ) -> None:
     file.write(f"type: {dispersion_curve.type}\n")
     file.write(f"mode: {tuple(dispersion_curve.mode)}\n")
+    file.write(f"acquisition_kind: {acquisition_kind(dispersion_curve.acquisition)}\n")
     file.write(f"source: {dispersion_curve.acquisition.source.to_tuple()}\n")
     file.write(f"receivers: {coordinates_to_tuples(dispersion_curve.acquisition.receivers)}\n")
     if dispersion_curve.vs_err is not None:

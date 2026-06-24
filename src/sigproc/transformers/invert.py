@@ -40,7 +40,7 @@ class Invert(Transformer[DispersionCurves, DispersionCurves | InversionResult]):
         return [
             algorithm(
                 dispersion_curves=dispersion_curves,
-                position=dispersion_curves[0].acquisition.arc_midpoint,
+                position=dispersion_curves[0].acquisition.mid_position,
                 **self.params,
             )
             for dispersion_curves in data

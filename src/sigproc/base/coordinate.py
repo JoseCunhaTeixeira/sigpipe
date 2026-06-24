@@ -52,6 +52,10 @@ class Coordinate:
     def distance_to(self, other: Coordinate) -> float:
         return (self - other).norm()
 
+    @property
+    def is_unknown(self) -> bool:
+        return math.isnan(self.x) or math.isnan(self.y) or math.isnan(self.z)
+
     def __str__(self) -> str:
         return f"Coordinate[{self.x:.3f};{self.y:.3f};{self.z:.3f}]"
 

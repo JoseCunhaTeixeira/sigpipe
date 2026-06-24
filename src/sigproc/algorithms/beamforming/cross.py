@@ -1,6 +1,7 @@
 import numpy as np
 import torch
 
+from sigproc.base.acquisition import PlanarAcquisition
 from sigproc.base.beamforming import Beam
 from sigproc.base.coordinate import coordinates_to_tuples
 from sigproc.base.dispersion_curve import DispersionCurve
@@ -16,6 +17,11 @@ def beamform_cross(
     fmin: float | None,
     fmax: float | None,
 ) -> Beam:
+    if not isinstance(stream.acquisition, PlanarAcquisition):
+        raise TypeError(
+            "beamform_cross requires stream.acquisition to already be a "
+            f"PlanarAcquisition, got {type(stream.acquisition).__name__}"
+        )
 
     xgrid_coords = torch.arange(xgrid_lims[0], xgrid_lims[1], grid_spacing)
     ygrid_coords = torch.arange(ygrid_lims[0], ygrid_lims[1], grid_spacing)

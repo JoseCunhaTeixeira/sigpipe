@@ -3,7 +3,6 @@ from typing import Literal
 import numpy as np
 from scipy.signal import correlate
 
-from sigproc.base.acquisition import Acquisition
 from sigproc.base.stream import Stream
 
 
@@ -38,7 +37,7 @@ def correlate_cross(
         xt_out_causal[i_receiver, :] = causal
         xt_out_acausal[i_receiver, :] = acausal
 
-    acquisition_out = Acquisition(
+    acquisition_out = type(stream.acquisition)(
         source=stream.acquisition.receivers[virtual_source_index],
         receivers=stream.acquisition.receivers,
     )

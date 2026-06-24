@@ -1,6 +1,5 @@
 import numpy as np
 
-from sigproc.base.acquisition import Acquisition
 from sigproc.base.dispersion_image import DispersionImage
 
 
@@ -32,7 +31,7 @@ def stack_linear(
         axis=0,
     )
 
-    acquisition = Acquisition(
+    acquisition = type(reference.acquisition)(
         source=reference.acquisition.receivers[0], receivers=reference.acquisition.receivers
     )
 

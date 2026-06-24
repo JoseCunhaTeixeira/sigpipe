@@ -77,6 +77,8 @@ def plot_velocity_models_section(
 
     pcm = ax.pcolormesh(xs, zs, grid.T, shading="nearest", cmap="viridis")
 
+    ax.set_xlim(xs[0], xs[-1])
+
     cbar = fig.colorbar(pcm, ax=ax)
     cbar.set_label(clabel)
 
@@ -119,12 +121,13 @@ def plot_velocity_and_std_section(
     fig.colorbar(pcm_vs, ax=ax_vs, label="$v_{S}$ [m/s]")
     ax_vs.set_ylabel("Elevation [m]")
 
-    pcm_std = ax_std.pcolormesh(
-        xs, zs, vs_s_std_grid.T, shading="nearest", cmap="afmhot_r", vmin=0
-    )
+    pcm_std = ax_std.pcolormesh(xs, zs, vs_s_std_grid.T, shading="nearest", cmap="afmhot_r", vmin=0)
     fig.colorbar(pcm_std, ax=ax_std, label="Std [m/s]")
     ax_std.set_xlabel("Position [m]")
     ax_std.set_ylabel("Elevation [m]")
+
+    ax_vs.set_xlim(xs[0], xs[-1])
+    ax_std.set_xlim(xs[0], xs[-1])
 
     fig.tight_layout()
 
