@@ -1,8 +1,8 @@
 from pathlib import Path
 
-from sigproc.base import Acquisition, Coordinate
-from sigproc.dataio import load_dispersion_curves
-from sigproc.transformers import (
+from sigpipe.base import Acquisition, Coordinate
+from sigpipe.dataio import load_dispersion_curves
+from sigpipe.transformers import (
     BidirectionalCorrelate,
     Detrend,
     Dispersion,

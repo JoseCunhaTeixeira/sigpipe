@@ -1,5 +1,5 @@
 [project]
-name = "sigproc"
+name = "sigpipe"
 version = "1.0.0"
 requires-python = ">=3.14,<3.15"
 dependencies = [
@@ -27,7 +27,7 @@ build-backend = "setuptools.build_meta"
 where = ["src"]
 
 [tool.setuptools.package-data]
-sigproc = ["py.typed"]
+sigpipe = ["py.typed"]
 
 [tool.mypy]
 python_version = "3.14"
