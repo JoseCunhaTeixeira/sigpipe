@@ -66,11 +66,3 @@ See [experiments/active_find.py](experiments/active_find.py), [experiments/passi
 ```bash
 uv run run.py
 ```
-
-## Development
-
-```bash
-uv run ruff check .      # lint
-uv run ruff format .     # format
-uv run mypy .            # strict type checking
-```
