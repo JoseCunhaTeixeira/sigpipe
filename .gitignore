@@ -1,5 +1,5 @@
-.experiments/*
-!.experiments/example.py
+experiments/*
+!experiments/example.py
 
 
 # Byte-compiled / optimized / DLL files
