@@ -28,7 +28,7 @@ class Load(
             "stream",
             "dispersion_image",
             "dispersion_curves",
-            "segd",
+            "seismic",
             "gero_active",
             "gero_passive",
             "velocity_models",

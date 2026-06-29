@@ -41,7 +41,7 @@ acquisition = PlanarAcquisition(
 pipeline = (
     Load(
         file_paths=file_paths,
-        data_type="gero_passive",
+        data_type="seismic",
         acquisition=acquisition,
         sort=True,
         receivers_to_load=[0, 1, 2, 3, 4, 5, 6],  # Load all traces

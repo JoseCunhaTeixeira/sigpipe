@@ -26,7 +26,7 @@ from sigpipe.dataio.inversion.saving import save_inversion_result
 from sigpipe.dataio.stream.loading import (
     load_gero_active,
     load_gero_passive,
-    load_segd,
+    load_seismic,
     load_stream,
 )
 from sigpipe.dataio.stream.plotting import plot_stream
@@ -73,7 +73,7 @@ LOAD_HANDLERS: dict[
     "stream": load_stream,
     "gero_passive": load_gero_passive,
     "gero_active": load_gero_active,
-    "segd": load_segd,
+    "seismic": load_seismic,
     "dispersion_image": load_dispersion_image,
     "dispersion_curves": load_dispersion_curves,
     "velocity_models": load_velocity_models,

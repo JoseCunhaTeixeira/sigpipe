@@ -66,7 +66,7 @@ def load_stream(
     return streams_out
 
 
-def load_segd(
+def load_seismic(
     file_paths: Sequence[Path],
     acquisitions: Sequence[Acquisition],
     sort: bool = False,
