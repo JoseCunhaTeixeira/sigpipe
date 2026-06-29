@@ -34,7 +34,9 @@ receivers = (
     Coordinate(x=5, y=0, z=0),
     Coordinate(x=6, y=0, z=0),
 )
-acquisition = PlanarAcquisition(source=source, receivers=receivers)
+acquisition = PlanarAcquisition(
+    source=source, receivers=receivers
+)  # Planar acquisition can can (x,y) coordinates but all z must be equal
 
 pipeline = (
     Load(
