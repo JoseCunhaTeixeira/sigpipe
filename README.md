@@ -48,7 +48,7 @@ A pipeline is built by chaining `Transformer` instances with `>>` and running th
 from sigpipe.transformers import Load, Detrend, Mute, BidirectionalCorrelate, Stack, Pick, Plot, Save
 
 pipeline = (
-    Load(file_paths=file_paths, data_type="segd", acquisitions=acquisitions)
+    Load(file_paths=file_paths, data_type="seismic", acquisitions=acquisitions)
     >> Detrend(method="constant")
     >> Mute(vmin=1_000, vmax=2_500, taper=25)
     >> BidirectionalCorrelate(method="cross")
