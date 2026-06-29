@@ -6,7 +6,7 @@ Raw waveforms go in; dispersion curves and inverted velocity models come out. Ea
 
 ## Features
 
-- **Loading** — active/passive shot-gathers (`gero_active`, `gero_passive`, `segd`), generic streams, dispersion images/curves, velocity models, beamforming results.
+- **Loading** — active/passive shot-gathers, generic streams, dispersion images/curves, velocity models, beamforming results.
 - **Stream pre-processing** — detrending, padding, muting, flipping, normalization, spectral whitening, apodization, IIR filtering, slicing.
 - **Correlation & stacking** — cross-correlation, bidirectional correlation, active-shot correlation, linear/root/phase-weighted stacking.
 - **Beamforming** — cross-beamforming and f-k based receiver selection.
