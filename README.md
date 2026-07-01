@@ -53,7 +53,7 @@ pipeline = (
         data_type="seismic",
         acquisition=acquisition,
         sort=True,
-        receivers_to_load=[0, 1, 2, 3, 4, 5, 6],  # Load all traces
+        receivers_to_load=[0, 1, 2, 3, 4, 5, 6],  # Load all 7 traces
     )
     >> Detrend(method="constant")
     >> Detrend(method="linear")
