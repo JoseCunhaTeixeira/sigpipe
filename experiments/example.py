@@ -13,6 +13,10 @@ from sigpipe.transformers import (
     Stack,
     Whiten,
 )
+from sigpipe.transformers.dispersion import Dispersion
+from sigpipe.transformers.padding import Pad
+from sigpipe.transformers.picking import Pick
+from sigpipe.transformers.saving import Save
 
 data_dir = Path("/path/to/data/dir/")
 file_paths = [
@@ -56,6 +60,21 @@ pipeline = (
     >> Correlate(method="cross", virtual_source_index=0)
     >> Stack(method="phase_weighted", nu=2)
     >> Plot(folder_path=saving_dir, normalize=True)
+    >> Save(folder_path=saving_dir)
+    >> Pad(n=1_000, taper=25)
+    >> Dispersion(method="phase", fmin=0, fmax=2_000_000, vmin=0, vmax=7_000)
+    >> Pick(
+        method="maximum",
+        fmins=[20_000],
+        fmaxs=[200_000],
+        vmins=[0],
+        vmaxs=[2_500],
+        lbdmins=[0.0065],
+        lbdmaxs=[0.1],
+        labels=["M0"],
+    )
+    >> Plot(folder_path=saving_dir)
+    >> Save(folder_path=saving_dir)
 )
 
 

@@ -48,14 +48,38 @@ A pipeline is built by chaining `Transformer` instances with `>>` and running th
 from sigpipe.transformers import Load, Detrend, Mute, BidirectionalCorrelate, Stack, Pick, Plot, Save
 
 pipeline = (
-    Load(file_paths=file_paths, data_type="seismic", acquisitions=acquisitions)
+    Load(
+        file_paths=file_paths,
+        data_type="seismic",
+        acquisition=acquisition,
+        sort=True,
+        receivers_to_load=[0, 1, 2, 3, 4, 5, 6],  # Load all traces
+    )
     >> Detrend(method="constant")
-    >> Mute(vmin=1_000, vmax=2_500, taper=25)
-    >> BidirectionalCorrelate(method="cross")
+    >> Detrend(method="linear")
+    >> Filter(method="iir", fmin=10_000, fmax=20_000, order=4)
+    >> Slice(segment_duration=0.002, segment_step=0.002)
+    >> Whiten(method="onebit_apod", fmin=10_000, fmax=20_000, taper_width_Hz=1_000)
+    >> Normalize(method="onebit")
+    >> Apodize(method="hanning", frac=0.1)
+    >> Correlate(method="cross", virtual_source_index=0)
     >> Stack(method="phase_weighted", nu=2)
-    >> Pick(method="maximum")
-    >> Plot(folder_path=folder_path, normalize=True)
-    >> Save(folder_path=folder_path)
+    >> Plot(folder_path=saving_dir, normalize=True)
+    >> Save(folder_path=saving_dir)
+    >> Pad(n=1_000, taper=25)
+    >> Dispersion(method="phase", fmin=0, fmax=2_000_000, vmin=0, vmax=7_000)
+    >> Pick(
+        method="maximum",
+        fmins=[20_000],
+        fmaxs=[200_000],
+        vmins=[0],
+        vmaxs=[2_500],
+        lbdmins=[0.0065],
+        lbdmaxs=[0.1],
+        labels=["M0"],
+    )
+    >> Plot(folder_path=saving_dir)
+    >> Save(folder_path=saving_dir)
 )
 
 pipeline.run()
