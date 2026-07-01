@@ -85,8 +85,4 @@ pipeline = (
 pipeline.run()
 ```
 
-See [experiments/active_find.py](experiments/active_find.py), [experiments/passive.py](experiments/passive.py), and [experiments/passive_ship.py](experiments/passive_ship.py) for complete worked examples, including dispersion analysis and picking. Run the default experiment with:
-
-```bash
-uv run run.py
-```
+See [experiments/example.py](experiments/example.py) for a complete worked example.
