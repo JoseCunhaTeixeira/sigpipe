@@ -198,7 +198,7 @@ class VelocityModelsSection(VelocityModels):
 
         if dx is None:
             if len(profile_xs) < 2:
-                raise ValueError("dx must be given when there is only one profile")
+                dx = 1.0
             dx = float(np.min(np.diff(profile_xs))) / 100
 
         min_thickness = min(float(np.min(vm.thicknesses)) for vm in self.velocity_models)
