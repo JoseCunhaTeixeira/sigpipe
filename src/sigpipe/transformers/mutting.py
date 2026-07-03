@@ -1,7 +1,6 @@
 from collections.abc import Sequence
 from typing import Literal
 
-from sigpipe.algorithms.mutting.mutting import mute
 from sigpipe.algorithms.mutting.registry import MUTTING_METHODS
 from sigpipe.base.stream import Stream
 from sigpipe.base.transformer import Transformer
@@ -44,7 +43,7 @@ class Mute(Transformer[Stream, Stream]):
 
         streams_out: list[Stream] = []
         for stream in data:
-            stream_out = mute(
+            stream_out = algorithm(
                 stream=stream,
                 tmin=self.tmin,
                 tmax=self.tmax,

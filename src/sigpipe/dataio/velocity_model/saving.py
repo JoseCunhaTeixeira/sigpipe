@@ -1,3 +1,4 @@
+import json
 from pathlib import Path
 from typing import TextIO
 
@@ -22,7 +23,7 @@ def _write_velocity_model(
     file: TextIO,
     velocity_model: VelocityModel,
 ) -> None:
-    file.write(f"position: {velocity_model.position.to_tuple()}\n")
+    file.write(f"position: {json.dumps(velocity_model.position.to_tuple())}\n")
     file.write("thickness_m,vp_m/s,vs_m/s,rho_kg/m3,vs_std_m/s\n")
     for thickness, vp, vs, rho, vs_std in zip(
         velocity_model.thicknesses,

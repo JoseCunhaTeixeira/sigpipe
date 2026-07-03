@@ -1,3 +1,4 @@
+import json
 from pathlib import Path
 from typing import TextIO
 
@@ -58,8 +59,10 @@ def _write_dispersion_curve(
     file.write(f"type: {dispersion_curve.type}\n")
     file.write(f"mode: {tuple(dispersion_curve.mode)}\n")
     file.write(f"acquisition_kind: {acquisition_kind(dispersion_curve.acquisition)}\n")
-    file.write(f"source: {dispersion_curve.acquisition.source.to_tuple()}\n")
-    file.write(f"receivers: {coordinates_to_tuples(dispersion_curve.acquisition.receivers)}\n")
+    file.write(f"source: {json.dumps(dispersion_curve.acquisition.source.to_tuple())}\n")
+    file.write(
+        f"receivers: {json.dumps(coordinates_to_tuples(dispersion_curve.acquisition.receivers))}\n"
+    )
     if dispersion_curve.vs_err is not None:
         file.write("frequency_Hz,phase_velocity_m/s,velocity_std_m/s\n")
         for f, v, v_err in zip(

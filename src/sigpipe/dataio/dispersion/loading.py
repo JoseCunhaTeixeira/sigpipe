@@ -1,4 +1,6 @@
 import ast
+import json
+import re
 from collections.abc import Sequence
 from pathlib import Path
 
@@ -139,14 +141,14 @@ def _load_picked_dispersion_curves(
                 kind = line.removeprefix("acquisition_kind:").strip()
 
             elif line.startswith("source:"):
-                raw_source = ast.literal_eval(
+                raw_source = json.loads(
                     line.removeprefix("source:").strip(),
                 )
 
                 source = Coordinate.from_tuple(raw_source)
 
             elif line.startswith("receivers:"):
-                raw_receivers = ast.literal_eval(
+                raw_receivers = json.loads(
                     line.removeprefix("receivers:").strip(),
                 )
 
@@ -245,11 +247,16 @@ def _load_modeled_dispersion_curves(
         if len(fs) == 0:
             continue
 
+        match = re.fullmatch(r"([A-Za-z]+)(\d+)", col.strip())
+        if match is None:
+            raise ValueError(f"Cannot parse mode from column name: {col!r}")
+        wave, number = match.groups()
+
         curves.append(
             DispersionCurve(
                 fs=fs * 1e6,
                 vs=vs * 1e3,
-                mode=Mode(*ast.literal_eval(col.strip())),
+                mode=Mode(wave, int(number)),
                 acquisition=UNKNOWN_ACQUISITION,
                 type=VelocityType.UNKNOWN,
             )

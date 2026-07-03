@@ -2,7 +2,6 @@ from collections.abc import Sequence
 from typing import Literal
 
 from sigpipe.algorithms.selection.registry import STREAM_SELECTION_METHODS
-from sigpipe.base.dispersion_image import DispersionImage
 from sigpipe.base.stream import Stream
 from sigpipe.base.transformer import Transformer
 
@@ -22,7 +21,7 @@ class Selection(Transformer[Stream, Stream]):
 
     def transform(self, data: Sequence[Stream]) -> list[Stream]:
 
-        self.validate_sequence(data, Stream, DispersionImage)
+        self.validate_sequence(data, Stream)
 
         if self.method == "none":
             return list(data)

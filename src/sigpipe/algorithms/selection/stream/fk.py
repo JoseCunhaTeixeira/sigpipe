@@ -14,6 +14,14 @@ def selection_fk(
     vmax: float,
     flip_negatives: bool = False,
 ) -> Stream | None:
+    """Keep `stream` only if its in-band f-k energy is asymmetric enough
+    between positive/negative wavenumbers (|fk_ratio| > threshold).
+
+    If `flip_negatives` is set, the stream is space-flipped when
+    `fk_ratio > 0`, i.e. when positive-wavenumber energy dominates -- despite
+    the parameter name, a stream dominated by negative wavenumbers is
+    returned unflipped.
+    """
 
     if not 0 <= threshold <= 1:
         raise ValueError(f"requires 0 <= threshold <= 1, got {threshold}")

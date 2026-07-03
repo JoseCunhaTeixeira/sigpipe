@@ -21,6 +21,12 @@ class Beam:
                 f"(x, y) array, not a profiled line), got {type(self.acquisition).__name__}"
             )
 
+        if self.xy_map.shape != (len(self.xs), len(self.ys)):
+            raise ValueError(
+                f"xy_map shape {self.xy_map.shape} does not match xs and ys lengths "
+                f"{(len(self.xs), len(self.ys))}"
+            )
+
         xy_map = np.asarray(self.xy_map, dtype=np.float32)
         xs = np.asarray(self.xs, dtype=np.float32)
         ys = np.asarray(self.ys, dtype=np.float32)

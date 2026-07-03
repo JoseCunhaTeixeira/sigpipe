@@ -83,11 +83,11 @@ def beamform_cross(
 
     bp = beampowers.reshape(len(xgrid_coords), len(ygrid_coords))
     bp = abs(bp)
-    bp = (bp - bp.min()) / (bp.max() - bp.min())
+    bp = (bp - bp.min()) / (bp.max() - bp.min() + 1e-12)
 
     return Beam(
         xy_map=bp.cpu().numpy().astype(np.float32),
         xs=xgrid_coords.cpu().numpy().astype(np.float32),
-        ys=bp.cpu().numpy().astype(np.float32),
+        ys=ygrid_coords.cpu().numpy().astype(np.float32),
         acquisition=stream.acquisition,
     )

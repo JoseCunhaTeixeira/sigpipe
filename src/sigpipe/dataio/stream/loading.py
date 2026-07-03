@@ -151,6 +151,7 @@ def load_gero_passive(
     sort: bool = False,
     receivers_to_load: Sequence[int] | None = None,
 ) -> list[Stream]:
+    user_sampling_freq = sampling_freq
     streams_out: list[Stream] = []
     for path in file_paths:
         if not path.exists():
@@ -183,16 +184,18 @@ def load_gero_passive(
 
             file_sampling_freq = f[key].attrs.get("fs")
             if file_sampling_freq is None:
-                if sampling_freq is None:
+                if user_sampling_freq is None:
                     raise ValueError(
                         "Missing 'fs' attribute. "
                         f"Available attributes: {list(f[key].attrs.keys())}. "
                         "One may use sampling_freq method paramater"
                     )
+                sampling_freq = user_sampling_freq
             else:
                 file_sampling_freq = float(file_sampling_freq)
-                if sampling_freq is None:
-                    sampling_freq = file_sampling_freq
+                sampling_freq = (
+                    user_sampling_freq if user_sampling_freq is not None else file_sampling_freq
+                )
                 if not np.isclose(
                     file_sampling_freq,
                     sampling_freq,
@@ -254,6 +257,7 @@ def load_gero_active(
     if not all(isinstance(s, Acquisition) for s in acquisitions):
         raise TypeError("All elements in acquisitions must be Acquisition")
 
+    user_sampling_freq = sampling_freq
     streams_out: list[Stream] = []
     for path in file_paths:
         if not path.exists():
@@ -303,14 +307,16 @@ def load_gero_active(
 
             file_sampling_freq = f[key].attrs.get("fs")
             if file_sampling_freq is None:
-                if sampling_freq is None:
+                if user_sampling_freq is None:
                     raise ValueError(
                         f"Missing 'fs' attribute. Available attributes: {list(f[key].attrs.keys())}"
                     )
+                sampling_freq = user_sampling_freq
             else:
                 file_sampling_freq = float(file_sampling_freq)
-                if sampling_freq is None:
-                    sampling_freq = file_sampling_freq
+                sampling_freq = (
+                    user_sampling_freq if user_sampling_freq is not None else file_sampling_freq
+                )
                 if not np.isclose(
                     file_sampling_freq,
                     sampling_freq,

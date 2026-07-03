@@ -24,7 +24,7 @@ def segment_slice(
     i_start = round(t_slice_start / dt)
     i_end = round(t_slice_end / dt)
     ts_slice = stream.ts[i_start : i_end + 1]
-    xt_slice = stream.xt[:, i_start : i_end + 1]
+    xt_slice = stream.xt[:, i_start : i_end + 1].copy()
     return Stream(
         xt=xt_slice,
         ts=ts_slice,

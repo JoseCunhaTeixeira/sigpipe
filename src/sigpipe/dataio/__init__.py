@@ -2,6 +2,8 @@ from .beam.loading import load_beam, load_beams
 from .beam.plotting import plot_beamforming
 from .beam.saving import save_beam
 from .dispersion.loading import (
+    _load_modeled_dispersion_curves,
+    _load_picked_dispersion_curves,
     load_dispersion_curves,
     load_dispersion_image,
 )
@@ -20,7 +22,7 @@ from .plot_config import (
     SAVING_DPI,
     SINGLE_COLUMN_CM,
 )
-from .stream.loading import load_gero_active, load_gero_passive, load_segd, load_stream
+from .stream.loading import load_gero_active, load_gero_passive, load_stream
 from .stream.plotting import plot_stream
 from .stream.saving import save_stream
 
@@ -31,13 +33,14 @@ __all__ = [
     "HEIGHT_CM",
     "SAVING_DPI",
     "SINGLE_COLUMN_CM",
+    "_load_modeled_dispersion_curves",
+    "_load_picked_dispersion_curves",
     "load_beam",
     "load_beams",
     "load_dispersion_curves",
     "load_dispersion_image",
     "load_gero_active",
     "load_gero_passive",
-    "load_segd",
     "load_stream",
     "plot_beamforming",
     "plot_dispersion_curves",

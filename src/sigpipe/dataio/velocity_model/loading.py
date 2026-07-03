@@ -1,4 +1,4 @@
-import ast
+import json
 from collections.abc import Sequence
 from pathlib import Path
 
@@ -42,7 +42,7 @@ def _parse_velocity_model(block: str) -> VelocityModel:
     for i, line in enumerate(lines):
         if line.startswith("position:"):
             position = Coordinate.from_tuple(
-                ast.literal_eval(line.removeprefix("position:").strip())
+                json.loads(line.removeprefix("position:").strip())
             )
         elif line == _HEADER:
             data_start = i + 1
