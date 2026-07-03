@@ -68,7 +68,7 @@ def load_stream(
 
 def load_seismic(
     file_paths: Sequence[Path],
-    acquisitions: Sequence[Acquisition],
+    acquisitions: Sequence[Acquisition],  # one acquisition per file
     sort: bool = False,
     receivers_to_load: Sequence[int] | None = None,
 ) -> list[Stream]:
@@ -147,7 +147,7 @@ def load_gero_passive(
     *,
     key: str = "signal",
     sampling_freq: float | None = None,
-    acquisition: Acquisition = UNKNOWN_ACQUISITION,
+    acquisition: Acquisition = UNKNOWN_ACQUISITION,  # one unique acquisition for all files
     sort: bool = False,
     receivers_to_load: Sequence[int] | None = None,
 ) -> list[Stream]:
@@ -240,30 +240,34 @@ def load_gero_active(
     *,
     key: str = "signal",
     sampling_freq: float | None = None,
-    acquisitions: Sequence[Acquisition],
+    acquisitions_per_file: Sequence[Sequence[Acquisition]],  # one acquisition per shot per file
     sort: bool = False,
     sources_to_load: Sequence[int] | None = None,
     receivers_to_load: Sequence[int] | None = None,
 ) -> list[Stream]:
 
-    if not isinstance(acquisitions, Sequence) or isinstance(acquisitions, (str, bytes)):
-        raise TypeError(f"Expected Sequence for acquisitions, got {type(acquisitions).__name__}")
-
-    if len(file_paths) != len(acquisitions):
-        raise ValueError(
-            f"requires len(file_paths) == len(acquisitions), got {len(file_paths)} and {len(acquisitions)}"
+    if not isinstance(acquisitions_per_file, Sequence) or isinstance(
+        acquisitions_per_file, (str, bytes)
+    ):
+        raise TypeError(
+            f"Expected Sequence for acquisitions_per_file, got {type(acquisitions_per_file).__name__}"
         )
 
-    if not all(isinstance(s, Acquisition) for s in acquisitions):
-        raise TypeError("All elements in acquisitions must be Acquisition")
+    if len(file_paths) != len(acquisitions_per_file):
+        raise ValueError(
+            f"requires len(file_paths) == len(acquisitions_per_file), got {len(file_paths)} and {len(acquisitions_per_file)}"
+        )
+
+    if not all(isinstance(s, Acquisition) for s in acquisitions_per_file for s in s):
+        raise TypeError("All elements in acquisitions_per_file must be Acquisition")
 
     user_sampling_freq = sampling_freq
     streams_out: list[Stream] = []
-    for path in file_paths:
+    for path, acquisitions in zip(file_paths, acquisitions_per_file, strict=False):
         if not path.exists():
             raise FileNotFoundError(path)
 
-        streams_per_file = []
+        streams_per_file: list[Stream] = []
         with h5py.File(path, "r") as f:
             if key not in f:
                 raise ValueError(f"Missing dataset '{key}'. Available objects: {list(f)}")
