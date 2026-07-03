@@ -48,5 +48,5 @@ class BidirectionalCorrelate(Transformer[Stream, Stream]):
 
         return [
             *left,
-            *right,
+            # *right,
         ]
