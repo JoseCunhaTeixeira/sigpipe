@@ -32,11 +32,13 @@ class BidirectionalCorrelate(Transformer[Stream, Stream]):
         left = Correlate(
             method=self.method,
             virtual_source_index=0,
+            part="causal",
         ).transform(data)
 
         right = Correlate(
             method=self.method,
             virtual_source_index=-1,
+            part="acausal",
         ).transform(data)
 
         right = Flip(
