@@ -10,11 +10,15 @@ dependencies = [
     "tqdm",
     "pyyaml",
     "pandas",
-    "torch",
     "obspy",
     "disba",
     "bayesbay",
 ]
+
+[project.optional-dependencies]
+# Only needed for Beamform(method="cross") / BEAMFORMING_METHODS["cross"];
+# not required to import or use the rest of sigpipe.
+beamforming = ["torch"]
 
 [build-system]
 requires = ["setuptools>=61"]
