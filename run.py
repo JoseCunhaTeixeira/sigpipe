@@ -1,4 +1,4 @@
-from experiments.active_find import run
+from experiments.example import run
 
 if __name__ == "__main__":
     run()
