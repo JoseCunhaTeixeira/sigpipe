@@ -1,3 +1,5 @@
+import warnings
+
 import numpy as np
 
 from sigpipe.base.dispersion_image import DispersionImage
@@ -21,7 +23,12 @@ def stack_linear(
             raise ValueError("All velocity axes must match.")
 
         if disp.acquisition.receivers != reference.acquisition.receivers:
-            raise ValueError("All dispersion images must share the same receivers.")
+            warnings.warn(
+                "Dispersion images have different receivers. "
+                "Resulting image will only include receivers from the first image.",
+                UserWarning,
+                stacklevel=2,
+            )
 
     fv_stack = np.mean(
         np.stack(

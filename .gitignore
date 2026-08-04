@@ -1,6 +1,9 @@
 experiments/*
 !experiments/example.py
 
+# Pipeline.run() writes a timestamped log file here on every call
+logs/
+
 
 # Byte-compiled / optimized / DLL files
 __pycache__/

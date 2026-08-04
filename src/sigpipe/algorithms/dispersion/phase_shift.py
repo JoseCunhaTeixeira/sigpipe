@@ -1,3 +1,5 @@
+import warnings
+
 import numpy as np
 from scipy.fft import rfft, rfftfreq
 
@@ -62,7 +64,7 @@ def phase_shift(
         raise ValueError(f"requires sampling_freq > 0 Hz, got {sampling_freq} Hz")
     if not (0 <= fmin < fmax):
         raise ValueError(f"requires 0 Hz <= fmin < fmax, got {fmin} Hz and {fmax} Hz")
-    if not (0 <= vmin < vmax):
+    if not (vmin < vmax):
         raise ValueError(f"requires 0 <= vmin < vmax, got {vmin} m/s and {vmax} m/s")
     if nv <= 0:
         raise ValueError(f"requires nv > 0, got {nv}")
@@ -71,6 +73,13 @@ def phase_shift(
 
     xf = np.array(rfft(xt, axis=1, n=nt), dtype=np.complex64)
     fs = compute_frequency_vector(nt=nt, sampling_freq=sampling_freq)
+    if fmax > fs[-1]:
+        warnings.warn(
+            f"fmax ({fmax} Hz) exceeds Nyquist frequency ({fs[-1]} Hz). "
+            f"fmax will be clamped to the Nyquist frequency ({fs[-1]} Hz).",
+            UserWarning,
+            stacklevel=2,
+        )
     mask = (fs >= fmin) & (fs <= fmax)
     if not np.any(mask):
         raise ValueError(f"no frequencies found in the requested band ({fmin} to {fmax} Hz)")
