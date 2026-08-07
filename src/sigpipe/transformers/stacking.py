@@ -17,7 +17,7 @@ class Stack[T: (Stream, DispersionImage)](Transformer[T, T]):
 
     def __init__(
         self,
-        method: Literal["none", "linear", "root", "phase_weighted"],
+        method: Literal["none", "linear", "root", "phase_weighted", "entropy"],
         **params: object,
     ) -> None:
         self.method = method

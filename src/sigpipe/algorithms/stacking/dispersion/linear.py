@@ -24,8 +24,9 @@ def stack_linear(
 
         if disp.acquisition.receivers != reference.acquisition.receivers:
             warnings.warn(
-                "Dispersion images have different receivers. "
-                "Resulting image will only include receivers from the first image.",
+                "Dispersion images have different acquisitions. "
+                "Resulting image will only include acquisition from the first image "
+                "with first receiver as source.",
                 UserWarning,
                 stacklevel=2,
             )
