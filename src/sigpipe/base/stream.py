@@ -55,10 +55,10 @@ class Stream:
 
     def validate_shot_inputs(self) -> None:
         if self.xt.ndim != 2:
-            raise ValueError("xt must be 2D")
+            raise ValueError(f"xt must be 2D, got {self.xt.ndim}")
 
         if self.ts.ndim != 1:
-            raise ValueError("ts must be 1D")
+            raise ValueError(f"ts must be 1D, got {self.ts.ndim}")
 
         nx, nt = self.xt.shape
 

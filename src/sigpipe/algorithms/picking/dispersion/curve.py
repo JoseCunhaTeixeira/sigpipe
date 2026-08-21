@@ -40,8 +40,8 @@ def lorentzian_uncertainty(
     vs = np.asarray(vs, dtype=np.float64)
 
     fac = 10 ** (1 / np.sqrt(n_receivers * dx))
-    dc_left = 1 / (1 / vs - 1 / (2 * fs * n_receivers * fac * dx))
-    dc_right = 1 / (1 / vs + 1 / (2 * fs * n_receivers * fac * dx))
+    dc_left = 1 / (1 / vs + 1e-12 - 1 / (2 * fs * n_receivers * fac * dx + 1e-12))
+    dc_right = 1 / (1 / vs + 1e-12 + 1 / (2 * fs * n_receivers * fac * dx + 1e-12))
     resolution = np.abs(dc_left - dc_right)
 
     raw = (10**-a) * resolution
