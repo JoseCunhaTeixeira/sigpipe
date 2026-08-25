@@ -1,5 +1,6 @@
 # sigpipe - Signal processing pipeline
 
+[![CI](https://github.com/JoseCunhaTeixeira/sigpipe/actions/workflows/ci.yml/badge.svg)](https://github.com/JoseCunhaTeixeira/sigpipe/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![Python 3.14](https://img.shields.io/badge/python-3.14-blue.svg)](pyproject.toml)
 
