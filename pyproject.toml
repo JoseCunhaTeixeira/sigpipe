@@ -1,7 +1,7 @@
 [project]
 name = "sigpipe"
 version = "1.0.0"
-requires-python = ">=3.14,<3.15"
+requires-python = ">=3.14"
 authors = [
     { name = "J. Cunha Teixeira", email = "jose.cunha-teixeira@protonmail.com" },
 ]

@@ -2,7 +2,7 @@
 
 [![CI](https://github.com/JoseCunhaTeixeira/sigpipe/actions/workflows/ci.yml/badge.svg)](https://github.com/JoseCunhaTeixeira/sigpipe/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
-[![Python 3.14](https://img.shields.io/badge/python-3.14-blue.svg)](pyproject.toml)
+[![Python 3.14+](https://img.shields.io/badge/python-3.14%2B-blue.svg)](pyproject.toml)
 
 A Python pipeline for processing seismic/acoustic signals and estimating subsurface velocity models from surface-wave dispersion, for both active-source (MASW-style) and passive (ambient-noise) acquisitions.
 
@@ -38,7 +38,7 @@ run.py             # Entry point running experiments.active_find
 
 ## Installation
 
-Requires Python 3.14. Dependencies are managed with [uv](https://docs.astral.sh/uv/):
+Requires Python 3.14+. Dependencies are managed with [uv](https://docs.astral.sh/uv/):
 
 ```bash
 uv sync
