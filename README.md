@@ -1,5 +1,8 @@
 # sigpipe - Signal processing pipeline
 
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+[![Python 3.14](https://img.shields.io/badge/python-3.14-blue.svg)](pyproject.toml)
+
 A Python pipeline for processing seismic/acoustic signals and estimating subsurface velocity models from surface-wave dispersion, for both active-source (MASW-style) and passive (ambient-noise) acquisitions.
 
 Raw waveforms go in; dispersion curves and inverted velocity models come out. Each processing step is a composable `Transformer`, chained into a `Pipeline` with `>>`.
