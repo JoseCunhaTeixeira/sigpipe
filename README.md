@@ -95,3 +95,29 @@ pipeline.run()
 ```
 
 See [experiments/example.py](experiments/example.py) for a complete worked example.
+
+## Development
+
+Install dev dependencies (pytest, ruff, pre-commit) alongside the project:
+
+```bash
+uv sync
+```
+
+Run the test suite:
+
+```bash
+uv run pytest
+```
+
+Enable pre-commit hooks (ruff lint/format + basic hygiene checks) to run automatically on `git commit`:
+
+```bash
+uv run pre-commit install
+```
+
+CI runs linting, formatting checks, and the test suite on every push and pull request to `main` (see [.github/workflows/ci.yml](.github/workflows/ci.yml)).
+
+## License
+
+[MIT](LICENSE)
