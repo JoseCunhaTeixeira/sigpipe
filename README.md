@@ -1,4 +1,4 @@
-# sigpipe
+# sigpipe - Signal processing pipeline
 
 A Python pipeline for processing seismic/acoustic signals and estimating subsurface velocity models from surface-wave dispersion, for both active-source (MASW-style) and passive (ambient-noise) acquisitions.
 
