@@ -45,7 +45,16 @@ uv sync
 A pipeline is built by chaining `Transformer` instances with `>>` and running the result:
 
 ```python
-from sigpipe.transformers import Load, Detrend, Mute, BidirectionalCorrelate, Stack, Pick, Plot, Save
+from sigpipe.transformers import (
+    Load,
+    Detrend,
+    Mute,
+    BidirectionalCorrelate,
+    Stack,
+    Pick,
+    Plot,
+    Save,
+)
 
 pipeline = (
     Load(

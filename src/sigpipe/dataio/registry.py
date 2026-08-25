@@ -9,6 +9,7 @@ from sigpipe.base.dispersion_curve import (
 )
 from sigpipe.base.dispersion_image import DispersionImage
 from sigpipe.base.inversion import InversionResult
+from sigpipe.base.petro_model import PetroModel, PetroModels, PetroModelsSection
 from sigpipe.base.stream import Stream
 from sigpipe.base.velocity_model import VelocityModel, VelocityModels, VelocityModelsSection
 from sigpipe.dataio.beam.loading import load_beams
@@ -23,6 +24,10 @@ from sigpipe.dataio.dispersion.saving import save_dispersion_curves, save_disper
 from sigpipe.dataio.dispersion.section import plot_dispersion_curves_section
 from sigpipe.dataio.inversion.plotting import plot_density_curves
 from sigpipe.dataio.inversion.saving import save_inversion_result
+from sigpipe.dataio.petro_model.loading import load_petro_models
+from sigpipe.dataio.petro_model.plotting import plot_petro_models
+from sigpipe.dataio.petro_model.saving import save_petro_model, save_petro_models
+from sigpipe.dataio.petro_model.section import plot_petro_models_section
 from sigpipe.dataio.stream.loading import (
     load_gero_active,
     load_gero_passive,
@@ -60,6 +65,8 @@ SAVE_HANDLERS: dict[type, Callable[..., None]] = {
     VelocityModels: save_velocity_models,
     InversionResult: save_inversion_result,
     Beam: save_beam,
+    PetroModel: save_petro_model,
+    PetroModels: save_petro_models,
 }
 
 LOAD_HANDLERS: dict[
@@ -68,7 +75,8 @@ LOAD_HANDLERS: dict[
     | Callable[..., list[DispersionImage]]
     | Callable[..., list[DispersionCurves]]
     | Callable[..., list[VelocityModels]]
-    | Callable[..., list[Beam]],
+    | Callable[..., list[Beam]]
+    | Callable[..., list[PetroModels]],
 ] = {
     "stream": load_stream,
     "gero_passive": load_gero_passive,
@@ -78,6 +86,7 @@ LOAD_HANDLERS: dict[
     "dispersion_curves": load_dispersion_curves,
     "velocity_models": load_velocity_models,
     "beam": load_beams,
+    "petro_models": load_petro_models,
 }
 
 PLOT_HANDLERS: dict[type, Callable[..., Figure]] = {
@@ -87,10 +96,12 @@ PLOT_HANDLERS: dict[type, Callable[..., Figure]] = {
     VelocityModel: plot_velocity_models,
     InversionResult: plot_density_curves,
     Beam: plot_beamforming,
+    PetroModel: plot_petro_models,
 }
 
 
 SECTION_HANDLERS: dict[type, Callable[..., Figure]] = {
     VelocityModelsSection: plot_velocity_models_section,
     DispersionCurvesSection: plot_dispersion_curves_section,
+    PetroModelsSection: plot_petro_models_section,
 }

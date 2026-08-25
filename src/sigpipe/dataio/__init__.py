@@ -2,8 +2,8 @@ from .beam.loading import load_beam, load_beams
 from .beam.plotting import plot_beamforming
 from .beam.saving import save_beam
 from .dispersion.loading import (
-    _load_modeled_dispersion_curves,
-    _load_picked_dispersion_curves,
+    _load_modeled_dispersion_curves,  # type: ignore
+    _load_picked_dispersion_curves,  # type: ignore
     load_dispersion_curves,
     load_dispersion_image,
 )

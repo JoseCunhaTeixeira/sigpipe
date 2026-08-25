@@ -17,6 +17,7 @@ dependencies = [
 
 [project.optional-dependencies]
 beamforming = ["torch"]
+silex = ["keras", "keras-nlp>=0.19.0", "torch>=2.13.0"]
 
 [build-system]
 requires = ["setuptools>=61"]
@@ -51,6 +52,10 @@ exclude = [
 ]
 
 reportMissingTypeStubs = false
+reportUnknownMemberType = false
+reportUnknownArgumentType = false
+reportUnknownVariableType = false
+reportUnnecessaryIsInstance = false
 
 
 # -------------------------

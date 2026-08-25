@@ -162,7 +162,7 @@ class VelocityModelsSection(VelocityModels):
 
         xs = [vm.position.x for vm in self.velocity_models]
         if len(xs) != len(set(xs)):
-            raise ValueError("All velocity profiles must have unique x coordinate")
+            raise ValueError("All velocity models must have unique x coordinate")
 
         ordered = tuple(
             sorted(
@@ -190,7 +190,14 @@ class VelocityModelsSection(VelocityModels):
         self,
         dz: float | None,
         dx: float | None = None,
-    ) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+    ) -> tuple[
+        np.ndarray,
+        np.ndarray,
+        np.ndarray,
+        np.ndarray,
+        np.ndarray,
+        np.ndarray,
+    ]:
         profile_xs = np.array(
             [vm.position.x for vm in self.velocity_models],
             dtype=np.float32,

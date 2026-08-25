@@ -53,6 +53,20 @@ def _ensemble_model(
     )
 
 
+def _make_fwd_function(
+    mode: int, fs: np.ndarray, n_layers: int, Vp_Vs_ratio: float
+) -> Callable[[dict[str, np.ndarray]], np.ndarray]:
+    """A fully-typed def instead of a lambda -- lambda parameters can't carry
+    annotations, and mode/fs need to be bound as real arguments (not closed
+    over) since they vary per dispersion curve in the list comprehension
+    that calls this."""
+
+    def fwd(state: dict[str, np.ndarray]) -> np.ndarray:
+        return fwd_function(state, n_layers, mode, fs, Vp_Vs_ratio)
+
+    return fwd
+
+
 def inversion_mcmc(
     dispersion_curves: DispersionCurvesImage,
     position: Coordinate,
@@ -109,15 +123,10 @@ def inversion_mcmc(
         targets.append(target)
 
     # Forward functions
-    fwd_functions = cast(
-        "list[Callable[[dict[str, np.ndarray]], np.ndarray]]",
-        [
-            lambda state, mode=dispersion_curve.mode.number, fs=dispersion_curve.fs: fwd_function(
-                state, n_layers, mode, fs, Vp_Vs_ratio
-            )
-            for dispersion_curve in ordered_curves
-        ],
-    )
+    fwd_functions = [
+        _make_fwd_function(dispersion_curve.mode.number, dispersion_curve.fs, n_layers, Vp_Vs_ratio)
+        for dispersion_curve in ordered_curves
+    ]
 
     # Log-likelihood
     log_likelihood = LogLikelihood(

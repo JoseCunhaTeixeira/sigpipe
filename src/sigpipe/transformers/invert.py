@@ -4,17 +4,18 @@ from typing import Literal
 from sigpipe.algorithms.inversion.registry import DISPERSION_CURVE_INVERSION_METHODS
 from sigpipe.base.dispersion_curve import DispersionCurves
 from sigpipe.base.inversion import InversionResult
+from sigpipe.base.petro_model import PetroModel
 from sigpipe.base.transformer import Transformer
 
 
-class Invert(Transformer[DispersionCurves, DispersionCurves | InversionResult]):
+class Invert(Transformer[DispersionCurves, DispersionCurves | InversionResult | PetroModel]):
     """
     Inversion transformer.
     """
 
     def __init__(
         self,
-        method: Literal["none", "mcmc"],
+        method: Literal["none", "mcmc", "silex"],
         **params: object,
     ) -> None:
         self.method = method
@@ -23,7 +24,7 @@ class Invert(Transformer[DispersionCurves, DispersionCurves | InversionResult]):
     def transform(
         self,
         data: Sequence[DispersionCurves],
-    ) -> list[DispersionCurves] | list[InversionResult]:
+    ) -> list[DispersionCurves] | list[InversionResult | PetroModel]:
 
         self.validate_sequence(data, DispersionCurves)
 

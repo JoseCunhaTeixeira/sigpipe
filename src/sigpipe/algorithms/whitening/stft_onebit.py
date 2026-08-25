@@ -25,7 +25,7 @@ def whiten_stft_onebit(
     data_fft_whitened = np.exp(1j * np.angle(data_fft))
     _, data_whitened = istft(data_fft_whitened, nperseg=fft_size)
     data_whitened = np.array(data_whitened, dtype=np.complex64).real
-    if data_whitened is None or data_whitened.size == 0:
+    if data_whitened.size == 0:
         raise ValueError("ISTFT failed or returned empty output")
     return Stream(
         xt=data_whitened,

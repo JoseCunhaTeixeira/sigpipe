@@ -5,6 +5,7 @@ from typing import Literal
 from sigpipe.base.beamforming import Beam
 from sigpipe.base.dispersion_curve import DispersionCurves
 from sigpipe.base.dispersion_image import DispersionImage
+from sigpipe.base.petro_model import PetroModels
 from sigpipe.base.stream import Stream
 from sigpipe.base.transformer import Transformer
 from sigpipe.base.velocity_model import VelocityModels
@@ -14,7 +15,7 @@ from sigpipe.dataio.registry import LOAD_HANDLERS
 class Load(
     Transformer[
         object,
-        Stream | DispersionImage | DispersionCurves | VelocityModels | Beam,
+        Stream | DispersionImage | DispersionCurves | VelocityModels | Beam | PetroModels,
     ]
 ):
     """
@@ -33,6 +34,7 @@ class Load(
             "gero_passive",
             "velocity_models",
             "beam",
+            "petro_models",
         ],
         **params: object,
     ) -> None:
@@ -58,6 +60,7 @@ class Load(
         | list[DispersionCurves]
         | list[VelocityModels]
         | list[Beam]
+        | list[PetroModels]
     ):
 
         handler = LOAD_HANDLERS.get(self.data_type)
