@@ -21,13 +21,20 @@ VELOCITY_TYPE_LABELS: dict[VelocityType, str] = {
 
 # Fixed order/colors shared by every soil-type plot (single-profile columns and
 # sections alike) so the same soil always reads as the same color everywhere.
+# SoilType.NONE is deliberately absent: it's the "no data" sentinel (e.g. above
+# a shallower position's local topography in a section), not a real soil type,
+# and shouldn't get its own colorbar/legend entry -- see NO_DATA_COLOR.
 SOIL_TYPE_COLORS: dict[SoilType, str] = {
-    SoilType.NONE: "#FFFFFF",
     SoilType.CLAY: "#8B5A2B",
     SoilType.SILT: "#C2B280",
     SoilType.LOAM: "#6B6B3A",
     SoilType.SAND: "#F2D57E",
 }
+
+# Shared "no data" color for section plots (soil and N alike): cells above a
+# position's local topography, rendered via Colormap.set_bad on NaN rather
+# than as a labeled class, so it never shows up as a colorbar/legend entry.
+NO_DATA_COLOR = "#FFFFFF"
 
 
 def n_value_colors(values: Iterable[int]) -> dict[int, str]:

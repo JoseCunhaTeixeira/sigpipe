@@ -5,7 +5,7 @@ from matplotlib.figure import Figure
 from matplotlib.lines import Line2D
 from matplotlib.patches import Patch
 
-from sigpipe.base.petro_model import PetroModel, SoilType
+from sigpipe.base.petro_model import PetroModel
 from sigpipe.dataio.plot_config import (
     CM,
     DISP_DPI,
@@ -90,9 +90,8 @@ def plot_petro_models(
     # fig-level legends) so tight_layout accounts for them and they can't
     # overlap the plot or each other.
     soil_handles: list[Patch | Line2D] = [
-        Patch(facecolor=color, edgecolor="black", label=soil.value or "none")
+        Patch(facecolor=color, edgecolor="black", label=soil.value)
         for soil, color in SOIL_TYPE_COLORS.items()
-        if soil != SoilType.NONE
     ]
     soil_handles.append(Line2D([0], [0], color="royalblue", linestyle="--", label="Water table"))
     soil_axes[-1].legend(

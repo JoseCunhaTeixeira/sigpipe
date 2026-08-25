@@ -23,6 +23,9 @@ class VelocityModel:
                 f"got {len(self.thicknesses)}, {len(self.vs_s)}, and {len(self.vs_s_std)}"
             )
 
+        if any(t <= 0 for t in self.thicknesses):
+            raise ValueError(f"All thicknesses must be > 0, got {self.thicknesses}")
+
     @property
     def n_layers(self) -> int:
         return len(self.vs_s)

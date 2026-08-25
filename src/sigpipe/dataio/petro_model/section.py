@@ -3,11 +3,12 @@ import numpy as np
 from matplotlib.colors import BoundaryNorm, ListedColormap
 from matplotlib.figure import Figure
 
-from sigpipe.base.petro_model import PetroModelsSection
+from sigpipe.base.petro_model import PetroModelsSection, SoilType
 from sigpipe.dataio.plot_config import (
     CM,
     DISP_DPI,
     DOUBLE_COLUMN_CM,
+    NO_DATA_COLOR,
     SOIL_TYPE_COLORS,
     n_value_colors,
 )
@@ -31,11 +32,20 @@ def plot_petro_models_section(
     """
     xs, zs, soil_grid, n_grid, water_table_profile = petro_section.to_grid(dz=dz, dx=dx)
 
+    # SoilType.NONE (above a shallower position's local topography) isn't in
+    # SOIL_TYPE_COLORS/soil_order at all -- it maps to NaN, which set_bad
+    # below renders as plain white with no colorbar entry, rather than being
+    # a labeled class of its own.
     soil_order = list(SOIL_TYPE_COLORS.keys())
     soil_to_code = {soil: code for code, soil in enumerate(soil_order)}
-    soil_code_grid = np.vectorize(soil_to_code.get)(soil_grid).astype(np.float32)
+
+    def _soil_code(soil: SoilType) -> float:
+        return soil_to_code.get(soil, np.nan)
+
+    soil_code_grid = np.vectorize(_soil_code)(soil_grid).astype(np.float32)
 
     soil_cmap = ListedColormap(list(SOIL_TYPE_COLORS.values()))
+    soil_cmap.set_bad(NO_DATA_COLOR)
     soil_norm = BoundaryNorm(np.arange(-0.5, len(soil_order) + 0.5), soil_cmap.N)
 
     n_valid = ~np.isnan(n_grid)
@@ -46,6 +56,7 @@ def plot_petro_models_section(
     n_code_grid[n_valid] = np.vectorize(n_value_to_code.get)(n_grid[n_valid].astype(int))
 
     n_cmap = ListedColormap([n_colors[value] for value in n_values])
+    n_cmap.set_bad(NO_DATA_COLOR)
     n_norm = BoundaryNorm(np.arange(-0.5, len(n_values) + 0.5), n_cmap.N)
 
     fig, (ax_soil, ax_n) = plt.subplots(
@@ -67,7 +78,7 @@ def plot_petro_models_section(
     # class, no extra interpolated ticks in between (BoundaryNorm's continuous
     # default locator would otherwise add those).
     cbar_soil = fig.colorbar(pcm_soil, ax=ax_soil, ticks=range(len(soil_order)))
-    cbar_soil.ax.set_yticklabels([soil.value or "none" for soil in soil_order])
+    cbar_soil.ax.set_yticklabels([soil.value for soil in soil_order])
     ax_soil.set_ylabel("Elevation [m]")
     ax_soil.legend(loc="lower right")
 

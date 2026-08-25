@@ -25,11 +25,18 @@ class PetroModel:
     position: Coordinate
 
     def __post_init__(self) -> None:
+
         if not (len(self.soils) == len(self.thicknesses) == len(self.Ns)):
             raise ValueError(
                 "soils, thicknesses, and Ns arrays must have the same length, "
                 f"got {len(self.soils)}, {len(self.thicknesses)}, and {len(self.Ns)}"
             )
+
+        if any(t <= 0 for t in self.thicknesses):
+            raise ValueError(f"All thicknesses must be > 0, got {self.thicknesses}")
+
+        if self.water_table_depth <= 0:
+            raise ValueError(f"water_table_depth must be > 0, got {self.water_table_depth}")
 
         total_depth = np.sum(self.depths)
         if self.water_table_depth > total_depth:
