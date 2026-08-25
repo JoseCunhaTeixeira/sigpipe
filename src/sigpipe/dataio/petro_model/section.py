@@ -42,7 +42,11 @@ def plot_petro_models_section(
     def _soil_code(soil: SoilType) -> float:
         return soil_to_code.get(soil, np.nan)
 
-    soil_code_grid = np.vectorize(_soil_code)(soil_grid).astype(np.float32)
+    # otypes pins the output dtype to float regardless of which element
+    # np.vectorize happens to call first -- without it, a real soil (int)
+    # landing first infers an integer output array, which then can't hold the
+    # NaN from a later SoilType.NONE cell.
+    soil_code_grid = np.vectorize(_soil_code, otypes=[np.float32])(soil_grid)
 
     soil_cmap = ListedColormap(list(SOIL_TYPE_COLORS.values()))
     soil_cmap.set_bad(NO_DATA_COLOR)
