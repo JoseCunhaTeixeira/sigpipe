@@ -15,7 +15,7 @@ Raw waveforms go in; dispersion curves and inverted velocity models come out. Ea
 - **Correlation & stacking** — cross-correlation, bidirectional correlation, active-shot correlation, linear/root/phase-weighted stacking.
 - **Beamforming** — cross-beamforming and f-k based receiver selection.
 - **Dispersion analysis** — phase-shift and FTAN dispersion imaging, automated/manual curve picking.
-- **Inversion** — Bayesian MCMC inversion of Rayleigh-wave dispersion curves to 1D velocity models (via [`disba`](https://github.com/keurfonluu/disba) + [`BayesBay`](https://github.com/fmagrini/bayesbay)). Petrophysical inversion of Rayleigh-wave dispersion curves to 1D soil models (via [`silex`](https://github.com/josecunhateixeira/silex)).
+- **Inversion** — Bayesian MCMC inversion of Rayleigh-wave dispersion curves to 1D velocity models (via [`disba`](https://github.com/keurfonluu/disba) + [`BayesBay`](https://github.com/fmagrini/bayes-bay)). Petrophysical inversion of Rayleigh-wave dispersion curves to 1D soil models (via [`silex`](https://github.com/josecunhateixeira/silex)).
 - **I/O & plotting** — saving/loading and plotting for every data type above, plus section views across multiple acquisitions.
 
 ## Project structure
