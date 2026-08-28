@@ -225,7 +225,7 @@ name = "cuda-bindings"
 version = "13.3.1"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
-    { name = "cuda-pathfinder", marker = "sys_platform != 'emscripten' and sys_platform != 'win32'" },
+    { name = "cuda-pathfinder", marker = "python_full_version < '3.15' and sys_platform != 'emscripten' and sys_platform != 'win32'" },
 ]
 wheels = [
     { url = "https://files.pythonhosted.org/packages/b1/81/bff68ce829999c1e4209c761bbf903b1c06ec570416ddb25020864ad5907/cuda_bindings-13.3.1-cp314-cp314-manylinux_2_24_aarch64.manylinux_2_28_aarch64.whl", hash = "sha256:1ab2f74ed65bfef4163ba07a8db16f1085e0729291db12a2423aff84ee8278b8", size = 6013639, upload-time = "2026-05-29T23:12:03.509Z" },
@@ -1563,6 +1563,16 @@ wheels = [
 ]
 
 [[package]]
+name = "santiludo"
+version = "0.1.0"
+source = { git = "https://github.com/JoseCunhaTeixeira/santiludo.git?rev=caadff9784f1a9b19d30186e69c110978cb0a08d#caadff9784f1a9b19d30186e69c110978cb0a08d" }
+dependencies = [
+    { name = "disba" },
+    { name = "matplotlib" },
+    { name = "numpy" },
+]
+
+[[package]]
 name = "scipy"
 version = "1.18.0"
 source = { registry = "https://pypi.org/simple" }
@@ -1664,6 +1674,9 @@ dependencies = [
 beamforming = [
     { name = "torch" },
 ]
+santiludo = [
+    { name = "santiludo" },
+]
 silex = [
     { name = "keras" },
     { name = "keras-nlp", version = "0.19.0", source = { registry = "https://pypi.org/simple" }, marker = "sys_platform != 'win32'" },
@@ -1691,12 +1704,13 @@ requires-dist = [
     { name = "obspy" },
     { name = "pandas" },
     { name = "pyyaml" },
+    { name = "santiludo", marker = "extra == 'santiludo'", git = "https://github.com/JoseCunhaTeixeira/santiludo.git?rev=caadff9784f1a9b19d30186e69c110978cb0a08d" },
     { name = "scipy" },
     { name = "torch", marker = "extra == 'beamforming'" },
     { name = "torch", marker = "extra == 'silex'", specifier = ">=2.13.0" },
     { name = "tqdm" },
 ]
-provides-extras = ["beamforming", "silex"]
+provides-extras = ["beamforming", "silex", "santiludo"]
 
 [package.metadata.requires-dev]
 dev = [

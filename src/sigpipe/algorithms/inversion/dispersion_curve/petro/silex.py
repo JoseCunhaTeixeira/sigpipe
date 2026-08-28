@@ -73,6 +73,17 @@ class SilexModel:
     """Per-decode-step id blocklist enforcing the trained output grammar
     ([WT] <v> ([SOILi] <soil> [THICKNESSi] <v> [Ni] <v>)* [END]), copied
     verbatim from the export -- see export_legacy_model.py."""
+    under_layers: str
+    """The fixed substratum every training sample was generated with, in
+    GPDC format (thickness vp vs rho per line, last line's thickness 0 for
+    the terminating half-space) -- see silex/generation.py's
+    GenerationConfig.under_layers. A forward-modeling comparison against a
+    curve this model produced/consumed (e.g. a QC round-trip) needs to pass
+    the same substratum to `petro.forward.fwd_petro_phase`, or the
+    low-frequency end of the curve won't correspond. Kept as this string
+    (rather than a list of santiludo.UnderLayer) so loading a Silex
+    checkpoint doesn't require santiludo installed -- see
+    `petro.forward.parse_under_layers` to convert it."""
 
     @classmethod
     def load(cls, model_dir: Path) -> SilexModel:
@@ -81,6 +92,7 @@ class SilexModel:
         )
         keras_model = cast("keras.Model", loaded)
         params = json.loads((model_dir / "silex_params.json").read_text())
+        vocab = json.loads((model_dir / "vocab.json").read_text())
 
         return cls(
             keras_model=keras_model,
@@ -90,10 +102,11 @@ class SilexModel:
             n_freqs=params["n_freqs"],
             min_vel=params["min_vel"],
             max_vel=params["max_vel"],
-            word_to_index=params["word_to_index"],
-            index_to_word={int(k): v for k, v in params["index_to_word"].items()},
+            word_to_index=vocab["word_to_index"],
+            index_to_word={int(k): v for k, v in vocab["index_to_word"].items()},
             output_seq_length=params["output_seq_length"],
-            forbidden_tokens=tuple(tuple(step) for step in params["forbidden_tokens"]),
+            forbidden_tokens=tuple(tuple(step) for step in vocab["forbidden_tokens"]),
+            under_layers=params["generation_config"]["under_layers"],
         )
 
     def _preprocess(self, dispersion_curve: DispersionCurve) -> np.ndarray:
@@ -189,3 +202,14 @@ def inversion_silex(
 
     model = _load_silex_model(model_dir)
     return model.predict(curve, position)
+
+
+def silex_under_layers(model_dir: Path) -> str:
+    """The fixed substratum (GPDC format) the Silex model at `model_dir` was
+    trained with -- see `SilexModel.under_layers`. A separate accessor rather
+    than folding this into `inversion_silex`'s return value keeps that
+    function's `PetroModel` return type matching every other entry in
+    `DISPERSION_CURVE_INVERSION_METHODS`; `_load_silex_model`'s cache means
+    calling this alongside `inversion_silex` for the same `model_dir` doesn't
+    reload anything."""
+    return _load_silex_model(model_dir).under_layers
