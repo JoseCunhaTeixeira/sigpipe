@@ -7,8 +7,8 @@ from sigpipe.base.inversion import InversionResult
 from sigpipe.base.petro_model import PetroModel
 from sigpipe.base.velocity_model import VelocityModel
 
-from .dispersion_curve.rayleigh.forward import fwd_rayleigh_phase
-from .dispersion_curve.rayleigh.mcmc import inversion_mcmc
+from .rayleigh.seismic.forward import fwd_seismic_phase
+from .rayleigh.seismic.mcmc import inversion_mcmc
 
 
 def _inversion_silex(*args: object, **kwargs: object) -> PetroModel:
@@ -16,7 +16,7 @@ def _inversion_silex(*args: object, **kwargs: object) -> PetroModel:
     # dependency (`sigpipe[silex]`). Keeping it out of this module's top level
     # means importing `sigpipe.algorithms`/`sigpipe.transformers` doesn't
     # require keras unless the "silex" method is actually invoked.
-    from .dispersion_curve.petro.silex import inversion_silex
+    from .rayleigh.petro.silex import inversion_silex
 
     return inversion_silex(*args, **kwargs)  # type: ignore[arg-type]
 
@@ -32,7 +32,7 @@ def _fwd_petro(*args: object, **kwargs: object) -> DispersionCurve:
     # dependency (`sigpipe[santiludo]`). Keeping it out of this module's top
     # level means importing `sigpipe.algorithms`/`sigpipe.transformers`
     # doesn't require santiludo unless a PetroModel is actually forward-modeled.
-    from .dispersion_curve.petro.forward import fwd_petro_phase
+    from .rayleigh.petro.forward import fwd_petro_phase
 
     return fwd_petro_phase(*args, **kwargs)  # type: ignore[arg-type]
 
@@ -43,7 +43,7 @@ def _fwd_rayleigh(
     fs: np.ndarray,
     Vp_Vs_ratio: float = 1.77,
 ) -> DispersionCurve:
-    return fwd_rayleigh_phase(
+    return fwd_seismic_phase(
         list(velocity_model.thicknesses), list(velocity_model.vs_s), mode, fs, Vp_Vs_ratio
     )
 

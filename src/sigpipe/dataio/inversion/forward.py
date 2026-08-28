@@ -1,6 +1,6 @@
 from disba import DispersionError
 
-from sigpipe.algorithms.inversion.dispersion_curve.rayleigh.forward import fwd_rayleigh_phase
+from sigpipe.algorithms.inversion.rayleigh.seismic.forward import fwd_seismic_phase
 from sigpipe.base.dispersion_curve import DispersionCurves
 from sigpipe.base.inversion import InversionResult
 
@@ -29,7 +29,7 @@ def forward_model_all(
         for observed_curve in observed_curves:
             try:
                 curves.append(
-                    fwd_rayleigh_phase(
+                    fwd_seismic_phase(
                         list(model.thicknesses),
                         list(model.vs_s),
                         observed_curve.mode.number,

@@ -15,7 +15,7 @@ def vp_rho_from_vs(
     return Vp, rho
 
 
-def fwd_rayleigh_phase(
+def fwd_seismic_phase(
     thickness_per_layer: list[float],
     Vs_per_layer: list[float],
     mode: int,
@@ -53,7 +53,7 @@ def fwd_rayleigh_phase(
     )
 
 
-def fwd_rayleigh_all_modes(
+def fwd_seismic_all_modes(
     thickness_per_layer: list[float],
     Vs_per_layer: list[float],
     fs: np.ndarray,
@@ -112,5 +112,5 @@ def fwd_function(
     Vs_per_layer = [state["space"][f"vs{i + 1}"][0] for i in range(n_layers)]
     thickness_per_layer = [state["space"][f"thick{i + 1}"][0] for i in range(n_layers - 1)]
     thickness_per_layer.append(1000)
-    dispersion_curve = fwd_rayleigh_phase(thickness_per_layer, Vs_per_layer, mode, fs, Vp_Vs_ratio)
+    dispersion_curve = fwd_seismic_phase(thickness_per_layer, Vs_per_layer, mode, fs, Vp_Vs_ratio)
     return dispersion_curve.vs

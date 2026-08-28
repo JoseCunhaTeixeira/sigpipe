@@ -140,7 +140,7 @@ def fwd_petro_all_modes(
     """Forward-model every Rayleigh mode (0, 1, 2, ...) the model supports, across
     the full given frequency axis, stopping at the first mode disba can't resolve.
 
-    Petro-model counterpart of `rayleigh.forward.fwd_rayleigh_all_modes`, using
+    Petro-model counterpart of `seismic.forward.fwd_seismic_all_modes`, using
     santiludo's rock-physics chain (see `_rock_physics_from_petro_model`) in place of
     a fixed Vp/Vs ratio to get Vp and density. Returns None if not even the
     fundamental mode can be resolved.
