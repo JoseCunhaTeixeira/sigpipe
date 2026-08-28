@@ -7,6 +7,7 @@ from .detrending import Detrend
 from .dispersion import Dispersion
 from .filtering import Filter
 from .flipping import Flip
+from .forward import Forward
 from .getting import GetArrivals, GetDispersionCurves
 from .invert import Invert
 from .loading import Load
@@ -34,6 +35,7 @@ __all__ = [
     "Dispersion",
     "Filter",
     "Flip",
+    "Forward",
     "GetArrivals",
     "GetDispersionCurves",
     "Invert",

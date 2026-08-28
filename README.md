@@ -16,6 +16,7 @@ Raw waveforms go in; dispersion curves and inverted velocity models come out. Ea
 - **Beamforming** — cross-beamforming and f-k based receiver selection.
 - **Dispersion analysis** — phase-shift and FTAN dispersion imaging, automated/manual curve picking.
 - **Inversion** — Bayesian MCMC inversion of Rayleigh-wave dispersion curves to 1D velocity models (via [`disba`](https://github.com/keurfonluu/disba) + [`BayesBay`](https://github.com/fmagrini/bayes-bay)). Petrophysical inversion of Rayleigh-wave dispersion curves to 1D soil models (via [`silex`](https://github.com/josecunhateixeira/silex)).
+- **Forward modeling** — 1D velocity or soil models to Rayleigh dispersion curves, via a fixed Vp/Vs ratio or real rock physics (via [`santiludo`](https://github.com/JoseCunhaTeixeira/santiludo)) respectively, dispatched by model type through a single `Forward` transformer.
 - **I/O & plotting** — saving/loading and plotting for every data type above, plus section views across multiple acquisitions.
 
 ## Project structure
@@ -23,7 +24,7 @@ Raw waveforms go in; dispersion curves and inverted velocity models come out. Ea
 ```
 src/sigpipe/
 ├── base/          # Core domain types: Stream, Acquisition, Coordinate, DispersionCurve(s),
-│                  # DispersionImage, VelocityModel(s), Beam, Pipeline, Transformer
+│                  # DispersionImage, VelocityModel(s), PetroModel(s), Beam, Pipeline, Transformer
 ├── algorithms/    # Pure algorithm implementations, grouped by category, each with a registry
 │                  # (apodization, beamforming, correlation, detrending, dispersion, filtering,
 │                  # flipping, inversion, mutting, normalization, padding, picking,
@@ -43,6 +44,16 @@ Requires Python 3.14+. Dependencies are managed with [uv](https://docs.astral.sh
 ```bash
 uv sync
 ```
+
+Optional extras, each pulled in only where needed (importing `sigpipe.algorithms`/`sigpipe.transformers` doesn't require any of them):
+
+```bash
+uv sync --extra santiludo    # petro forward modeling (fwd_petro_phase, Forward on a PetroModel)
+uv sync --extra silex        # petrophysical inversion (Invert(method="silex"))
+uv sync --extra beamforming  # beamforming transformer
+```
+
+`santiludo` is a compiled Cython/C++ package installed from git (not on PyPI) — building it needs a C++ toolchain (on Windows, MSVC via Visual Studio Build Tools' "Desktop development with C++" workload).
 
 ## Usage
 
