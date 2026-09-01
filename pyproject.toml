@@ -1,7 +1,7 @@
 [project]
 name = "sigpipe"
 version = "1.0.0"
-requires-python = ">=3.14"
+requires-python = ">=3.14,<3.15"
 authors = [
     { name = "J. Cunha Teixeira", email = "jose.cunha-teixeira@protonmail.com" },
 ]
@@ -40,6 +40,18 @@ where = ["src"]
 
 [tool.setuptools.package-data]
 sigpipe = ["py.typed"]
+
+
+# -------------------------
+# Santiludo: prebuilt-wheel index
+# -------------------------
+[[tool.uv.index]]
+name = "santiludo"
+url = "https://josecunhateixeira.github.io/santiludo/simple/"
+explicit = true
+
+[tool.uv.sources]
+santiludo = { index = "santiludo" }
 
 
 # -------------------------
@@ -122,6 +134,3 @@ addopts = "--cov=sigpipe --cov-report=term-missing"
 [tool.coverage.run]
 source = ["src/sigpipe"]
 omit = ["*/algorithms/inversion/*", "*/algorithms/beamforming/*"]
-
-[tool.uv.sources]
-santiludo = { git = "https://github.com/JoseCunhaTeixeira/santiludo.git", rev = "caadff9784f1a9b19d30186e69c110978cb0a08d" }
