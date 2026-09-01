@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import importlib.machinery
+import importlib.resources
 import importlib.util
 import json
 import os
@@ -52,6 +53,13 @@ from sigpipe.base.dispersion_curve import DispersionCurve, DispersionCurvesImage
 from sigpipe.base.petro_model import PetroModel, SoilType
 
 _FUNDAMENTAL_RAYLEIGH = Mode("R", 0)
+
+DEFAULT_MODEL_DIR = Path(str(importlib.resources.files("sigpipe") / "models" / "silex"))
+"""The Silex checkpoint bundled with sigpipe itself (see pyproject.toml's
+package-data). Used by `inversion_silex`/`silex_under_layers` when `model_dir`
+isn't given, so sigpipe works out of the box even when installed as a
+dependency of another project. Pass an explicit `model_dir` to use a
+different (e.g. retrained) checkpoint instead."""
 
 
 @dataclass(slots=True, frozen=True)
@@ -189,27 +197,29 @@ def _load_silex_model(model_dir: Path) -> SilexModel:
 def inversion_silex(
     dispersion_curves: DispersionCurvesImage,
     position: Coordinate,
-    model_dir: Path,
+    model_dir: Path | None = None,
 ) -> PetroModel:
     """Predict a PetroModel from the fundamental-mode Rayleigh curve in
     `dispersion_curves`, using the Silex model artifact at `model_dir`
-    (loaded once and cached -- see `_load_silex_model`)."""
+    (loaded once and cached -- see `_load_silex_model`). Defaults to the
+    checkpoint bundled with sigpipe (`DEFAULT_MODEL_DIR`) when not given."""
     curve = next((dc for dc in dispersion_curves if dc.mode == _FUNDAMENTAL_RAYLEIGH), None)
     if curve is None:
         raise ValueError(
             "Silex requires a fundamental-mode Rayleigh dispersion curve (Mode('R', 0))"
         )
 
-    model = _load_silex_model(model_dir)
+    model = _load_silex_model(model_dir if model_dir is not None else DEFAULT_MODEL_DIR)
     return model.predict(curve, position)
 
 
-def silex_under_layers(model_dir: Path) -> str:
+def silex_under_layers(model_dir: Path | None = None) -> str:
     """The fixed substratum (GPDC format) the Silex model at `model_dir` was
-    trained with -- see `SilexModel.under_layers`. A separate accessor rather
-    than folding this into `inversion_silex`'s return value keeps that
-    function's `PetroModel` return type matching every other entry in
-    `DISPERSION_CURVE_INVERSION_METHODS`; `_load_silex_model`'s cache means
+    trained with -- see `SilexModel.under_layers`. Defaults to the checkpoint
+    bundled with sigpipe (`DEFAULT_MODEL_DIR`) when not given. A separate
+    accessor rather than folding this into `inversion_silex`'s return value
+    keeps that function's `PetroModel` return type matching every other entry
+    in `DISPERSION_CURVE_INVERSION_METHODS`; `_load_silex_model`'s cache means
     calling this alongside `inversion_silex` for the same `model_dir` doesn't
     reload anything."""
-    return _load_silex_model(model_dir).under_layers
+    return _load_silex_model(model_dir if model_dir is not None else DEFAULT_MODEL_DIR).under_layers
