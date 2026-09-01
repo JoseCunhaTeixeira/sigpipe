@@ -54,12 +54,43 @@ from sigpipe.base.petro_model import PetroModel, SoilType
 
 _FUNDAMENTAL_RAYLEIGH = Mode("R", 0)
 
-DEFAULT_MODEL_DIR = Path(str(importlib.resources.files("sigpipe") / "models" / "silex"))
-"""The Silex checkpoint bundled with sigpipe itself (see pyproject.toml's
-package-data). Used by `inversion_silex`/`silex_under_layers` when `model_dir`
-isn't given, so sigpipe works out of the box even when installed as a
-dependency of another project. Pass an explicit `model_dir` to use a
-different (e.g. retrained) checkpoint instead."""
+_BUNDLED_MODELS_ROOT = Path(str(importlib.resources.files("sigpipe") / "models" / "silex"))
+_REQUIRED_FILES = ("silex.keras", "silex_params.json", "vocab.json")
+
+
+def list_bundled_silex_models() -> list[str]:
+    """Names of every Silex checkpoint bundled with sigpipe itself (see
+    pyproject.toml's package-data) -- one per subdirectory of
+    `models/silex/` containing `silex.keras`/`silex_params.json`/
+    `vocab.json`. Named `<site>_<min_freq>-<max_freq>hz_<min_vel>-<max_vel>mps`
+    after the frequency/velocity band each was trained on, since that's what
+    determines whether a given model applies to a given survey."""
+    if not _BUNDLED_MODELS_ROOT.is_dir():
+        return []
+    return sorted(
+        p.name
+        for p in _BUNDLED_MODELS_ROOT.iterdir()
+        if p.is_dir() and all((p / f).is_file() for f in _REQUIRED_FILES)
+    )
+
+
+def bundled_silex_model_dir(name: str) -> Path:
+    """Resolve a bundled Silex model name (see `list_bundled_silex_models`)
+    to its directory."""
+    model_dir = _BUNDLED_MODELS_ROOT / name
+    if not all((model_dir / f).is_file() for f in _REQUIRED_FILES):
+        raise ValueError(
+            f"Unknown bundled Silex model {name!r}. Available: {list_bundled_silex_models()}"
+        )
+    return model_dir
+
+
+DEFAULT_MODEL_DIR = bundled_silex_model_dir("grand_est_15-50hz_193-415mps")
+"""The Silex checkpoint used by `inversion_silex`/`silex_under_layers` when
+`model_dir` isn't given, so sigpipe works out of the box even when installed
+as a dependency of another project. Pass an explicit `model_dir` (e.g. from
+`bundled_silex_model_dir` for a different bundled model, or your own
+retrained checkpoint) to use something else instead."""
 
 
 @dataclass(slots=True, frozen=True)

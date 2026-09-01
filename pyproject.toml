@@ -39,7 +39,7 @@ build-backend = "setuptools.build_meta"
 where = ["src"]
 
 [tool.setuptools.package-data]
-sigpipe = ["py.typed", "models/silex/*"]
+sigpipe = ["py.typed", "models/silex/**/*"]
 
 
 # -------------------------
