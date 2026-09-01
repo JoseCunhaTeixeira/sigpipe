@@ -64,8 +64,10 @@ class PetroModel:
         """
         Piecewise-constant sampling of layer values at given elevations.
 
-        `fill_value` is used above the surface. The deepest layer extends
-        downward indefinitely.
+        `fill_value` is used above the surface and below this profile's own
+        total depth -- a profile is never extended past what it actually
+        describes, so a shorter log next to deeper ones in a section reads
+        as missing data there, not as a repeat of its last layer.
         """
         elevations = np.asarray(elevations, dtype=np.float32)
         depths = self.position.z - elevations
@@ -77,7 +79,7 @@ class PetroModel:
         idx = np.minimum(idx, len(arr_values) - 1)
 
         out = np.full(elevations.shape, fill_value, dtype=dtype)
-        valid = depths >= 0
+        valid = (depths >= 0) & (depths <= bottoms[-1])
         out[valid] = arr_values[idx[valid]]
 
         return out
