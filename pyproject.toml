@@ -23,9 +23,7 @@ dependencies = [
 [project.optional-dependencies]
 beamforming = ["torch"]
 silex = ["keras", "keras-nlp>=0.19.0", "torch>=2.13.0"]
-santiludo = [
-    "santiludo @ git+https://github.com/JoseCunhaTeixeira/santiludo.git",
-]
+santiludo = ["santiludo"]
 
 [dependency-groups]
 dev = ["pytest>=8", "pytest-cov>=5", "ruff>=0.6", "pre-commit>=3"]
