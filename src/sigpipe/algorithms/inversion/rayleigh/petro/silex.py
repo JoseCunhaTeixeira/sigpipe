@@ -148,22 +148,33 @@ class SilexModel:
             under_layers=params["generation_config"]["under_layers"],
         )
 
+    _RANGE_MARGIN_FRACTION = 0.20
+    """How far `dispersion_curve`'s frequency/velocity range may fall short of
+    (or overshoot) this model's trained range before `_preprocess` rejects
+    it, as a fraction of that range's own width -- e.g. a 15-50 Hz model
+    tolerates a curve starting as late as 22 Hz or ending as early as
+    43 Hz (20% of the 35 Hz band on each end) before raising."""
+
     def _preprocess(self, dispersion_curve: DispersionCurve) -> np.ndarray:
         """Resample onto the model's fixed frequency axis and min-max normalize,
         matching the old repo's `misc.resamp` + `run_invertion.py` exactly.
 
-        Raises ValueError if `dispersion_curve` doesn't actually cover the
-        model's trained frequency/velocity range: silently extrapolating (a
-        curve narrower than the model's frequency band) or normalizing
-        outside [0, 1] (velocities outside what the model saw in training)
-        produces an unreliable prediction instead of a clear failure.
+        Raises ValueError if `dispersion_curve` doesn't cover the model's
+        trained frequency/velocity range within `_RANGE_MARGIN_FRACTION`:
+        silently extrapolating (a curve narrower than the model's frequency
+        band) or normalizing far outside [0, 1] (velocities well outside
+        what the model saw in training) produces an unreliable prediction
+        instead of a clear failure. Within the margin, some extrapolation/
+        outside-[0,1] normalization is accepted as a deliberate tradeoff.
         """
+        freq_margin = self._RANGE_MARGIN_FRACTION * (self.max_freq - self.min_freq)
         fs_min = float(np.nanmin(dispersion_curve.fs))
         fs_max = float(np.nanmax(dispersion_curve.fs))
-        if fs_min > self.min_freq or fs_max < self.max_freq:
+        if fs_min > self.min_freq + freq_margin or fs_max < self.max_freq - freq_margin:
             raise ValueError(
                 f"dispersion_curve frequency range [{fs_min}, {fs_max}] Hz does not cover "
-                f"this Silex model's trained range [{self.min_freq}, {self.max_freq}] Hz"
+                f"this Silex model's trained range [{self.min_freq}, {self.max_freq}] Hz "
+                f"within a {self._RANGE_MARGIN_FRACTION:.0%} margin"
             )
 
         fs_grid = self.min_freq + np.arange(self.n_freqs) * self.d_freq
@@ -174,13 +185,15 @@ class SilexModel:
         )
         vs_resampled = np.asarray(resample(fs_grid), dtype=np.float64)
 
+        vel_margin = self._RANGE_MARGIN_FRACTION * (self.max_vel - self.min_vel)
         vs_min = float(np.nanmin(vs_resampled))
         vs_max = float(np.nanmax(vs_resampled))
-        if vs_min < self.min_vel or vs_max > self.max_vel:
+        if vs_min < self.min_vel - vel_margin or vs_max > self.max_vel + vel_margin:
             raise ValueError(
                 f"dispersion_curve velocity range [{vs_min}, {vs_max}] m/s (resampled onto "
                 f"this Silex model's frequency axis) falls outside its trained range "
-                f"[{self.min_vel}, {self.max_vel}] m/s"
+                f"[{self.min_vel}, {self.max_vel}] m/s within a "
+                f"{self._RANGE_MARGIN_FRACTION:.0%} margin"
             )
 
         vs_norm = (vs_resampled - self.min_vel) / (self.max_vel - self.min_vel)
