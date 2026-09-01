@@ -150,8 +150,22 @@ class SilexModel:
 
     def _preprocess(self, dispersion_curve: DispersionCurve) -> np.ndarray:
         """Resample onto the model's fixed frequency axis and min-max normalize,
-        matching the old repo's `misc.resamp` + `run_invertion.py` exactly
-        (including extrapolation outside the observed frequency range)."""
+        matching the old repo's `misc.resamp` + `run_invertion.py` exactly.
+
+        Raises ValueError if `dispersion_curve` doesn't actually cover the
+        model's trained frequency/velocity range: silently extrapolating (a
+        curve narrower than the model's frequency band) or normalizing
+        outside [0, 1] (velocities outside what the model saw in training)
+        produces an unreliable prediction instead of a clear failure.
+        """
+        fs_min = float(np.nanmin(dispersion_curve.fs))
+        fs_max = float(np.nanmax(dispersion_curve.fs))
+        if fs_min > self.min_freq or fs_max < self.max_freq:
+            raise ValueError(
+                f"dispersion_curve frequency range [{fs_min}, {fs_max}] Hz does not cover "
+                f"this Silex model's trained range [{self.min_freq}, {self.max_freq}] Hz"
+            )
+
         fs_grid = self.min_freq + np.arange(self.n_freqs) * self.d_freq
         resample = interp1d(
             dispersion_curve.fs,
@@ -159,6 +173,16 @@ class SilexModel:
             fill_value="extrapolate",  # pyright: ignore[reportArgumentType]
         )
         vs_resampled = np.asarray(resample(fs_grid), dtype=np.float64)
+
+        vs_min = float(np.nanmin(vs_resampled))
+        vs_max = float(np.nanmax(vs_resampled))
+        if vs_min < self.min_vel or vs_max > self.max_vel:
+            raise ValueError(
+                f"dispersion_curve velocity range [{vs_min}, {vs_max}] m/s (resampled onto "
+                f"this Silex model's frequency axis) falls outside its trained range "
+                f"[{self.min_vel}, {self.max_vel}] m/s"
+            )
+
         vs_norm = (vs_resampled - self.min_vel) / (self.max_vel - self.min_vel)
         return vs_norm.reshape(1, self.n_freqs, 1).astype(np.float32)
 
