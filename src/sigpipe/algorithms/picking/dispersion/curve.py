@@ -143,10 +143,23 @@ def pick_curves(
     vmaxs: list[float | None] | None = None,
     lbdmins: list[float | None] | None = None,
     lbdmaxs: list[float | None] | None = None,
+    modeled_curves: list[DispersionCurve | None] | None = None,
+    modeled_dvs: list[float | None] | None = None,
     labels: list[str] | None = None,
     modes: list[int] | None = None,
     resample_over_wavelength: bool = False,
 ) -> DispersionImage:
+    """Pick one curve per label as the per-frequency energy maximum of
+    `fv_map`, within whatever bounds that label is given.
+
+    `modeled_curves`/`modeled_dvs` restrict a label's search to a band
+    around a known reference curve -- at each frequency, only velocities
+    within `+/- modeled_dv` of the modeled curve's own velocity there are
+    eligible. Use it when the global maximum lands on the wrong mode (or on
+    noise) but the curve's rough shape is known in advance. Outside the
+    modeled curve's own frequency range there is no band to search, so
+    nothing is picked there.
+    """
 
     if fmins is None:
         fmins = [None]
@@ -162,6 +175,10 @@ def pick_curves(
         lbdmaxs = [None]
     if labels is None:
         labels = [""]
+    if modeled_curves is None:
+        modeled_curves = [None for _ in labels]
+    if modeled_dvs is None:
+        modeled_dvs = [None for _ in labels]
     if modes is None:
         modes = list(range(len(labels)))
 
@@ -178,17 +195,38 @@ def pick_curves(
         len(vmaxs),
         len(lbdmins),
         len(lbdmaxs),
+        len(modeled_curves),
+        len(modeled_dvs),
         len(labels),
         len(modes),
     }
     if len(lengths) > 1:
         raise ValueError(
-            "requires same length for fmins, fmaxs, vmins, vmaxs, lbdmins, lbdmaxs, labels, modes"
+            "requires same length for fmins, fmaxs, vmins, vmaxs, lbdmins, lbdmaxs, "
+            "modeled_curves, modeled_dvs, labels, modes"
         )
 
-    for fmin, fmax, vmin, vmax, lbdmin, lbdmax, label, mode in zip(
-        fmins, fmaxs, vmins, vmaxs, lbdmins, lbdmaxs, labels, modes, strict=False
+    for fmin, fmax, vmin, vmax, lbdmin, lbdmax, modeled_curve, modeled_dv, label, mode in zip(
+        fmins,
+        fmaxs,
+        vmins,
+        vmaxs,
+        lbdmins,
+        lbdmaxs,
+        modeled_curves,
+        modeled_dvs,
+        labels,
+        modes,
+        strict=False,
     ):
+        if (modeled_curve is None) != (modeled_dv is None):
+            raise ValueError(
+                f"modeled_curves and modeled_dvs must both be set or both be None per label, "
+                f"got modeled_curve={modeled_curve!r}, modeled_dv={modeled_dv!r} "
+                f"for label '{label}'"
+            )
+        if modeled_dv is not None and modeled_dv <= 0:
+            raise ValueError(f"modeled_dvs must be > 0, got {modeled_dv} for label '{label}'")
         fs = dispersion_image.fs.copy()
         vs = dispersion_image.vs.copy()
         fv_map = dispersion_image.fv_map.copy()
@@ -201,6 +239,19 @@ def pick_curves(
         if lbdmax is not None:
             wavelength_mask &= wavelength <= lbdmax
         fv_map[~wavelength_mask] = np.nan
+
+        if modeled_curve is not None and modeled_dv is not None:
+            # np.interp would clamp to the modeled curve's endpoint
+            # velocities outside its own frequency range, turning "no model
+            # here" into a flat band at an arbitrary velocity -- mask those
+            # frequencies out entirely instead, so nothing is picked where
+            # the modeled curve says nothing.
+            modeled_vs = np.interp(fs, modeled_curve.fs, modeled_curve.vs)
+            in_modeled_range = (fs >= modeled_curve.fs.min()) & (fs <= modeled_curve.fs.max())
+            v_lo = (modeled_vs - modeled_dv)[:, None]
+            v_hi = (modeled_vs + modeled_dv)[:, None]
+            band_mask = (v_lo <= V) & (v_hi >= V) & in_modeled_range[:, None]
+            fv_map[~band_mask] = np.nan
 
         mask_f = np.ones_like(fs, dtype=bool)
         if fmin is not None:
@@ -219,6 +270,13 @@ def pick_curves(
         valid_rows = ~np.all(np.isnan(fv_map), axis=1)
         fs = fs[valid_rows]
         fv_map = fv_map[valid_rows]
+
+        if len(fs) < 2:
+            raise ValueError(
+                f"label '{label}': bounds leave {len(fs)} frequencies with any energy, "
+                "too few to pick a curve -- widen fmin/fmax, vmin/vmax, lbdmin/lbdmax, "
+                "or modeled_dv"
+            )
 
         idx = np.array([np.where(row == np.nanmax(row))[0][-1] for row in fv_map])
         picked_vs = vs[idx]
