@@ -17,6 +17,10 @@ from sigpipe.base.velocity_model import VelocityModel
 
 from .forward import fwd_function, vp_rho_from_vs
 
+# Each chain keeps one model every SAVE_EVERY iterations after the burn-in: bayesbay keeps
+# iteration i when i > n_burnin and (i - n_burnin) is a multiple of save_every.
+SAVE_EVERY = 150
+
 
 def _ensemble_model(
     sampled_Vs: np.ndarray,
@@ -103,6 +107,14 @@ def inversion_mcmc(
             f"got {len(Vs_mins)}, {len(Vs_maxs)}, and {len(Vs_perturbations)}"
         )
 
+    # A shorter run keeps no model, and fails after sampling with KeyError: 'space.vs1'.
+    if n_iterations - n_burnin < SAVE_EVERY:
+        raise ValueError(
+            f"n_iterations ({n_iterations}) must exceed n_burnin ({n_burnin}) by at least "
+            f"{SAVE_EVERY}: each chain keeps one model every {SAVE_EVERY} iterations after the "
+            "burn-in"
+        )
+
     modes: list[int] = sorted({dc.mode.number for dc in dispersion_curves})
 
     if len(modes) != len(dispersion_curves):
@@ -184,7 +196,7 @@ def inversion_mcmc(
     inversion.run(
         n_iterations=n_iterations,
         burnin_iterations=n_burnin,
-        save_every=150,
+        save_every=SAVE_EVERY,
         verbose=False,
         parallel_config={"n_jobs": 1},
     )
