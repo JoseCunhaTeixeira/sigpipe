@@ -13,13 +13,22 @@ from sigpipe.algorithms.inversion.rayleigh.seismic.parameters import (
 )
 
 from .priors import InversionError
-from .window import build_inversion_pipeline, invert_window
+from .window import (
+    PARAMETERS_FILE,
+    WindowParameters,
+    build_inversion_pipeline,
+    invert_window,
+    load_parameters,
+)
 
 __all__ = [
+    "PARAMETERS_FILE",
     "InversionError",
     "InversionParameters",
     "ThicknessLayer",
     "VsLayer",
+    "WindowParameters",
     "build_inversion_pipeline",
     "invert_window",
+    "load_parameters",
 ]

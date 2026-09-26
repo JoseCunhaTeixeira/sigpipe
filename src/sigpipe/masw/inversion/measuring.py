@@ -1,7 +1,8 @@
 """What a window's inversion files say about its models: the fit of the monitored smooth median
-and of the layered median it comes from, by band of wavelength; how the chains agree; how much
-of the posterior sits on the prior's bounds; down to which depth the data inform the model;
-and the smooth median's Vs at given depths. Measurements only: PACo's QC (G5) judges them."""
+and of the layered median it comes from, by band of wavelength; how the chains agree, how many
+independent samples they hold and how autocorrelated they are; how much of the posterior sits
+on the prior's bounds; down to which depth the data inform the model; and the smooth median's Vs
+at given depths. Measurements only: PACo's QC (G5) judges them."""
 
 import re
 from collections.abc import Sequence
@@ -10,12 +11,18 @@ from typing import Literal
 
 import numpy as np
 from pydantic import BaseModel, ConfigDict
+from scipy.stats import norm, rankdata
 
 from sigpipe.algorithms.inversion.rayleigh.seismic.parameters import InversionParameters
 from sigpipe.base.dispersion_curve import DispersionCurve
 from sigpipe.dataio.dispersion.loading import load_dispersion_curves
 from sigpipe.dataio.velocity_model.loading import load_velocity_models
-from sigpipe.masw.inversion.window import SAMPLES_FILE, load_samples
+from sigpipe.masw.inversion.window import (
+    PARAMETERS_FILE,
+    SAMPLES_FILE,
+    load_parameters,
+    load_samples,
+)
 from sigpipe.masw.picks import CURVES_FILE
 
 # The monitored model first (PAC's default view), then the layered model it smooths.
@@ -65,7 +72,12 @@ class InversionMeasures(BaseModel):
 
     fits: tuple[ModelFit, ...]  # in the order of MODELS
     rhat: dict[str, float | None]  # split R-hat per parameter; None: not measurable
+    # Effective samples per parameter over every chain (rank-normalized, split chains), and the
+    # chains' mean lag-1 autocorrelation of the saved samples; None: not measurable.
+    ess: dict[str, float | None] = {}
+    autocorrelation: dict[str, float | None] = {}
     acceptance: tuple[float, ...]  # per chain, %
+    steps: dict[str, float] = {}  # each parameter's step as the sampler ran it
     samples_per_chain: int
     at_bounds: tuple[BoundShare, ...]  # the most piled first
     useful_depth_m: float | None  # where the posterior's spread reaches the prior's; None: nowhere
@@ -99,17 +111,22 @@ def measure_inversion(
     fits = tuple(fit_by_band(model, picked, _forward(folder, model), n_bands) for model in MODELS)
     samples, n_chains = load_samples(folder / SAMPLES_FILE)
     per_chain = len(next(iter(samples.values()))) // n_chains
-    rhat = {
-        name: split_rhat(np.asarray(values)[: per_chain * n_chains].reshape(n_chains, per_chain))
+    chains = {
+        name: np.asarray(values)[: per_chain * n_chains].reshape(n_chains, per_chain)
         for name, values in samples.items()
     }
+    rhat = {name: split_rhat(values) for name, values in chains.items()}
     smooth = load_velocity_models([folder / "SeismicInversion_Model_0000_smooth_median.csv"])[0][0]
     median = load_velocity_models([folder / "SeismicInversion_Model_0000_median.csv"])[0][0]
     depth_max = depth_bottom(parameters)
+    ran = folder / PARAMETERS_FILE
     return InversionMeasures(
         fits=fits,
         rhat=rhat,
+        ess={name: effective_sample_size(values) for name, values in chains.items()},
+        autocorrelation={name: lag1_autocorrelation(values) for name, values in chains.items()},
         acceptance=acceptance_rates((folder / LOG_FILE).read_text()),
+        steps=_steps(load_parameters(ran).parameters) if ran.exists() else {},
         samples_per_chain=per_chain,
         at_bounds=bound_shares(samples, parameters, bound_edge),
         useful_depth_m=useful_depth(samples, parameters, std_ratio),
@@ -169,6 +186,56 @@ def split_rhat(chains: np.ndarray) -> float | None:
     return round(float(np.sqrt(pooled / within)), 3)
 
 
+def effective_sample_size(chains: np.ndarray) -> float | None:
+    """The bulk effective sample size of `chains` (chains x samples): the draws rank-normalized
+    and each chain split in halves, then Geyer's initial positive sequence of the chains'
+    combined autocorrelations (Vehtari et al. 2021, as Stan and ArviZ compute it). About the
+    number of samples when they are independent, far fewer when each repeats the one before.
+    None with fewer than 4 samples a half."""
+    half = chains.shape[1] // 2
+    if half < 4:
+        return None
+    parts = np.concatenate([chains[:, :half], chains[:, half : 2 * half]])
+    m, n = parts.shape
+    ranks = rankdata(parts, method="average").reshape(m, n)
+    z = norm.ppf((ranks - 0.375) / (m * n + 0.25))
+    centred = z - z.mean(axis=1, keepdims=True)
+    # Each half's autocovariance by FFT, biased (divided by n), lags 0 to n - 1.
+    size = 1 << (2 * n - 1).bit_length()
+    spectrum = np.fft.rfft(centred, size, axis=1)
+    autocov = np.fft.irfft(spectrum * np.conj(spectrum), size, axis=1)[:, :n] / n
+    within = float(np.mean(autocov[:, 0] * n / (n - 1)))
+    variance = within * (n - 1) / n + float(np.var(z.mean(axis=1), ddof=1)) if m > 1 else within
+    if variance <= 0:
+        return None
+    rho = 1 - (within - autocov.mean(axis=0)) / variance
+    rho[0] = 1.0
+    # Sums of consecutive pairs while positive, never increasing.
+    total, previous = 0.0, np.inf
+    for k in range(0, n - 1, 2):
+        pair = float(rho[k] + rho[k + 1])
+        if pair <= 0:
+            break
+        pair = min(pair, previous)
+        total += pair
+        previous = pair
+    tau = max(-1 + 2 * total, 1 / np.log10(m * n))
+    return round(float(m * n / tau), 1)
+
+
+def lag1_autocorrelation(chains: np.ndarray) -> float | None:
+    """The chains' mean correlation between each saved sample and the next; None with fewer
+    than 3 samples a chain or a chain that never moved."""
+    if chains.shape[1] < 3:
+        return None
+    centred = chains - chains.mean(axis=1, keepdims=True)
+    variance = (centred**2).sum(axis=1)
+    if np.any(variance == 0):
+        return None
+    lagged = (centred[:, 1:] * centred[:, :-1]).sum(axis=1)
+    return round(float(np.mean(lagged / variance)), 3)
+
+
 def acceptance_rates(log: str) -> tuple[float, ...]:
     """Each chain's acceptance rate in %, from the sampler's statistics in the log."""
     return tuple(float(rate) for rate in _RATE.findall(log))
@@ -214,9 +281,12 @@ def useful_depth(
     dz: float = 0.05,
     n_prior: int = 2_000,
 ) -> float | None:
-    """The shallowest depth at which the spread of the sampled Vs reaches `ratio` of the prior's
+    """The depth below which the spread of the sampled Vs stays at least `ratio` of the prior's
     spread there (the prior drawn `n_prior` times, with a fixed seed): below it, the data say
-    little. None when the posterior stays narrower down to the models' bottom."""
+    little. The spread is the interquartile range, which a minority of samples in another mode
+    does not widen as it does the standard deviation. Read from the bottom up, so that a thin
+    top layer the data cannot resolve does not end it at the surface. 0 when the data inform no
+    depth, None when they inform the models down to their bottom."""
     n_layers = parameters.n_layers
     depth_max = depth_bottom(parameters)
     posterior = _raster(
@@ -239,8 +309,26 @@ def useful_depth(
         dz,
         depth_max,
     )
-    reached = np.flatnonzero(posterior.std(axis=0) >= ratio * prior.std(axis=0))
-    return round(float(reached[0] * dz), 2) if reached.size else None
+    informed = np.flatnonzero(_spread(posterior) < ratio * _spread(prior))
+    if not informed.size:
+        return 0.0
+    if informed[-1] == posterior.shape[1] - 1:
+        return None
+    return round(float((informed[-1] + 1) * dz), 2)
+
+
+def _steps(parameters: InversionParameters) -> dict[str, float]:
+    """Each parameter's step in `parameters`, by name (vs1, ..., thick1, ...)."""
+    return {f"vs{i + 1}": layer.vs_perturb_std for i, layer in enumerate(parameters.vs_layers)} | {
+        f"thick{i + 1}": layer.thickness_perturb_std
+        for i, layer in enumerate(parameters.thickness_layers)
+    }
+
+
+def _spread(rasters: np.ndarray) -> np.ndarray:
+    """The interquartile range of the samples' Vs at each depth."""
+    high, low = np.percentile(rasters, [75, 25], axis=0)
+    return high - low
 
 
 def depth_bottom(parameters: InversionParameters) -> float:

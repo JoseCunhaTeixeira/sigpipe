@@ -72,6 +72,11 @@ class InversionParameters(BaseModel):
         description="First iterations of each chain, discarded. Left out: a tenth of n_iterations.",
     )
     n_chains: int = Field(default=5, gt=0, description="Independent chains per window.")
+    tune_steps: bool = Field(
+        default=True,
+        description="Before sampling, short trial runs scale every step together until the chains "
+        "accept 20 to 30 % of their proposals; the steps given are the first guess.",
+    )
 
     @model_validator(mode="before")
     @classmethod

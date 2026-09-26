@@ -1,4 +1,4 @@
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 import numpy as np
 
@@ -23,6 +23,13 @@ class InversionResult:
     """Per-mode posterior-predicted-data samples (mode number -> (n_samples, n_freq_obs)), for diagnostics such as the dispersion-fit percentile band."""
     log: str
     """Captured per-chain statistics (acceptance rates, etc.) printed by the MCMC sampler."""
+    steps: dict[str, float] = field(default_factory=dict)
+    """Each parameter's step the sampler ran with (vs1, ..., thick1, ...), tuned by its trial
+    runs or as given."""
+    tuning: tuple[tuple[float, float], ...] = ()
+    """Each trial run's step factor and acceptance rate (%), in order."""
+    acceptance: tuple[float, ...] = ()
+    """Each chain's acceptance rate over the run (%), the burn-in included."""
 
     def __repr__(self) -> str:
         samples_repr = ", ".join(f"{k!r}: {array_repr(v)}" for k, v in self.samples.items())
@@ -31,5 +38,7 @@ class InversionResult:
             f"InversionResult(best={self.best!r}, smooth_best={self.smooth_best!r}, "
             f"median={self.median!r}, smooth_median={self.smooth_median!r}, "
             f"ensemble={self.ensemble!r}, n_layers={self.n_layers!r}, samples={{{samples_repr}}}, "
-            f"misfits={array_repr(self.misfits)}, dpred={{{dpred_repr}}}, log={self.log!r})"
+            f"misfits={array_repr(self.misfits)}, dpred={{{dpred_repr}}}, log={self.log!r}, "
+            f"steps={self.steps!r}, tuning={self.tuning!r}, "
+            f"acceptance={self.acceptance!r})"
         )

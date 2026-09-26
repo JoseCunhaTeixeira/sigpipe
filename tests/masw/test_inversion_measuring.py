@@ -11,7 +11,9 @@ from sigpipe.masw.inversion import InversionParameters
 from sigpipe.masw.inversion.measuring import (
     acceptance_rates,
     bound_shares,
+    effective_sample_size,
     fit_by_band,
+    lag1_autocorrelation,
     report_depths,
     split_rhat,
     useful_depth,
@@ -113,6 +115,30 @@ def test_the_useful_depth_ends_where_the_data_stop_informing_vs() -> None:
     assert depth is not None and 2.8 <= depth <= 3.1
 
 
+def test_a_thin_top_layer_the_data_cannot_resolve_does_not_end_the_useful_depth() -> None:
+    # The top 0.5 to 1 m spans the prior; the layer below it is well resolved down to 3 m.
+    samples = {
+        "vs1": RNG.uniform(100.0, 500.0, 3_000),
+        "thick1": RNG.uniform(1.0, 1.05, 3_000),
+        "vs2": RNG.normal(250.0, 5.0, 3_000),
+    }
+    parameters = PARAMETERS.model_copy(
+        update={
+            "thickness_layers": (
+                PARAMETERS.thickness_layers[0].model_copy(
+                    update={"thickness_min": 1.0, "thickness_max": 1.05}
+                ),
+            )
+        }
+    )
+
+    # Informed below the top layer, to the models' bottom.
+    assert useful_depth(samples, parameters, 0.5) is None
+    # Nothing informed at all: 0.
+    samples["vs2"] = RNG.uniform(100.0, 500.0, 3_000)
+    assert useful_depth(samples, parameters, 0.5) == 0.0
+
+
 def test_a_model_informed_to_its_bottom_has_no_useful_depth() -> None:
     samples = {
         "vs1": RNG.normal(250.0, 5.0, 3_000),
@@ -182,3 +208,20 @@ def test_report_depths_are_round_and_within_reach(
     longest: list[float], depths: tuple[float, ...]
 ) -> None:
     assert report_depths(longest) == depths
+
+
+def test_the_effective_sample_size_counts_independent_samples() -> None:
+    rng = np.random.default_rng(3)
+    independent = rng.normal(size=(4, 500))
+    # Each sample 0.9 times the one before, and noise: about 1/19 of them are independent.
+    correlated = np.zeros((4, 500))
+    for t in range(1, 500):
+        correlated[:, t] = 0.9 * correlated[:, t - 1] + rng.normal(size=4)
+
+    many = effective_sample_size(independent)
+    assert many is not None and 1_600 <= many <= 2_400
+    few = effective_sample_size(correlated)
+    assert few is not None and 50 <= few <= 200
+    assert lag1_autocorrelation(correlated) == pytest.approx(0.9, abs=0.05)
+    assert abs(lag1_autocorrelation(independent) or 0) < 0.05
+    assert effective_sample_size(independent[:, :6]) is None

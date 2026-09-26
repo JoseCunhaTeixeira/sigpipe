@@ -94,6 +94,12 @@ class PickingParameters(BaseModel):
         description="1 picks M0 only; above 1, each higher mode is searched above the one below.",
     )
     min_frequencies: int = Field(default=5, ge=2, description="Fewest kept points a mode needs.")
+    wavelength_step: float = Field(
+        default=1.0,
+        ge=0.1,
+        description="m: the kept points are resampled over wavelength at this step; a pick "
+        "spanning few metres keeps more points with a finer one.",
+    )
     guide: tuple[tuple[float, float], ...] | None = Field(
         default=None,
         description="Points (frequency in Hz, velocity in m/s) the M0 corridor is centred on, "
@@ -116,7 +122,8 @@ class PickedMode:
     # pick's continuous run.
     kept: np.ndarray
     noise_floor: float  # 1/sqrt(N) for the N receivers of the window
-    curve: DispersionCurve | None  # kept points, resampled over wavelength; None below 2 points
+    # The kept points, resampled over wavelength every wavelength_step; None below 2 points.
+    curve: DispersionCurve | None
 
     @property
     def label(self) -> str:

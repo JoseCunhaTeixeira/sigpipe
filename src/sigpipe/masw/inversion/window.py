@@ -9,12 +9,17 @@ from typing import Any
 import matplotlib.pyplot as plt
 import numpy as np
 from disba import DispersionError
+from pydantic import BaseModel, ConfigDict
 
 from sigpipe.algorithms.inversion.rayleigh.seismic.forward import (
     fwd_seismic_all_modes,
     fwd_seismic_phase,
 )
-from sigpipe.algorithms.inversion.rayleigh.seismic.parameters import InversionParameters
+from sigpipe.algorithms.inversion.rayleigh.seismic.parameters import (
+    InversionParameters,
+    ThicknessLayer,
+    VsLayer,
+)
 from sigpipe.algorithms.picking.dispersion.curve import min_resolvable_wavelength
 from sigpipe.base.dispersion_curve import DispersionCurves, Mode
 from sigpipe.base.inversion import InversionResult
@@ -34,7 +39,19 @@ logger = logging.getLogger(__name__)
 DZ = 0.01  # m
 VP_VS_RATIO = 1.77
 SAMPLES_FILE = "SeismicInversion_Samples_0000.npz"  # PACo's own, next to PAC's files
+PARAMETERS_FILE = "SeismicInversion_Parameters_0000.json"
 M0 = Mode("M", 0)  # the fundamental mode, as the pickers label it
+
+
+class WindowParameters(BaseModel):
+    """What a window's sampler ran with: each layer's prior and the sampler's effort, the steps
+    as the trial runs tuned them, and how often each chain accepted a proposal."""
+
+    model_config = ConfigDict(frozen=True)
+
+    parameters: InversionParameters  # as run: each step as the trial runs tuned it
+    tuning: tuple[tuple[float, float], ...]  # each trial run's step factor and acceptance (%)
+    acceptance: tuple[float, ...]  # each chain's over the run (%), the burn-in included
 
 
 def build_inversion_pipeline(parameters: InversionParameters, output_folder: Path) -> Pipeline:
@@ -56,6 +73,7 @@ def invert_window(
     )[0]
 
     (folder / "SeismicInversion_Log_0000.log").write_text(result.log)
+    save_parameters(parameters, result, folder / PARAMETERS_FILE)
     save_samples(result, parameters.n_chains, folder / SAMPLES_FILE)
 
     # The median model's M0 at the picked frequencies, and every mode it supports across the
@@ -127,6 +145,41 @@ def invert_window(
     return result
 
 
+def save_parameters(parameters: InversionParameters, result: InversionResult, path: Path) -> None:
+    """`parameters` as `result`'s sampler ran them, with its tuning and acceptance."""
+
+    def step(name: str, given: float) -> float:
+        return _significant(result.steps.get(name, given))
+
+    ran = parameters.model_copy(
+        update={
+            "vs_layers": tuple(
+                VsLayer(
+                    vs_min=layer.vs_min,
+                    vs_max=layer.vs_max,
+                    vs_perturb_std=step(f"vs{i + 1}", layer.vs_perturb_std),
+                )
+                for i, layer in enumerate(parameters.vs_layers)
+            ),
+            "thickness_layers": tuple(
+                ThicknessLayer(
+                    thickness_min=layer.thickness_min,
+                    thickness_max=layer.thickness_max,
+                    thickness_perturb_std=step(f"thick{i + 1}", layer.thickness_perturb_std),
+                )
+                for i, layer in enumerate(parameters.thickness_layers)
+            ),
+        }
+    )
+    window = WindowParameters(parameters=ran, tuning=result.tuning, acceptance=result.acceptance)
+    path.write_text(window.model_dump_json(indent=2))
+
+
+def load_parameters(path: Path) -> WindowParameters:
+    """The parameters `save_parameters` wrote."""
+    return WindowParameters.model_validate_json(path.read_text())
+
+
 def save_samples(result: InversionResult, n_chains: int, path: Path) -> None:
     """The posterior samples, chain after chain as sigpipe concatenates them, with each
     sample's misfit: what G5 judges convergence and the prior's bounds on."""
@@ -143,6 +196,11 @@ def load_samples(path: Path) -> tuple[dict[str, np.ndarray], int]:
         n_chains = int(saved["n_chains"])
         samples = {name: saved[name] for name in saved.files if name not in ("n_chains", "misfits")}
     return samples, n_chains
+
+
+def _significant(step: float) -> float:
+    """A step to 3 significant digits: never rounded to 0."""
+    return float(f"{step:.3g}")
 
 
 def _curves(folder: Path, modes: Collection[Mode]) -> DispersionCurves:

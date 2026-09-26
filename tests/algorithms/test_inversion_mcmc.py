@@ -4,6 +4,7 @@ from bayesbay.parameterization import ParameterSpace
 from bayesbay.prior import UniformPrior
 
 from sigpipe.algorithms.inversion.rayleigh.seismic.mcmc import (
+    TARGET_ACCEPTANCE,
     CustomParametrization,
     _saved_with_predictions,
     inversion_mcmc,
@@ -118,3 +119,27 @@ def test_saves_without_a_predicted_curve_are_left_out() -> None:
     # No chain moved: nothing to build a model from.
     with pytest.raises(ValueError, match="No chain moved from its starting model"):
         _saved_with_predictions({"space.vs1": [[1.0], [2.0]]}, ["rayleigh_M0.dpred"])
+
+
+def test_the_steps_are_scaled_until_the_chains_accept_enough(
+    linear_acquisition: LinearAcquisition,
+) -> None:
+    # Steps of 400 m/s over 100-1,000 m/s: nearly every proposal is refused, and the trial runs
+    # shrink every step.
+    wide = (VsLayer(vs_min=100.0, vs_max=1000.0, vs_perturb_std=400.0),) * 2
+    result = _invert(linear_acquisition, n_iterations=2_000, n_burnin=200, vs_layers=wide)
+
+    low = TARGET_ACCEPTANCE[0]
+    (first_scale, first_rate), *later = result.tuning
+    assert (first_scale, first_rate < low) == (1.0, True)
+    assert later and later[0][0] < 1.0
+    # Every step ends much shorter than the 400 m/s given, each its own.
+    assert set(result.steps) == {"vs1", "vs2", "thick1"}
+    assert result.steps["vs1"] < 200 and result.steps["vs2"] < 200
+    assert len(result.acceptance) == 1 and 0 <= result.acceptance[0] <= 100
+    assert "trial run(s)" in result.log
+
+    untuned = _invert(
+        linear_acquisition, n_iterations=2_000, n_burnin=200, vs_layers=wide, tune_steps=False
+    )
+    assert (untuned.steps["vs1"], untuned.tuning) == (400.0, ())

@@ -1,9 +1,10 @@
 """An inversion's parameters derived from the curve it inverts (the checks before S4 of PACo's QC
-workflow, its docs/qc_workflow.md), or checked against it. Bounds come from the window's own
-curve: Vs brackets the curve's velocities with a margin (Vs is about 1.09 Vr at the inversion's
-Vp/Vs), no layer is thinner than the shortest wavelength resolves, and the half-space starts no
-deeper than the longest one reaches. Values given by the user or the loop are kept when they
-pass, and changed with a note when they do not."""
+workflow, its docs/qc_workflow.md), or checked against it. Vs spans wide ranges, 100 to 1,000 m/s
+for the layers and to 2,000 m/s for the half-space, widened when the curve needs it: the top
+layer as slow as the curve's slowest velocity, the half-space as fast as its fastest (Vs is
+about 1.09 Vr at the inversion's Vp/Vs). No layer is thinner than the shortest wavelength
+resolves, and the half-space starts no deeper than the longest one reaches. Values given by the
+user or the loop are kept when they pass, and changed with a note when they do not."""
 
 import math
 from collections.abc import Iterable, Mapping, Sequence
@@ -17,7 +18,8 @@ from sigpipe.algorithms.inversion.rayleigh.seismic.parameters import InversionPa
 from sigpipe.base.dispersion_curve import DispersionCurve
 
 # The default steps against the default ranges: 20 m/s for Vs over 100-1,000 m/s, 1 m for
-# thicknesses over 1-10 m. Derived bounds keep the same proportions.
+# thicknesses over 1-10 m. Derived bounds keep the same proportions; the sampler's trial runs
+# then scale every step together.
 VS_STEP_SHARE = 20 / 900
 THICKNESS_STEP_SHARE = 1 / 9
 # Vs over Vr for a homogeneous half-space at Vp/Vs 1.77: the least a bound must allow above the
@@ -39,11 +41,33 @@ class PriorRules(BaseModel):
 
     model_config = ConfigDict(frozen=True, extra="forbid")
 
+    vs_min: float = Field(
+        default=100.0,
+        gt=0,
+        description="Lowest Vs of every layer, m/s; for a curve slower than that, vs_low of its "
+        "slowest velocity.",
+    )
+    vs_max: float = Field(
+        default=1_000.0,
+        gt=0,
+        description="Highest Vs of the layers above the half-space, m/s; for a curve too slow at "
+        "its slowest for that, vs_high of its slowest velocity.",
+    )
+    half_space_vs_max: float = Field(
+        default=2_000.0,
+        gt=0,
+        description="Highest Vs of the half-space, m/s; for a curve too fast at its fastest for "
+        "that, vs_high of its fastest velocity.",
+    )
     vs_low: float = Field(
-        default=0.8, gt=0, description="Lowest Vs, as a share of the curve's slowest velocity."
+        default=0.8,
+        gt=0,
+        description="Lowest Vs where the curve needs it, as a share of its slowest velocity.",
     )
     vs_high: float = Field(
-        default=1.5, gt=0, description="Highest Vs, as a multiple of the curve's fastest velocity."
+        default=1.5,
+        gt=0,
+        description="Highest Vs where the curve needs it, as a multiple of its velocity there.",
     )
     min_thickness: float = Field(
         default=1 / 3,
@@ -119,34 +143,38 @@ def derive_inversion(
         n_layers = resolved
         _recount(given, n_layers, notes)
 
-    low, high = round(rules.vs_low * vr_min), round(rules.vs_high * vr_max)
-    derived_vs = {
-        "vs_min": float(low),
-        "vs_max": float(high),
-        "vs_perturb_std": round((high - low) * VS_STEP_SHARE, 1),
-    }
-    vs_layers = [dict(derived_vs) for _ in range(n_layers)]
-    if "vs_layers" in given:
-        vs_layers = [{**derived_vs, **dict(layer)} for layer in given["vs_layers"]]
-        slow = [i for i, layer in enumerate(vs_layers) if layer["vs_min"] > vr_min]
-        fast = [i for i, layer in enumerate(vs_layers) if layer["vs_max"] < VS_OVER_VR * vr_max]
+    # The margins where the curve needs them: a Vs given that does not bracket the curve is set
+    # to them, and the wide ranges widen to them.
+    floor, ceiling = round(rules.vs_low * vr_min), round(rules.vs_high * vr_max)
+    low = rules.vs_min if rules.vs_min <= vr_min else floor
+    high = rules.vs_max if VS_OVER_VR * vr_min <= rules.vs_max else round(rules.vs_high * vr_min)
+    half_space_high = (
+        rules.half_space_vs_max if VS_OVER_VR * vr_max <= rules.half_space_vs_max else ceiling
+    )
+    derived_vs = [_vs_range(low, high)] * (n_layers - 1) + [_vs_range(low, half_space_high)]
+    vs_layers = [dict(layer) for layer in derived_vs]
+    if given.get("vs_layers"):
+        ranges = list(given["vs_layers"])
+        # The last range given is the half-space's: a count that does not match n_layers is
+        # the parameters' own error, said below.
+        vs_layers = [
+            {**derived_vs[-1 if i == len(ranges) - 1 else 0], **dict(layer)}
+            for i, layer in enumerate(ranges)
+        ]
+        first, half_space = vs_layers[0], vs_layers[-1]
         # The values given, said in the notes: the user reads what they typed was changed.
-        slow_given = _values(vs_layers[i]["vs_min"] for i in slow)
-        fast_given = _values(vs_layers[i]["vs_max"] for i in fast)
-        for index in slow:
-            vs_layers[index]["vs_min"] = derived_vs["vs_min"]
-        for index in fast:
-            vs_layers[index]["vs_max"] = derived_vs["vs_max"]
-        if slow:
+        if first["vs_min"] > vr_min:
             notes.append(
-                f"vs_min {slow_given} m/s above the curve's slowest velocity ({vr_min:.0f} m/s) "
-                f"in {_layers(slow)}: set to {low} m/s."
+                f"vs_min {first['vs_min']:g} m/s of the top layer above the curve's slowest "
+                f"velocity ({vr_min:.0f} m/s): set to {floor} m/s."
             )
-        if fast:
+            first["vs_min"] = float(floor)
+        if half_space["vs_max"] < VS_OVER_VR * vr_max:
             notes.append(
-                f"vs_max {fast_given} m/s below {VS_OVER_VR} times the curve's fastest velocity "
-                f"({vr_max:.0f} m/s) in {_layers(fast)}: set to {high} m/s."
+                f"vs_max {half_space['vs_max']:g} m/s of the half-space below {VS_OVER_VR} times "
+                f"the curve's fastest velocity ({vr_max:.0f} m/s): set to {ceiling} m/s."
             )
+            half_space["vs_max"] = float(ceiling)
 
     bottom = round(deepest / (n_layers - 1), 2)
     derived_thickness = {
@@ -199,6 +227,15 @@ def derive_inversion(
         raise InversionError(f"The inversion's parameters do not hold: {problems}") from error
 
 
+def _vs_range(low: float, high: float) -> dict[str, float]:
+    """A layer's Vs bounds, with the step in the defaults' proportion."""
+    return {
+        "vs_min": float(low),
+        "vs_max": float(high),
+        "vs_perturb_std": round((high - low) * VS_STEP_SHARE, 1),
+    }
+
+
 def broadcast_layers(given: Mapping[str, Any], default_layers: int = 4) -> dict[str, Any]:
     """`given` with a single Vs range (or thickness range) standing for every layer: "Vs between
     100 and 180 m/s" is one range, where the parameters want one per layer. Several Vs ranges
@@ -245,8 +282,9 @@ def _alike(layers: Sequence[Any]) -> bool:
 
 def _recount(given: dict[str, Any], n_layers: int, notes: list[str]) -> None:
     """The ranges `given` per layer, for `n_layers` layers once the count changed: a range the
-    same for every layer stays every layer's; ranges that differ from layer to layer are derived
-    again from the curve, said in a note."""
+    same for every layer stays every layer's, and so does a Vs range the same for every layer
+    above the half-space, the half-space keeping its own; ranges that differ from layer to layer
+    are derived again from the curve, said in a note."""
     for key, count in (("vs_layers", n_layers), ("thickness_layers", n_layers - 1)):
         layers = given.get(key)
         if not isinstance(layers, list | tuple) or not layers:
@@ -254,6 +292,8 @@ def _recount(given: dict[str, Any], n_layers: int, notes: list[str]) -> None:
         ranges = cast(Sequence[Any], layers)
         if len(ranges) == 1 or _alike(ranges):
             given[key] = [ranges[0]] * count
+        elif key == "vs_layers" and (len(ranges) == 2 or _alike(ranges[:-1])):
+            given[key] = [ranges[0]] * (count - 1) + [ranges[-1]]
         else:
             del given[key]
             notes.append(f"{key}: given layer by layer, derived again for {n_layers} layers.")

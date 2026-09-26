@@ -8,7 +8,12 @@ import pytest
 from synthetic import N_RECEIVERS, SAMPLING, SOURCES
 
 from sigpipe.algorithms.picking.dispersion.tracking import pick_modes
-from sigpipe.masw.inversion import InversionParameters, invert_window
+from sigpipe.masw.inversion import (
+    PARAMETERS_FILE,
+    InversionParameters,
+    invert_window,
+    load_parameters,
+)
 from sigpipe.masw.inversion.section import SECTION_FIGURE, save_comparison, save_section
 from sigpipe.masw.picks import save_pick
 from sigpipe.masw.presets import PresetError, make_preset, resolve_preset
@@ -104,6 +109,12 @@ def test_the_shots_wave_is_picked_and_inverted_into_a_section(
         result = invert_window(folder / unit, parameters)
         assert 100 <= result.median.vs_s[0] <= 400
         assert (folder / unit / "SeismicInversion_Model_0000_smooth_median.csv").exists()
+        # What the sampler ran with, next to the models: each step as the trial runs tuned it.
+        ran = load_parameters(folder / unit / PARAMETERS_FILE)
+        assert ran.parameters.vs_layers[0].vs_perturb_std == pytest.approx(
+            result.steps["vs1"], rel=0.01
+        )
+        assert (ran.tuning, len(ran.acceptance)) == (result.tuning, 2)
 
     assert save_section(folder, units) == folder / SECTION_FIGURE
     assert save_comparison(folder, units) is not None

@@ -1,13 +1,13 @@
 import contextlib
 import io
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from typing import Any, cast
 
 import numpy as np
-from bayesbay import BayesianInversion, ParameterSpaceState, State
+from bayesbay import BaseMarkovChain, BayesianInversion, ParameterSpaceState, State
 from bayesbay.likelihood import LogLikelihood, Target
 from bayesbay.parameterization import Parameterization, ParameterSpace
-from bayesbay.prior import Prior, UniformPrior
+from bayesbay.prior import UniformPrior
 from disba import DispersionError, PhaseDispersion
 
 from sigpipe.base.coordinate import Coordinate
@@ -17,6 +17,13 @@ from sigpipe.base.velocity_model import VelocityModel
 
 from .forward import fwd_function, vp_rho_from_vs
 from .parameters import SAVE_EVERY, InversionParameters
+
+# The share of proposals the chains accept when their steps suit the posterior, in %: short
+# trial runs scale every step together until it falls within this band.
+TARGET_ACCEPTANCE = (20.0, 30.0)
+# Each trial run is a twentieth of the run, within these bounds.
+TRIAL_ITERATIONS = (200, 2_000)
+MAX_TRIALS = 4
 
 
 def _ensemble_model(
@@ -120,48 +127,50 @@ def inversion_mcmc(
         fwd_functions=fwd_functions,  # pyright: ignore[reportArgumentType]
     )
 
-    # Priors
-    priors: list[Prior] = []
-    for i, vs_layer in enumerate(settings.vs_layers):
-        priors.append(
+    fs_per_mode = [dispersion_curve.fs for dispersion_curve in ordered_curves]
+
+    # Each parameter's prior, and the step it is given.
+    bounds = {
+        f"vs{i + 1}": (layer.vs_min, layer.vs_max) for i, layer in enumerate(settings.vs_layers)
+    } | {
+        f"thick{i + 1}": (layer.thickness_min, layer.thickness_max)
+        for i, layer in enumerate(settings.thickness_layers)
+    }
+    given = {f"vs{i + 1}": layer.vs_perturb_std for i, layer in enumerate(settings.vs_layers)} | {
+        f"thick{i + 1}": layer.thickness_perturb_std
+        for i, layer in enumerate(settings.thickness_layers)
+    }
+
+    def sampler(steps: Mapping[str, float], n_chains: int) -> BayesianInversion:
+        """The sampler with each parameter's step from `steps`."""
+        priors: list[UniformPrior] = [
             UniformPrior(
-                name=f"vs{i + 1}",
-                vmin=vs_layer.vs_min,  # pyright: ignore[reportArgumentType]
-                vmax=vs_layer.vs_max,  # pyright: ignore[reportArgumentType]
-                perturb_std=vs_layer.vs_perturb_std,  # pyright: ignore[reportArgumentType]
+                name=name,
+                vmin=low,  # pyright: ignore[reportArgumentType]
+                vmax=high,  # pyright: ignore[reportArgumentType]
+                perturb_std=steps[name],  # pyright: ignore[reportArgumentType]
             )
+            for name, (low, high) in bounds.items()
+        ]
+        param_space: ParameterSpace = ParameterSpace(
+            name="space",
+            n_dimensions=1,
+            parameters=priors,  # pyright: ignore[reportArgumentType]
         )
-    for i, thickness_layer in enumerate(settings.thickness_layers):
-        priors.append(
-            UniformPrior(
-                name=f"thick{i + 1}",
-                vmin=thickness_layer.thickness_min,  # pyright: ignore[reportArgumentType]
-                vmax=thickness_layer.thickness_max,  # pyright: ignore[reportArgumentType]
-                perturb_std=thickness_layer.thickness_perturb_std,  # pyright: ignore[reportArgumentType]
-            )
+        parameterization = CustomParametrization(param_space, modes, fs_per_mode, Vp_Vs_ratio)
+        return BayesianInversion(
+            log_likelihood=log_likelihood,
+            parameterization=parameterization,
+            n_chains=n_chains,
         )
 
-    # Parameter space
-    param_space: ParameterSpace = ParameterSpace(
-        name="space",
-        n_dimensions=1,
-        parameters=priors,  # pyright: ignore[reportArgumentType]
-    )
-
-    # Parameterization
-    parameterization = CustomParametrization(
-        param_space,
-        modes,
-        [dispersion_curve.fs for dispersion_curve in ordered_curves],
-        Vp_Vs_ratio,
-    )
-
-    # Inversion
-    inversion: BayesianInversion = BayesianInversion(
-        log_likelihood=log_likelihood,
-        parameterization=parameterization,
-        n_chains=settings.n_chains,
-    )
+    low, high = TRIAL_ITERATIONS
+    trial_iterations = min(high, max(low, settings.n_iterations // 20))
+    steps, trials = dict(given), []
+    tuned = ""
+    if settings.tune_steps:
+        steps, trials, tuned = _tuned_steps(sampler, given, settings.n_chains, trial_iterations)
+    inversion = sampler(steps, settings.n_chains)
 
     # Run inversion. Force chains to run sequentially within this process: positions
     # are already parallelized across worker processes by the caller, so letting
@@ -180,6 +189,8 @@ def inversion_mcmc(
         for chain in inversion.chains:
             chain.print_statistics()
     log = log_buffer.getvalue()
+    if tuned:
+        log = tuned + log
 
     per_chain = cast(dict[str, list[list[Any]]], inversion.get_results(concatenate_chains=False))
     results, left_out = _saved_with_predictions(
@@ -269,7 +280,82 @@ def inversion_mcmc(
         misfits=misfits,
         dpred=dpred,
         log=log,
+        steps={name: round(step, 4) for name, step in steps.items()},
+        tuning=tuple(trials),
+        acceptance=tuple(
+            round(100 * accepted / max(proposed, 1), 2)
+            for accepted, proposed in map(_counts, inversion.chains)
+        ),
     )
+
+
+def _tuned_steps(
+    sampler: Callable[[Mapping[str, float], int], BayesianInversion],
+    given: Mapping[str, float],
+    n_chains: int,
+    iterations: int,
+) -> tuple[dict[str, float], list[tuple[float, float]], str]:
+    """Each parameter's step for the run: the steps given, scaled together until the chains
+    accept a share of their proposals within TARGET_ACCEPTANCE; the trial runs' factors and
+    acceptances (%), and a line for the log. Each step keeps its share of its prior's range:
+    measured on the demo and p2 curves, steps set from each parameter's own spread in a trial
+    run did not raise the effective sample size, whose limit is the posterior's trade-offs."""
+    scale, trials = _tuned_scale(
+        lambda factor, chains: sampler(_times(given, factor), chains), n_chains, iterations
+    )
+    said = (
+        f"Steps scaled by {scale:g} after {len(trials)} trial run(s) of {iterations} iterations: "
+        f"{_trials(trials)} accepted.\n"
+    )
+    return _times(given, scale), trials, said
+
+
+def _times(steps: Mapping[str, float], scale: float) -> dict[str, float]:
+    return {name: step * scale for name, step in steps.items()}
+
+
+def _trials(trials: Sequence[tuple[float, float]]) -> str:
+    return ", ".join(f"x{factor:g} {rate:g} %" for factor, rate in trials)
+
+
+def _tuned_scale(
+    sampler: Callable[[float, int], BayesianInversion], n_chains: int, iterations: int
+) -> tuple[float, list[tuple[float, float]]]:
+    """The factor on every step that brings the chains' acceptance within TARGET_ACCEPTANCE, from
+    short trial runs, and each trial's factor and acceptance (%). A random walk accepts fewer of
+    its proposals as its steps grow: each trial scales the steps by its acceptance over the
+    band's middle. Without a trial within the band, the one closest to it."""
+    low, high = TARGET_ACCEPTANCE
+    middle = (low + high) / 2
+    # A trial is kept within the band's middle half: the run's chains, further into the
+    # posterior, accept a little less or more than the trial's.
+    margin = (high - low) / 4
+    scale = 1.0
+    trials: list[tuple[float, float]] = []
+    for _ in range(MAX_TRIALS):
+        trial = sampler(scale, min(n_chains, 2))
+        # A burn-in as long as the run: nothing is kept, only the acceptance is read.
+        trial.run(
+            n_iterations=iterations,
+            burnin_iterations=iterations,
+            save_every=SAVE_EVERY,
+            verbose=False,
+            parallel_config={"n_jobs": 1},
+        )
+        counts = [_counts(chain) for chain in trial.chains]
+        rate = 100 * sum(accepted for accepted, _ in counts) / max(sum(n for _, n in counts), 1)
+        trials.append((round(scale, 3), round(rate, 1)))
+        if low + margin <= rate <= high - margin:
+            return scale, trials
+        scale *= min(4.0, max(0.25, rate / middle))
+    return min(trials, key=lambda trial: abs(trial[1] - middle))[0], trials
+
+
+def _counts(chain: BaseMarkovChain) -> tuple[int, int]:
+    """The models `chain` accepted and those it was proposed, in bayesbay's statistics of every
+    kind."""
+    statistics = cast(dict[str, Any], chain.statistics)
+    return int(statistics["n_accepted_models_total"]), int(statistics["n_proposed_models_total"])
 
 
 def _saved_with_predictions(

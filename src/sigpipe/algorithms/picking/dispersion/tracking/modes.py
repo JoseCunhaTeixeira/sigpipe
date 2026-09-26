@@ -132,7 +132,13 @@ def pick_modes(
                 pinned=pinned,
                 kept=kept,
                 noise_floor=noise_floor,
-                curve=_curve(image, frequencies[span][kept], velocities[path][kept], number),
+                curve=_curve(
+                    image,
+                    frequencies[span][kept],
+                    velocities[path][kept],
+                    number,
+                    parameters.wavelength_step,
+                ),
             )
         )
 
@@ -225,10 +231,14 @@ def _longest_run(mask: np.ndarray) -> slice | None:
 
 
 def _curve(
-    image: DispersionImage, frequencies: np.ndarray, velocities: np.ndarray, number: int
+    image: DispersionImage,
+    frequencies: np.ndarray,
+    velocities: np.ndarray,
+    number: int,
+    step: float,
 ) -> DispersionCurve | None:
     """The kept points as a sigpipe curve, like PAC's box picks: labelled M<n>, with Lorentzian
-    uncertainties, resampled over wavelength."""
+    uncertainties, resampled over wavelength every `step` metres."""
     if frequencies.size < 2:
         return None
     fs = frequencies.astype(np.float32)
@@ -241,4 +251,4 @@ def _curve(
         vs_err=lorentzian_uncertainty(fs, vs, image.acquisition),
         type=image.type,
     )
-    return resample_wavelength(curve)
+    return resample_wavelength(curve, step=step)
