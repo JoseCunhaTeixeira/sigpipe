@@ -143,3 +143,23 @@ def test_the_steps_are_scaled_until_the_chains_accept_enough(
         linear_acquisition, n_iterations=2_000, n_burnin=200, vs_layers=wide, tune_steps=False
     )
     assert (untuned.steps["vs1"], untuned.tuning) == (400.0, ())
+
+
+def test_the_chains_may_run_in_parallel(linear_acquisition: LinearAcquisition) -> None:
+    # Two chains in two processes: each comes back with its own samples and statistics.
+    result = _invert(
+        linear_acquisition,
+        n_iterations=2 * SAVE_EVERY * 10,
+        n_burnin=SAVE_EVERY,
+        n_chains=2,
+        tune_steps=False,
+        chain_jobs=2,
+    )
+
+    first, second = np.split(np.asarray(result.samples["vs1"]), 2)
+    assert first.size == second.size > 1
+    # Chains of their own: not one chain's draws twice.
+    assert not np.array_equal(first, second)
+    assert len(result.acceptance) == 2
+    with pytest.raises(ValueError, match="chain_jobs must be at least 1"):
+        _invert(linear_acquisition, n_iterations=2_000, n_burnin=200, chain_jobs=0)

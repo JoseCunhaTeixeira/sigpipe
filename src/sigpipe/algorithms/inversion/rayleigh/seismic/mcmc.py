@@ -81,13 +81,16 @@ def inversion_mcmc(
     *,
     Vp_Vs_ratio: float = 1.77,
     dz: float = 0.01,
+    chain_jobs: int = 1,
     **parameters: object,
 ) -> InversionResult:
     """The layered Vs models that fit `dispersion_curves`, sampled by Markov chains.
 
     `parameters` are InversionParameters' fields, which validate them: the number of layers,
     each layer's prior (its Vs and thickness bounds, and the sampler's steps) and the sampler's
-    effort. Vp and density follow Vs by `Vp_Vs_ratio`; the smooth and ensemble models are
+    effort. `chain_jobs` processes run the chains (1: one after the other, in this process, as
+    when a caller already runs windows in parallel). Vp and density follow Vs by `Vp_Vs_ratio`;
+    the smooth and ensemble models are
     sampled every `dz` metres.
     """
     settings = InversionParameters.model_validate(parameters)
@@ -172,16 +175,17 @@ def inversion_mcmc(
         steps, trials, tuned = _tuned_steps(sampler, given, settings.n_chains, trial_iterations)
     inversion = sampler(steps, settings.n_chains)
 
-    # Run inversion. Force chains to run sequentially within this process: positions
-    # are already parallelized across worker processes by the caller, so letting
-    # bayesbay also spawn one process per chain (its default) would oversubscribe
-    # CPUs by n_workers x n_chains instead of just n_workers.
+    # The chains in `chain_jobs` processes: 1 by default, since callers run windows in parallel
+    # already, and bayesbay's own default (a process per chain) would take n_workers x n_chains
+    # cores; more when a caller has cores to spare. The trial runs above stay in this process.
+    if chain_jobs < 1:
+        raise ValueError(f"chain_jobs must be at least 1, not {chain_jobs}")
     inversion.run(
         n_iterations=settings.n_iterations,
         burnin_iterations=settings.n_burnin_iterations,
         save_every=SAVE_EVERY,
         verbose=False,
-        parallel_config={"n_jobs": 1},
+        parallel_config={"n_jobs": min(chain_jobs, settings.n_chains)},
     )
 
     log_buffer = io.StringIO()

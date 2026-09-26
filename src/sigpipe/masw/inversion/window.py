@@ -54,21 +54,28 @@ class WindowParameters(BaseModel):
     acceptance: tuple[float, ...]  # each chain's over the run (%), the burn-in included
 
 
-def build_inversion_pipeline(parameters: InversionParameters, output_folder: Path) -> Pipeline:
-    """The inversion pipeline: sigpipe's MCMC, then the models saved in `output_folder`."""
-    return Invert(method="mcmc", Vp_Vs_ratio=VP_VS_RATIO, dz=DZ, **dict(parameters)) >> Save(
-        folder_path=output_folder, file_name="SeismicInversion_Model"
+def build_inversion_pipeline(
+    parameters: InversionParameters, output_folder: Path, chain_jobs: int = 1
+) -> Pipeline:
+    """The inversion pipeline: sigpipe's MCMC, its chains in `chain_jobs` processes, then the
+    models saved in `output_folder`."""
+    mcmc = Invert(
+        method="mcmc", Vp_Vs_ratio=VP_VS_RATIO, dz=DZ, chain_jobs=chain_jobs, **dict(parameters)
     )
+    return mcmc >> Save(folder_path=output_folder, file_name="SeismicInversion_Model")
 
 
 def invert_window(
-    folder: Path, parameters: InversionParameters, modes: Collection[Mode] = (M0,)
+    folder: Path,
+    parameters: InversionParameters,
+    modes: Collection[Mode] = (M0,),
+    chain_jobs: int = 1,
 ) -> InversionResult:
-    """Invert the curves of `modes` saved in window folder `folder` (M0 by default), and write
-    PAC's files next to them."""
+    """Invert the curves of `modes` saved in window folder `folder` (M0 by default), the chains
+    in `chain_jobs` processes, and write PAC's files next to them."""
     image = load_image(folder)
     curves = _curves(folder, modes)
-    result: InversionResult = build_inversion_pipeline(parameters, folder).run(
+    result: InversionResult = build_inversion_pipeline(parameters, folder, chain_jobs).run(
         data=[curves], show_log=False
     )[0]
 
