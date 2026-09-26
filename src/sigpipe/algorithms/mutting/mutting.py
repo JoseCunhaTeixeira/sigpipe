@@ -35,7 +35,8 @@ def _apply_lower_mute(trace: np.ndarray, idx: int, taper: int) -> None:
     trace[:start] = 0.0
 
     if start < idx:
-        w = _cosine_taper(idx - start)
+        # A ramp cut by the trace's start keeps its width: its last samples only.
+        w = _cosine_taper(taper)[taper - (idx - start) :]
         trace[start:idx] *= w
 
 
@@ -60,7 +61,8 @@ def _apply_upper_mute(trace: np.ndarray, idx: int, taper: int) -> None:
     stop = min(n, idx + taper)
 
     if idx < stop:
-        w = _cosine_taper(stop - idx)[::-1]
+        # A ramp cut by the trace's end keeps its width: its first samples only.
+        w = _cosine_taper(taper)[::-1][: stop - idx]
         trace[idx:stop] *= w
 
     trace[stop:] = 0.0

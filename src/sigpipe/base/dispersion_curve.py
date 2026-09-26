@@ -21,6 +21,19 @@ class Mode(NamedTuple):
     wave: str
     number: int
 
+    @property
+    def label(self) -> str:
+        """The mode as a label, its wave then its number: "M0", "R1"."""
+        return f"{self.wave}{self.number}"
+
+    @classmethod
+    def from_label(cls, label: str) -> Mode:
+        """The mode a label names: "M0" is Mode("M", 0)."""
+        wave = label.rstrip("0123456789")
+        if not wave or wave == label:
+            raise ValueError(f"A mode label is a wave then a number, e.g. M0; got {label!r}")
+        return cls(wave, int(label[len(wave) :]))
+
 
 @dataclass(slots=True, frozen=True)
 class DispersionCurve:

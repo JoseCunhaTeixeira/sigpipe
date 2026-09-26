@@ -4,6 +4,7 @@ from typing import Literal
 from sigpipe.algorithms import FlipAxis
 from sigpipe.base.stream import Stream
 from sigpipe.base.transformer import Transformer
+from sigpipe.transformers.composites.virtual_source import seen_from_first_receiver
 from sigpipe.transformers.correlation import Correlate
 from sigpipe.transformers.flipping import Flip
 
@@ -39,10 +40,13 @@ class BidirectionalCorrelate(Transformer[Stream, Stream]):
             virtual_source_index=-1,
         ).transform(data)
 
-        right = Flip(
-            axis=FlipAxis.SPACE,
-            flip_acquisition=False,
-        ).transform(right)
+        right = [
+            seen_from_first_receiver(flipped)
+            for flipped in Flip(
+                axis=FlipAxis.SPACE,
+                flip_acquisition=False,
+            ).transform(right)
+        ]
 
         return [
             *left,

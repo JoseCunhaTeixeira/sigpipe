@@ -1,6 +1,7 @@
 from collections.abc import Sequence
+from typing import Literal
 
-from sigpipe.algorithms.padding.padding import pad
+from sigpipe.algorithms.padding.registry import PADDING_METHODS
 from sigpipe.base.stream import Stream
 from sigpipe.base.transformer import Transformer
 
@@ -12,23 +13,24 @@ class Pad(Transformer[Stream, Stream]):
 
     def __init__(
         self,
-        n: int,
-        taper: int = 0,
+        method: Literal["none", "zeros"] = "zeros",
+        **params: object,
     ) -> None:
-        self.n = n
-        self.taper = taper
+        self.method = method
+        self.params = params
 
     def transform(self, data: Sequence[Stream]) -> list[Stream]:
 
         self.validate_sequence(data, Stream)
 
-        streams_out: list[Stream] = []
-        for stream in data:
-            stream_out = pad(
-                stream=stream,
-                n=self.n,
-                taper=self.taper,
-            )
-            streams_out.append(stream_out)
+        if self.method == "none":
+            return list(data)
 
-        return streams_out
+        algorithm = PADDING_METHODS.get(self.method)
+        if algorithm is None:
+            raise ValueError(
+                f"Unknown padding method '{self.method}'. "
+                f"Available methods: {list(PADDING_METHODS.keys())}"
+            )
+
+        return [algorithm(stream=stream, **self.params) for stream in data]

@@ -14,18 +14,10 @@ class Mute(Transformer[Stream, Stream]):
     def __init__(
         self,
         method: Literal["none", "mute"] = "mute",
-        tmin: float | None = None,
-        tmax: float | None = None,
-        vmin: float | None = None,
-        vmax: float | None = None,
-        taper: int = 0,
+        **params: object,
     ) -> None:
         self.method = method
-        self.tmin = tmin
-        self.tmax = tmax
-        self.vmin = vmin
-        self.vmax = vmax
-        self.taper = taper
+        self.params = params
 
     def transform(self, data: Sequence[Stream]) -> list[Stream]:
 
@@ -41,16 +33,4 @@ class Mute(Transformer[Stream, Stream]):
                 f"Available methods: {list(MUTTING_METHODS.keys())}"
             )
 
-        streams_out: list[Stream] = []
-        for stream in data:
-            stream_out = algorithm(
-                stream=stream,
-                tmin=self.tmin,
-                tmax=self.tmax,
-                vmin=self.vmin,
-                vmax=self.vmax,
-                taper=self.taper,
-            )
-            streams_out.append(stream_out)
-
-        return streams_out
+        return [algorithm(stream=stream, **self.params) for stream in data]

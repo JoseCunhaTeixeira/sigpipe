@@ -19,18 +19,18 @@ _QUANTITY_LABELS = {
 }
 
 
-def _nanmedian_filter_axis0(grid: np.ndarray, size: int) -> np.ndarray:
-    """nanmedian filter along axis 0 only, window width `size`.
+def _nanmedian_filter_axis0(grid: np.ndarray, size: int, left: int) -> np.ndarray:
+    """nanmedian filter along axis 0 only, window width `size`, starting
+    `left` positions before each output position.
 
     Vectorized equivalent of
-    `scipy.ndimage.generic_filter(grid, nanmedian, size=(size, 1))` (same
-    default edge-replicating "reflect" boundary, called "symmetric" in
-    np.pad) -- generic_filter calls its Python callback once per output
-    pixel, which is far too slow for realistic section grids (seconds for a
-    single smoothing pass). This computes the same result in one vectorized
-    nanmedian call instead.
+    `scipy.ndimage.generic_filter(grid, nanmedian, size=(size, 1))` with
+    the matching origin (same default edge-replicating "reflect" boundary,
+    called "symmetric" in np.pad) -- generic_filter calls its Python callback
+    once per output pixel, which is far too slow for realistic section grids
+    (seconds for a single smoothing pass). This computes the same result in
+    one vectorized nanmedian call instead.
     """
-    left = size // 2
     right = size - 1 - left
     padded = np.pad(grid, ((left, right), (0, 0)), mode="symmetric")
     windows = sliding_window_view(padded, size, axis=0)
@@ -45,11 +45,14 @@ def smooth_laterally(grid: np.ndarray) -> np.ndarray:
 
     Three passes of a median filter with shrinking windows (4, 3, 2) along
     the position axis only -- depths are untouched. Port of the old
-    Streamlit app's `mode_filter_median` + `generic_filter` cascade.
+    Streamlit app's `mode_filter_median` + `generic_filter` cascade, whose
+    two even windows both leaned half a position the same way, moving every
+    edge one position toward larger x: here they lean opposite ways, so the
+    edges stay in place.
     """
     smoothed = grid
-    for size in (4, 3, 2):
-        smoothed = _nanmedian_filter_axis0(smoothed, size)
+    for size, left in ((4, 2), (3, 1), (2, 0)):
+        smoothed = _nanmedian_filter_axis0(smoothed, size, left)
     return smoothed
 
 

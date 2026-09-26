@@ -1,6 +1,7 @@
 import warnings
 from collections.abc import Sequence
 from pathlib import Path
+from typing import TypeGuard
 
 import h5py
 import numpy as np
@@ -15,9 +16,22 @@ from sigpipe.dataio._h5 import dataset
 def load_stream(
     file_paths: Sequence[Path],
     sort: bool = False,
+    acquisitions: Sequence[Acquisition] | None = None,  # one per file, for the loaded receivers
+    receivers_to_load: Sequence[int] | Sequence[Sequence[int]] | None = None,
 ) -> list[Stream]:
+    """
+    Streams saved by save_stream. `receivers_to_load` keeps the same receivers
+    of every file, or each file its own (one sequence per file); the saved
+    acquisition, cut to those receivers, stands unless `acquisitions` is given.
+    """
+    if acquisitions is not None and len(acquisitions) != len(file_paths):
+        raise ValueError(
+            f"requires len(file_paths) == len(acquisitions), got {len(file_paths)} and {len(acquisitions)}"
+        )
+    receivers_per_file = _receivers_per_file(receivers_to_load, len(file_paths))
+
     streams_out: list[Stream] = []
-    for path in file_paths:
+    for i_file, path in enumerate(file_paths):
         path = path.with_suffix(".hdf5")
 
         with h5py.File(path, "r") as file:
@@ -46,6 +60,21 @@ def load_stream(
             receivers=tuples_to_coordinates(receivers),
         )
 
+        indices = receivers_per_file[i_file]
+        if indices is not None:
+            xt = xt[indices, :]
+            acquisition = type(acquisition)(
+                source=acquisition.source,
+                receivers=tuple(acquisition.receivers[i] for i in indices),
+            )
+        if acquisitions is not None:
+            acquisition = acquisitions[i_file]
+            if xt.shape[0] != len(acquisition.receivers):
+                raise ValueError(
+                    "requires shot.shape[0] = number of receivers. "
+                    f"Got {xt.shape[0]} and {len(acquisition.receivers)}"
+                )
+
         if not acquisition.is_unknown and sort:
             order = np.argsort(acquisition.offsets)
             xt = xt[order]
@@ -70,7 +99,7 @@ def load_seismic(
     file_paths: Sequence[Path],
     acquisitions: Sequence[Acquisition],  # one acquisition per file
     sort: bool = False,
-    receivers_to_load: Sequence[int] | None = None,
+    receivers_to_load: Sequence[int] | Sequence[Sequence[int]] | None = None,
 ) -> list[Stream]:
 
     if not isinstance(acquisitions, Sequence) or isinstance(acquisitions, (str, bytes)):
@@ -84,8 +113,12 @@ def load_seismic(
     if not all(isinstance(s, Acquisition) for s in acquisitions):
         raise TypeError("All elements in acquisitions must be Acquisition")
 
+    receivers_per_file = _receivers_per_file(receivers_to_load, len(file_paths))
+
     streams_out: list[Stream] = []
-    for path, acquisition in zip(file_paths, acquisitions, strict=False):
+    for path, acquisition, indices in zip(
+        file_paths, acquisitions, receivers_per_file, strict=False
+    ):
         with warnings.catch_warnings():
             warnings.filterwarnings(
                 "ignore",
@@ -99,17 +132,8 @@ def load_seismic(
         for i, trace in enumerate(ob_stream):
             xt[i, :] = trace.data
 
-        if receivers_to_load is not None:
-            if (
-                not isinstance(receivers_to_load, Sequence)
-                or isinstance(receivers_to_load, (str, bytes))
-                or not all(isinstance(x, int) for x in receivers_to_load)
-            ):
-                raise TypeError(
-                    "Expected Sequence[int | float] for receivers_to_load, "
-                    f"got {type(receivers_to_load).__name__}"
-                )
-            xt = xt[receivers_to_load, :]
+        if indices is not None:
+            xt = xt[indices, :]
 
         ts = compute_time_vector(
             nt=xt.shape[1],
@@ -171,16 +195,7 @@ def load_gero_passive(
                 raise ValueError("record must be 2D for passive workflow")
 
             if receivers_to_load is not None:
-                if (
-                    not isinstance(receivers_to_load, Sequence)
-                    or isinstance(receivers_to_load, (str, bytes))
-                    or not all(isinstance(x, int) for x in receivers_to_load)
-                ):
-                    raise TypeError(
-                        "Expected Sequence[int | float] for receivers_to_load, "
-                        f"got {type(receivers_to_load).__name__}"
-                    )
-                record = record[receivers_to_load, :]
+                record = record[_indices(receivers_to_load, "receivers_to_load"), :]
 
             file_sampling_freq = f[key].attrs.get("fs")
             if file_sampling_freq is None:
@@ -280,28 +295,10 @@ def load_gero_active(
                 raise ValueError("shots must be 3D for active workflow")
 
             if sources_to_load is not None:
-                if (
-                    not isinstance(sources_to_load, Sequence)
-                    or isinstance(sources_to_load, (str, bytes))
-                    or not all(isinstance(x, int) for x in sources_to_load)
-                ):
-                    raise TypeError(
-                        "Expected Sequence[int | float] for sources_to_load, "
-                        f"got {type(sources_to_load).__name__}"
-                    )
-                shots = shots[sources_to_load, :, :]
+                shots = shots[_indices(sources_to_load, "sources_to_load"), :, :]
 
             if receivers_to_load is not None:
-                if (
-                    not isinstance(receivers_to_load, Sequence)
-                    or isinstance(receivers_to_load, (str, bytes))
-                    or not all(isinstance(x, int) for x in receivers_to_load)
-                ):
-                    raise TypeError(
-                        "Expected Sequence[int | float] for receivers_to_load, "
-                        f"got {type(receivers_to_load).__name__}"
-                    )
-                shots = shots[:, receivers_to_load, :]
+                shots = shots[:, _indices(receivers_to_load, "receivers_to_load"), :]
 
             if shots.shape[0] != len(acquisitions):
                 raise ValueError(
@@ -372,3 +369,43 @@ def compute_time_vector(
     if delay is not None:
         time += delay
     return time
+
+
+def _is_indices(values: object) -> TypeGuard[Sequence[int]]:
+    return (
+        isinstance(values, Sequence)
+        and not isinstance(values, (str, bytes))
+        and all(isinstance(x, int) for x in values)
+    )
+
+
+def _indices(values: object, name: str) -> list[int]:
+    if not _is_indices(values):
+        raise TypeError(f"Expected Sequence[int] for {name}, got {type(values).__name__}")
+    return list(values)
+
+
+def _receivers_per_file(
+    receivers_to_load: Sequence[int] | Sequence[Sequence[int]] | None,
+    n_files: int,
+) -> list[list[int] | None]:
+    """receivers_to_load for each file: the same sequence for every file, or
+    one sequence per file."""
+    if receivers_to_load is None:
+        return [None] * n_files
+    if _is_indices(receivers_to_load):
+        return [_indices(receivers_to_load, "receivers_to_load")] * n_files
+    if (
+        isinstance(receivers_to_load, Sequence)
+        and not isinstance(receivers_to_load, (str, bytes))
+        and all(_is_indices(own) for own in receivers_to_load)
+    ):
+        if len(receivers_to_load) != n_files:
+            raise ValueError(
+                f"requires one receivers_to_load per file, got {len(receivers_to_load)} for {n_files} files"
+            )
+        return [_indices(own, "receivers_to_load") for own in receivers_to_load]
+    raise TypeError(
+        "Expected Sequence[int], or one Sequence[int] per file, for receivers_to_load, "
+        f"got {type(receivers_to_load).__name__}"
+    )

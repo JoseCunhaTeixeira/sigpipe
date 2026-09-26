@@ -1,0 +1,283 @@
+"""Processing a profile with a preset, in worker processes: each record preprocessed once, then
+one sigpipe pipeline per MASW window on the preprocessed records."""
+
+import json
+import os
+import secrets
+import time
+import traceback
+from collections.abc import Callable, Mapping, Sequence
+from concurrent.futures import Future, ProcessPoolExecutor, as_completed
+from datetime import UTC, datetime
+from importlib.metadata import distribution, version
+from pathlib import Path
+
+import matplotlib
+
+from sigpipe.masw.pipelines import build_image_pipeline, build_preprocessing_pipeline, record_folder
+from sigpipe.masw.presets import ActivePreset, PassivePreset, make_preset, resolve_preset
+from sigpipe.masw.profiles import Profile, Record, load_profile, summarize
+from sigpipe.masw.runs.models import RecordOutcome, RunError, RunManifest, WindowOutcome
+from sigpipe.masw.windows import (
+    Exclusions,
+    Geometry,
+    MASWParameters,
+    MASWWindow,
+    apply_exclusions,
+    build_windows,
+)
+from sigpipe.masw.workspace import Workspace
+
+# Called with (windows done, windows in the run).
+type ProgressCallback = Callable[[int, int], None]
+
+RECORDS_FOLDER = "records"  # inside the run folder: one folder per preprocessed record
+# How each mode's windows share their receivers once G1's exclusions are applied.
+GEOMETRIES: dict[str, Geometry] = {
+    "active": "per_record",
+    "passive-active": "shared",
+    "passive": "union",
+}
+
+
+def run_processing(
+    profile: str,
+    preset: str,
+    overrides: Mapping[str, object] | None,
+    workspace: Workspace,
+    on_progress: ProgressCallback | None = None,
+    packages: Sequence[str] = (),
+) -> RunManifest:
+    """Process `profile` with `preset` and `overrides`, and write the run to disk: its manifest,
+    which records the versions of sigpipe and of `packages` (the application's).
+
+    Unknown names and invalid overrides raise before anything is written. A record or a window
+    that fails does not stop the run: its error goes to run.json and to its folder's error.log,
+    and a window whose record failed fails with it.
+
+    Records and windows run in worker processes, which Python 3.14 starts with forkserver: a
+    script calling this function needs an `if __name__ == "__main__":` guard.
+    """
+    loaded = load_profile(profile, workspace)
+    resolved = resolve_preset(make_preset(preset, overrides), loaded)
+    windows = build_windows(loaded, resolved.masw)
+    n_positions = count_positions(loaded, resolved.masw)
+    if not windows:
+        raise RunError(
+            f"No window of profile '{profile}' has a valid shot: all {n_positions} positions "
+            "were skipped. Widen masw.distance_min and masw.distance_max, or change masw.length."
+        )
+
+    run_id, run_folder = new_run_folder(workspace.output_dir / profile)
+    started_at = datetime.now(UTC)
+    records = preprocess_records(resolved, loaded, run_folder, workspace.workers)
+    outcomes = process_windows(
+        resolved, windows, records, run_folder, workspace.workers, on_progress
+    )
+    return write_manifest(
+        run_id,
+        run_folder,
+        loaded,
+        resolved,
+        started_at,
+        records,
+        outcomes,
+        packages=packages,
+    )
+
+
+def count_positions(profile: Profile, masw: MASWParameters) -> int:
+    """The window positions along `profile`, before any is skipped for want of a shot."""
+    return len(range(0, len(profile.receivers) - masw.length + 1, masw.step))
+
+
+def write_manifest(
+    run_id: str,
+    run_folder: Path,
+    profile: Profile,
+    preset: ActivePreset | PassivePreset,
+    started_at: datetime,
+    records: tuple[RecordOutcome, ...],
+    windows: tuple[WindowOutcome, ...],
+    exclusions: Exclusions | None = None,
+    packages: Sequence[str] = (),
+) -> RunManifest:
+    """The run's manifest, run.json: what was processed, with what, and how it went, with the
+    versions of sigpipe and of `packages` (the application's)."""
+    manifest = RunManifest(
+        run_id=run_id,
+        profile=summarize(profile),
+        preset=preset,
+        versions=package_versions(packages),
+        started_at=started_at,
+        finished_at=datetime.now(UTC),
+        n_positions=count_positions(profile, preset.masw),
+        records=records,
+        windows=windows,
+        exclusions=exclusions or Exclusions(),
+    )
+    (run_folder / "run.json").write_text(manifest.model_dump_json(indent=2))
+    return manifest
+
+
+def new_run_folder(profile_folder: Path) -> tuple[str, Path]:
+    """A new run ID, e.g. 20260923-142501-a3f9 (UTC time and a random suffix), and its folder."""
+    while True:
+        run_id = f"{datetime.now(UTC):%Y%m%d-%H%M%S}-{secrets.token_hex(2)}"
+        folder = profile_folder / run_id
+        try:
+            folder.mkdir(parents=True)
+        except FileExistsError:
+            continue  # same second and same suffix: draw again
+        return run_id, folder
+
+
+def preprocess_records(
+    preset: ActivePreset | PassivePreset,
+    profile: Profile,
+    run_folder: Path,
+    workers: int,
+    presets: Mapping[str, ActivePreset | PassivePreset] | None = None,
+) -> tuple[RecordOutcome, ...]:
+    """Every record of `profile` preprocessed once, into <run_folder>/records/<record>/; or, with
+    `presets` (by record file name), those records only, each with its own preset (the signal
+    QC's changes: a record's trigger delay is its own)."""
+    outcomes: dict[int, RecordOutcome] = {}
+    with ProcessPoolExecutor(
+        max_workers=workers, initializer=start_worker, initargs=(run_folder,)
+    ) as executor:
+        futures: dict[Future[float], tuple[int, Record, Path]] = {}
+        for index, record in enumerate(profile.records):
+            if presets is not None and record.path.name not in presets:
+                continue
+            chosen = presets[record.path.name] if presets is not None else preset
+            folder = record_folder(run_folder / RECORDS_FOLDER, record)
+            folder.mkdir(parents=True, exist_ok=presets is not None)
+            future = executor.submit(_preprocess_record, chosen, record, profile, folder)
+            futures[future] = (index, record, folder)
+
+        for future in as_completed(futures):
+            index, record, folder = futures[future]
+            duration_s, error = _finish(future, folder)
+            outcomes[index] = RecordOutcome(
+                name=record.path.name,
+                folder=f"{RECORDS_FOLDER}/{folder.name}",
+                status="succeeded" if error is None else "failed",
+                duration_s=duration_s,
+                error=error,
+            )
+    return tuple(outcomes[index] for index in sorted(outcomes))
+
+
+def process_windows(
+    preset: ActivePreset | PassivePreset,
+    windows: list[MASWWindow],
+    records: tuple[RecordOutcome, ...],
+    run_folder: Path,
+    workers: int,
+    on_progress: ProgressCallback | None = None,
+    records_folder: Path | None = None,
+    exclusions: Exclusions | None = None,
+) -> tuple[WindowOutcome, ...]:
+    """One image pipeline per window, into `run_folder`, on the preprocessed records of
+    `records_folder` (those of `run_folder` by default: trial windows read a run's records),
+    without the records and traces of `exclusions`.
+
+    A window that uses a record that failed fails at once, with the record's error.
+    """
+    records_folder = records_folder or run_folder / RECORDS_FOLDER
+    exclusions = exclusions or Exclusions()
+    failed = {record.name: record.error for record in records if record.status == "failed"}
+    outcomes: list[WindowOutcome] = []
+    with ProcessPoolExecutor(
+        max_workers=workers, initializer=start_worker, initargs=(run_folder,)
+    ) as executor:
+        futures: dict[Future[float], tuple[float, Path]] = {}
+        for built in windows:
+            folder = run_folder / f"xmid_{built.xmid:.2f}"  # PAC's window folder name
+            folder.mkdir(exist_ok=True)  # exists when the stage is done again (PACo's QC)
+            window = apply_exclusions(built, exclusions, GEOMETRIES[preset.mode])
+            if window is None:
+                error = "every record, or all but 2 of its receivers, excluded by the signal QC"
+                (folder / "error.log").write_text(error + "\n")
+                outcomes.append(
+                    WindowOutcome(xmid=built.xmid, folder=folder.name, status="failed", error=error)
+                )
+                continue
+            (folder / "window.json").write_text(window.model_dump_json(indent=2))
+            if missing := [path.name for path in window.selected_files if path.name in failed]:
+                error = f"record {missing[0]} failed preprocessing: {failed[missing[0]]}"
+                (folder / "error.log").write_text(error + "\n")
+                outcomes.append(
+                    WindowOutcome(
+                        xmid=window.xmid, folder=folder.name, status="failed", error=error
+                    )
+                )
+                continue
+            future = executor.submit(_process_window, preset, window, records_folder, folder)
+            futures[future] = (window.xmid, folder)
+
+        if on_progress is not None:
+            on_progress(len(outcomes), len(windows))
+        for future in as_completed(futures):
+            xmid, folder = futures[future]
+            duration_s, error = _finish(future, folder)
+            outcomes.append(
+                WindowOutcome(
+                    xmid=xmid,
+                    folder=folder.name,
+                    status="succeeded" if error is None else "failed",
+                    duration_s=duration_s,
+                    error=error,
+                )
+            )
+            if on_progress is not None:
+                on_progress(len(outcomes), len(windows))
+
+    return tuple(sorted(outcomes, key=lambda outcome: outcome.xmid))
+
+
+def _finish(future: Future[float], folder: Path) -> tuple[float | None, str | None]:
+    """A finished task's duration, or its error, whose traceback goes to <folder>/error.log."""
+    try:
+        return future.result(), None
+    except Exception as exc:
+        (folder / "error.log").write_text("".join(traceback.format_exception(exc)))
+        return None, f"{type(exc).__name__}: {exc}"
+
+
+def start_worker(run_folder: Path) -> None:
+    """Set up a worker process of a run: in the run folder, with no GUI backend."""
+    # sigpipe's Pipeline.run creates a logs/ folder in the working directory and resets a global
+    # logger: in a worker whose working directory is the run folder, both stay inside the run.
+    os.chdir(run_folder)
+    # Figures are only written to files: never start a GUI backend in a worker.
+    matplotlib.use("Agg")
+
+
+def _preprocess_record(
+    preset: ActivePreset | PassivePreset, record: Record, profile: Profile, folder: Path
+) -> float:
+    """Runs in a worker: the record's preprocessing, returning its duration in seconds."""
+    start = time.perf_counter()
+    build_preprocessing_pipeline(preset, record, profile, folder).run(show_log=False)
+    return time.perf_counter() - start
+
+
+def _process_window(
+    preset: ActivePreset | PassivePreset, window: MASWWindow, records_folder: Path, folder: Path
+) -> float:
+    """Runs in a worker: the window's image pipeline, returning its duration in seconds."""
+    start = time.perf_counter()
+    build_image_pipeline(preset, window, records_folder, folder).run(show_log=False)
+    return time.perf_counter() - start
+
+
+def package_versions(packages: Sequence[str] = ()) -> dict[str, str]:
+    """The versions of sigpipe and of `packages`."""
+    versions = {name: version(name) for name in ("sigpipe", *packages)}
+    # sigpipe is installed from git, so its commit says more than its version number.
+    direct_url = json.loads(distribution("sigpipe").read_text("direct_url.json") or "{}")
+    if commit := direct_url.get("vcs_info", {}).get("commit_id"):
+        versions["sigpipe"] += f" ({commit[:7]})"
+    return versions

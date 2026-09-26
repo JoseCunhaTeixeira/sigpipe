@@ -1,7 +1,7 @@
 import contextlib
 import io
-from collections.abc import Callable
-from typing import cast
+from collections.abc import Callable, Sequence
+from typing import Any, cast
 
 import numpy as np
 from bayesbay import BayesianInversion, ParameterSpaceState, State
@@ -16,10 +16,7 @@ from sigpipe.base.inversion import InversionResult
 from sigpipe.base.velocity_model import VelocityModel
 
 from .forward import fwd_function, vp_rho_from_vs
-
-# Each chain keeps one model every SAVE_EVERY iterations after the burn-in: bayesbay keeps
-# iteration i when i > n_burnin and (i - n_burnin) is a multiple of save_every.
-SAVE_EVERY = 150
+from .parameters import SAVE_EVERY, InversionParameters
 
 
 def _ensemble_model(
@@ -74,46 +71,23 @@ def _make_fwd_function(
 def inversion_mcmc(
     dispersion_curves: DispersionCurvesImage,
     position: Coordinate,
-    n_layers: int,
-    thicknesses_min: tuple[float, ...],
-    thicknesses_max: tuple[float, ...],
-    thickness_perturbations: tuple[float, ...],
-    Vs_mins: tuple[float, ...],
-    Vs_maxs: tuple[float, ...],
-    Vs_perturbations: tuple[float, ...],
-    n_iterations: int,
-    n_burnin: int,
-    n_chains: int,
+    *,
     Vp_Vs_ratio: float = 1.77,
     dz: float = 0.01,
+    **parameters: object,
 ) -> InversionResult:
+    """The layered Vs models that fit `dispersion_curves`, sampled by Markov chains.
+
+    `parameters` are InversionParameters' fields, which validate them: the number of layers,
+    each layer's prior (its Vs and thickness bounds, and the sampler's steps) and the sampler's
+    effort. Vp and density follow Vs by `Vp_Vs_ratio`; the smooth and ensemble models are
+    sampled every `dz` metres.
+    """
+    settings = InversionParameters.model_validate(parameters)
+    n_layers = settings.n_layers
 
     if len(dispersion_curves) == 0:
         raise ValueError("At least one dispersion curve must be provided for inversion.")
-
-    if (
-        len(thicknesses_min) != n_layers - 1
-        or len(thicknesses_max) != n_layers - 1
-        or len(thickness_perturbations) != n_layers - 1
-    ):
-        raise ValueError(
-            "thicknesses_min, thicknesses_max, and thickness_perturbations must have length n_layers - 1, "
-            f"got {len(thicknesses_min)}, {len(thicknesses_max)}, and {len(thickness_perturbations)}"
-        )
-
-    if len(Vs_mins) != n_layers or len(Vs_maxs) != n_layers or len(Vs_perturbations) != n_layers:
-        raise ValueError(
-            f"Vs_mins, Vs_maxs, and Vs_perturbations must have length n_layers, "
-            f"got {len(Vs_mins)}, {len(Vs_maxs)}, and {len(Vs_perturbations)}"
-        )
-
-    # A shorter run keeps no model, and fails after sampling with KeyError: 'space.vs1'.
-    if n_iterations - n_burnin < SAVE_EVERY:
-        raise ValueError(
-            f"n_iterations ({n_iterations}) must exceed n_burnin ({n_burnin}) by at least "
-            f"{SAVE_EVERY}: each chain keeps one model every {SAVE_EVERY} iterations after the "
-            "burn-in"
-        )
 
     modes: list[int] = sorted({dc.mode.number for dc in dispersion_curves})
 
@@ -148,22 +122,22 @@ def inversion_mcmc(
 
     # Priors
     priors: list[Prior] = []
-    for i in range(n_layers):
+    for i, vs_layer in enumerate(settings.vs_layers):
         priors.append(
             UniformPrior(
                 name=f"vs{i + 1}",
-                vmin=Vs_mins[i],  # pyright: ignore[reportArgumentType]
-                vmax=Vs_maxs[i],  # pyright: ignore[reportArgumentType]
-                perturb_std=Vs_perturbations[i],  # pyright: ignore[reportArgumentType]
+                vmin=vs_layer.vs_min,  # pyright: ignore[reportArgumentType]
+                vmax=vs_layer.vs_max,  # pyright: ignore[reportArgumentType]
+                perturb_std=vs_layer.vs_perturb_std,  # pyright: ignore[reportArgumentType]
             )
         )
-    for i in range(n_layers - 1):
+    for i, thickness_layer in enumerate(settings.thickness_layers):
         priors.append(
             UniformPrior(
                 name=f"thick{i + 1}",
-                vmin=thicknesses_min[i],  # pyright: ignore[reportArgumentType]
-                vmax=thicknesses_max[i],  # pyright: ignore[reportArgumentType]
-                perturb_std=thickness_perturbations[i],  # pyright: ignore[reportArgumentType]
+                vmin=thickness_layer.thickness_min,  # pyright: ignore[reportArgumentType]
+                vmax=thickness_layer.thickness_max,  # pyright: ignore[reportArgumentType]
+                perturb_std=thickness_layer.thickness_perturb_std,  # pyright: ignore[reportArgumentType]
             )
         )
 
@@ -186,7 +160,7 @@ def inversion_mcmc(
     inversion: BayesianInversion = BayesianInversion(
         log_likelihood=log_likelihood,
         parameterization=parameterization,
-        n_chains=n_chains,
+        n_chains=settings.n_chains,
     )
 
     # Run inversion. Force chains to run sequentially within this process: positions
@@ -194,8 +168,8 @@ def inversion_mcmc(
     # bayesbay also spawn one process per chain (its default) would oversubscribe
     # CPUs by n_workers x n_chains instead of just n_workers.
     inversion.run(
-        n_iterations=n_iterations,
-        burnin_iterations=n_burnin,
+        n_iterations=settings.n_iterations,
+        burnin_iterations=settings.n_burnin_iterations,
         save_every=SAVE_EVERY,
         verbose=False,
         parallel_config={"n_jobs": 1},
@@ -207,7 +181,15 @@ def inversion_mcmc(
             chain.print_statistics()
     log = log_buffer.getvalue()
 
-    results = cast(dict[str, np.ndarray], inversion.get_results(concatenate_chains=True))
+    per_chain = cast(dict[str, list[list[Any]]], inversion.get_results(concatenate_chains=False))
+    results, left_out = _saved_with_predictions(
+        per_chain, [f"rayleigh_M{mode}.dpred" for mode in modes]
+    )
+    if left_out:
+        log += (
+            f"{left_out} saved models left out: saved before their chain computed a likelihood "
+            "(a chain still on its starting model), they carry no predicted curve.\n"
+        )
 
     # Extract sampled models
     sampled_Vs = np.array(
@@ -230,7 +212,7 @@ def inversion_mcmc(
         n_points += len(dispersion_curve.vs)
     misfits = np.sqrt(misfits / n_points)
 
-    depth_max = float(np.nansum(thicknesses_max)) + 1
+    depth_max = sum(layer.thickness_max for layer in settings.thickness_layers) + 1.0
     Vs_stds = np.std(sampled_Vs, axis=1)
 
     # Best layered model (lowest-misfit sample)
@@ -290,6 +272,39 @@ def inversion_mcmc(
     )
 
 
+def _saved_with_predictions(
+    per_chain: dict[str, list[list[Any]]], dpred_keys: Sequence[str]
+) -> tuple[dict[str, list[Any]], int]:
+    """The chains' saved states that carry a predicted curve for every target, concatenated
+    over the chains, and how many were left out.
+
+    bayesbay saves a state's predicted curve only once its likelihood has been computed: a
+    chain whose proposals all fall outside the prior never computes one, and saves its starting
+    model with no predicted curve. Those saves come first in their chain (once computed, every
+    later state carries it), so each chain keeps its last saves, as many as it has predicted
+    curves. A chain that never moved keeps none; no chain keeping any is an error.
+    """
+    n_chains = len(per_chain["space.vs1"])
+    kept: dict[str, list[Any]] = {key: [] for key in per_chain}
+    left_out = 0
+    for chain in range(n_chains):
+        n_saved = len(per_chain["space.vs1"][chain])
+        n_predicted = min(
+            len(per_chain[key][chain]) if key in per_chain else 0 for key in dpred_keys
+        )
+        left_out += n_saved - n_predicted
+        if n_predicted == 0:
+            continue
+        for key, chains in per_chain.items():
+            kept[key].extend(chains[chain][-n_predicted:])
+    if not kept["space.vs1"]:
+        raise ValueError(
+            "No chain moved from its starting model: every proposal fell outside the prior, so "
+            "no model has a predicted curve. Check that each layer's bounds hold the curve."
+        )
+    return kept, left_out
+
+
 class CustomParametrization(Parameterization):  # type: ignore[misc]
     def __init__(
         self,
@@ -312,16 +327,24 @@ class CustomParametrization(Parameterization):  # type: ignore[misc]
 
     def initialize_param_space(self, param_space: ParameterSpace) -> ParameterSpaceState:
         while True:
-            vs_vals = []
-            thick_vals = []
+            vs_vals: list[float] = []
+            vs_bounds: list[tuple[float, float]] = []
+            thick_vals: list[float] = []
+            thick_bounds: list[tuple[float, float]] = []
             for name, param in param_space.parameters.items():
                 vmin, vmax = param.get_vmin_vmax(None)  # pyright: ignore[reportAttributeAccessIssue]
                 if "vs" in name:
                     vs_vals.append(self._rng.uniform(vmin, vmax))
+                    vs_bounds.append((vmin, vmax))
                 elif "thick" in name:
                     thick_vals.append(self._rng.uniform(vmin, vmax))
-            vs_arr = np.sort(vs_vals)
-            thick_arr = np.sort(thick_vals)
+                    thick_bounds.append((vmin, vmax))
+            # Sorted, the start is normally dispersive; clipped, each value stays inside its own
+            # layer's prior. Sorting alone could move a value outside it when the layers' bounds
+            # differ, and a chain starting outside its prior may never move (every proposal
+            # rejected) nor compute a predicted curve.
+            vs_arr = _within(np.sort(vs_vals), vs_bounds)
+            thick_arr = _within(np.sort(thick_vals), thick_bounds)
             vp_vals, rho_vals = vp_rho_from_vs(vs_arr, self.Vp_Vs_ratio)
             velocity_model = np.column_stack(
                 (np.append(thick_arr, 1000), vp_vals, vs_arr, rho_vals)
@@ -346,3 +369,10 @@ class CustomParametrization(Parameterization):  # type: ignore[misc]
         for i, name in enumerate(param_space.parameters.keys()):
             param_values[name] = np.array([vals[i]])
         return ParameterSpaceState(1, param_values)
+
+
+def _within(values: np.ndarray, bounds: Sequence[tuple[float, float]]) -> np.ndarray:
+    """`values`, each clipped into its own (min, max) bounds."""
+    lows = np.array([low for low, _ in bounds], dtype=float)
+    highs = np.array([high for _, high in bounds], dtype=float)
+    return np.clip(values, lows, highs)

@@ -18,6 +18,7 @@ dependencies = [
     "obspy",
     "disba",
     "bayesbay",
+    "pydantic>=2.13.5",
 ]
 
 [project.optional-dependencies]

@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import importlib.machinery
-import importlib.resources
 import importlib.util
 import json
 import os
@@ -12,9 +11,11 @@ from pathlib import Path
 from typing import Any, cast
 
 import numpy as np
-from scipy.interpolate import interp1d
 
 os.environ.setdefault("KERAS_BACKEND", "torch")
+# A small network, quick on the CPU: the GPU may be serving an LLM (PAC's assistant), and every
+# worker process would take a share of its memory. KERAS_TORCH_DEVICE=cuda overrides it.
+os.environ.setdefault("KERAS_TORCH_DEVICE", "cpu")
 
 if "tensorflow" not in sys.modules:
     # keras-hub >=0.31 (what `keras-nlp` now re-exports) unconditionally imports
@@ -52,45 +53,16 @@ from sigpipe.base.coordinate import Coordinate
 from sigpipe.base.dispersion_curve import DispersionCurve, DispersionCurvesImage, Mode
 from sigpipe.base.petro_model import PetroModel, SoilType
 
+from .silex_catalog import SilexCard, bundled_silex_model_dir, load_silex_card, resampled_velocities
+
 _FUNDAMENTAL_RAYLEIGH = Mode("R", 0)
 
-_BUNDLED_MODELS_ROOT = Path(str(importlib.resources.files("sigpipe") / "models" / "silex"))
-_REQUIRED_FILES = ("silex.keras", "silex_params.json", "vocab.json")
-
-
-def list_bundled_silex_models() -> list[str]:
-    """Names of every Silex checkpoint bundled with sigpipe itself (see
-    pyproject.toml's package-data) -- one per subdirectory of
-    `models/silex/` containing `silex.keras`/`silex_params.json`/
-    `vocab.json`. Named `<site>_<min_freq>-<max_freq>hz_<min_vel>-<max_vel>mps`
-    after the frequency/velocity band each was trained on, since that's what
-    determines whether a given model applies to a given survey."""
-    if not _BUNDLED_MODELS_ROOT.is_dir():
-        return []
-    return sorted(
-        p.name
-        for p in _BUNDLED_MODELS_ROOT.iterdir()
-        if p.is_dir() and all((p / f).is_file() for f in _REQUIRED_FILES)
-    )
-
-
-def bundled_silex_model_dir(name: str) -> Path:
-    """Resolve a bundled Silex model name (see `list_bundled_silex_models`)
-    to its directory."""
-    model_dir = _BUNDLED_MODELS_ROOT / name
-    if not all((model_dir / f).is_file() for f in _REQUIRED_FILES):
-        raise ValueError(
-            f"Unknown bundled Silex model {name!r}. Available: {list_bundled_silex_models()}"
-        )
-    return model_dir
-
-
 DEFAULT_MODEL_DIR = bundled_silex_model_dir("grand_est_15-50hz_193-415mps")
-"""The Silex checkpoint used by `inversion_silex`/`silex_under_layers` when
-`model_dir` isn't given, so sigpipe works out of the box even when installed
-as a dependency of another project. Pass an explicit `model_dir` (e.g. from
-`bundled_silex_model_dir` for a different bundled model, or your own
-retrained checkpoint) to use something else instead."""
+"""The Silex checkpoint used by `inversion_silex` when `model_dir` isn't given,
+so sigpipe works out of the box even when installed as a dependency of another
+project. Pass an explicit `model_dir` (e.g. from `bundled_silex_model_dir` for a
+different bundled model, or your own retrained checkpoint) to use something
+else instead."""
 
 
 @dataclass(slots=True, frozen=True)
@@ -99,30 +71,13 @@ class SilexModel:
     vocab/normalization metadata needed to run it on a dispersion curve."""
 
     keras_model: keras.Model
-    min_freq: float
-    max_freq: float
-    d_freq: float
-    n_freqs: int
-    min_vel: float
-    max_vel: float
+    card: SilexCard  # what it was trained on
     word_to_index: dict[str, int]
     index_to_word: dict[int, str]
-    output_seq_length: int
     forbidden_tokens: tuple[tuple[int, ...], ...]
     """Per-decode-step id blocklist enforcing the trained output grammar
     ([WT] <v> ([SOILi] <soil> [THICKNESSi] <v> [Ni] <v>)* [END]), copied
     verbatim from the export -- see export_legacy_model.py."""
-    under_layers: str
-    """The fixed substratum every training sample was generated with, in
-    GPDC format (thickness vp vs rho per line, last line's thickness 0 for
-    the terminating half-space) -- see silex/generation.py's
-    GenerationConfig.under_layers. A forward-modeling comparison against a
-    curve this model produced/consumed (e.g. a QC round-trip) needs to pass
-    the same substratum to `petro.forward.fwd_petro_phase`, or the
-    low-frequency end of the curve won't correspond. Kept as this string
-    (rather than a list of santiludo.UnderLayer) so loading a Silex
-    checkpoint doesn't require santiludo installed -- see
-    `petro.forward.parse_under_layers` to convert it."""
 
     @classmethod
     def load(cls, model_dir: Path) -> SilexModel:
@@ -130,74 +85,30 @@ class SilexModel:
             model_dir / "silex.keras"
         )
         keras_model = cast("keras.Model", loaded)
-        params = json.loads((model_dir / "silex_params.json").read_text())
         vocab = json.loads((model_dir / "vocab.json").read_text())
 
         return cls(
             keras_model=keras_model,
-            min_freq=params["min_freq"],
-            max_freq=params["max_freq"],
-            d_freq=params["d_freq"],
-            n_freqs=params["n_freqs"],
-            min_vel=params["min_vel"],
-            max_vel=params["max_vel"],
+            card=load_silex_card(model_dir),
             word_to_index=vocab["word_to_index"],
             index_to_word={int(k): v for k, v in vocab["index_to_word"].items()},
-            output_seq_length=params["output_seq_length"],
             forbidden_tokens=tuple(tuple(step) for step in vocab["forbidden_tokens"]),
-            under_layers=params["generation_config"]["under_layers"],
         )
-
-    _RANGE_MARGIN_FRACTION = 0.20
-    """How far `dispersion_curve`'s frequency/velocity range may fall short of
-    (or overshoot) this model's trained range before `_preprocess` rejects
-    it, as a fraction of that range's own width -- e.g. a 15-50 Hz model
-    tolerates a curve starting as late as 22 Hz or ending as early as
-    43 Hz (20% of the 35 Hz band on each end) before raising."""
 
     def _preprocess(self, dispersion_curve: DispersionCurve) -> np.ndarray:
         """Resample onto the model's fixed frequency axis and min-max normalize,
         matching the old repo's `misc.resamp` + `run_invertion.py` exactly.
 
-        Raises ValueError if `dispersion_curve` doesn't cover the model's
-        trained frequency/velocity range within `_RANGE_MARGIN_FRACTION`:
-        silently extrapolating (a curve narrower than the model's frequency
-        band) or normalizing far outside [0, 1] (velocities well outside
-        what the model saw in training) produces an unreliable prediction
-        instead of a clear failure. Within the margin, some extrapolation/
-        outside-[0,1] normalization is accepted as a deliberate tradeoff.
+        Raises ValueError if `dispersion_curve` doesn't cover the model's trained
+        frequency/velocity range (silex_catalog.resampled_velocities): silently
+        extrapolating, or normalizing far outside [0, 1], gives an unreliable
+        prediction instead of a clear failure.
         """
-        freq_margin = self._RANGE_MARGIN_FRACTION * (self.max_freq - self.min_freq)
-        fs_min = float(np.nanmin(dispersion_curve.fs))
-        fs_max = float(np.nanmax(dispersion_curve.fs))
-        if fs_min > self.min_freq + freq_margin or fs_max < self.max_freq - freq_margin:
-            raise ValueError(
-                f"dispersion_curve frequency range [{fs_min}, {fs_max}] Hz does not cover "
-                f"this Silex model's trained range [{self.min_freq}, {self.max_freq}] Hz "
-                f"within a {self._RANGE_MARGIN_FRACTION:.0%} margin"
-            )
-
-        fs_grid = self.min_freq + np.arange(self.n_freqs) * self.d_freq
-        resample = interp1d(
-            dispersion_curve.fs,
-            dispersion_curve.vs,
-            fill_value="extrapolate",  # pyright: ignore[reportArgumentType]
+        card = self.card
+        vs_norm = (resampled_velocities(card, dispersion_curve) - card.min_vel) / (
+            card.max_vel - card.min_vel
         )
-        vs_resampled = np.asarray(resample(fs_grid), dtype=np.float64)
-
-        vel_margin = self._RANGE_MARGIN_FRACTION * (self.max_vel - self.min_vel)
-        vs_min = float(np.nanmin(vs_resampled))
-        vs_max = float(np.nanmax(vs_resampled))
-        if vs_min < self.min_vel - vel_margin or vs_max > self.max_vel + vel_margin:
-            raise ValueError(
-                f"dispersion_curve velocity range [{vs_min}, {vs_max}] m/s (resampled onto "
-                f"this Silex model's frequency axis) falls outside its trained range "
-                f"[{self.min_vel}, {self.max_vel}] m/s within a "
-                f"{self._RANGE_MARGIN_FRACTION:.0%} margin"
-            )
-
-        vs_norm = (vs_resampled - self.min_vel) / (self.max_vel - self.min_vel)
-        return vs_norm.reshape(1, self.n_freqs, 1).astype(np.float32)
+        return vs_norm.reshape(1, card.n_freqs, 1).astype(np.float32)
 
     def _decode(self, x: np.ndarray) -> list[int]:
         """Greedy, grammar-masked autoregressive decode -- a direct reimplementation
@@ -207,11 +118,11 @@ class SilexModel:
         end_id = self.word_to_index["[END]"]
         pad_id = self.word_to_index["[PAD]"]
 
-        prompt = np.full((1, self.output_seq_length), pad_id, dtype=np.int32)
+        prompt = np.full((1, self.card.output_seq_length), pad_id, dtype=np.int32)
         prompt[0, 0] = self.word_to_index["[START]"]
 
         decoded: list[int] = []
-        for i in range(self.output_seq_length - 1):
+        for i in range(self.card.output_seq_length - 1):
             # keras's stubs leave Model.__call__/ops.convert_to_numpy's return types
             # too loose for pyright to narrow even with an explicit Any annotation;
             # np.asarray(..., dtype=...) below re-establishes a concrete type for
@@ -279,15 +190,3 @@ def inversion_silex(
 
     model = _load_silex_model(model_dir if model_dir is not None else DEFAULT_MODEL_DIR)
     return model.predict(curve, position)
-
-
-def silex_under_layers(model_dir: Path | None = None) -> str:
-    """The fixed substratum (GPDC format) the Silex model at `model_dir` was
-    trained with -- see `SilexModel.under_layers`. Defaults to the checkpoint
-    bundled with sigpipe (`DEFAULT_MODEL_DIR`) when not given. A separate
-    accessor rather than folding this into `inversion_silex`'s return value
-    keeps that function's `PetroModel` return type matching every other entry
-    in `DISPERSION_CURVE_INVERSION_METHODS`; `_load_silex_model`'s cache means
-    calling this alongside `inversion_silex` for the same `model_dir` doesn't
-    reload anything."""
-    return _load_silex_model(model_dir if model_dir is not None else DEFAULT_MODEL_DIR).under_layers

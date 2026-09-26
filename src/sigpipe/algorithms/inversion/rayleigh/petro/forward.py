@@ -23,8 +23,8 @@ def parse_under_layers(gpdc_format: str) -> tuple[UnderLayer, ...]:
     one blank-separated quadruplet per line, last line's thickness 0 for the
     terminating half-space) into `UnderLayer`s for `fwd_petro_phase`/
     `fwd_petro_all_modes`. Matches `silex.generation._forward_model`'s own
-    parsing of `GenerationConfig.under_layers` -- e.g. the string exposed as
-    `petro.silex.SilexModel.under_layers` for a loaded Silex checkpoint.
+    parsing of `GenerationConfig.under_layers` -- e.g. the string a Silex
+    model's card holds (`petro.silex_catalog.SilexCard.under_layers`).
     """
     return tuple(
         UnderLayer(*(float(v) for v in line.split()))
@@ -33,17 +33,20 @@ def parse_under_layers(gpdc_format: str) -> tuple[UnderLayer, ...]:
     )
 
 
-def _rock_physics_from_petro_model(
+def rock_physics(
     petro_model: PetroModel,
-    dz: float,
-    kk: int,
-    frac: float,
-    grain_properties: GrainProperties,
-    fluid_properties: FluidProperties,
-    g: float,
+    *,
+    dz: float = 0.01,
+    kk: int = 3,
+    frac: float = 0.3,
+    grain_properties: GrainProperties = DEFAULT_GRAIN_PROPERTIES,
+    fluid_properties: FluidProperties = DEFAULT_FLUID_PROPERTIES,
+    g: float = 9.82,
 ) -> RockPhysicsResult:
     """Run santiludo's Van Genuchten / Hertz-Mindlin / Biot-Gassmann rock-physics
-    chain on a PetroModel, producing a fine (dz-spaced) Vp/Vs/density depth profile."""
+    chain on a PetroModel, producing a fine (dz-spaced) Vp/Vs/density depth profile
+    (and the Hertz-Mindlin shear modulus): the chain the forward models below run,
+    with the same defaults."""
     layers = [
         Layer(soiltype=str(soil), thickness=thickness, N=float(n), frac=frac)
         for soil, thickness, n in zip(
@@ -62,12 +65,12 @@ def _rock_physics_from_petro_model(
 
 
 def _disba_arrays(
-    rock_physics: RockPhysicsResult,
+    profile: RockPhysicsResult,
     under_layers: Sequence[UnderLayer],
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
     """Flat thickness/Vp/Vs/rho arrays for disba.PhaseDispersion, in (km, km/s, km/s, g/cm3).
 
-    `rock_physics.thks` (`np.diff(np.abs(zs))`) has one fewer element than `VPs`/`VSs`/
+    `profile.thks` (`np.diff(np.abs(zs))`) has one fewer element than `VPs`/`VSs`/
     `rhobs` (inter-sample thickness vs. per-sample velocity/density), so it's paired with
     the first `nl` velocity/density samples, dropping the very last one, before appending
     `under_layers` (ordered shallowest to the terminating half-space, thickness 0 on the
@@ -82,11 +85,11 @@ def _disba_arrays(
     synthetic sample -- must pass the same `under_layers` or the low-frequency end of the
     curve won't correspond.
     """
-    nl = len(rock_physics.thks)
-    thks = np.concatenate((rock_physics.thks, [layer.thickness for layer in under_layers]))
-    vps = np.concatenate((rock_physics.VPs[:nl], [layer.vp for layer in under_layers]))
-    vss = np.concatenate((rock_physics.VSs[:nl], [layer.vs for layer in under_layers]))
-    rhobs = np.concatenate((rock_physics.rhobs[:nl], [layer.rho for layer in under_layers]))
+    nl = len(profile.thks)
+    thks = np.concatenate((profile.thks, [layer.thickness for layer in under_layers]))
+    vps = np.concatenate((profile.VPs[:nl], [layer.vp for layer in under_layers]))
+    vss = np.concatenate((profile.VSs[:nl], [layer.vs for layer in under_layers]))
+    rhobs = np.concatenate((profile.rhobs[:nl], [layer.rho for layer in under_layers]))
     return thks / 1_000, vps / 1_000, vss / 1_000, rhobs / 1_000  # m to km and kg/m^3 to g/cm^3
 
 
@@ -103,10 +106,16 @@ def fwd_petro_phase(
     fluid_properties: FluidProperties = DEFAULT_FLUID_PROPERTIES,
     g: float = 9.82,
 ) -> DispersionCurve:
-    rock_physics = _rock_physics_from_petro_model(
-        petro_model, dz, kk, frac, grain_properties, fluid_properties, g
+    profile = rock_physics(
+        petro_model,
+        dz=dz,
+        kk=kk,
+        frac=frac,
+        grain_properties=grain_properties,
+        fluid_properties=fluid_properties,
+        g=g,
     )
-    thks, vps, vss, rhobs = _disba_arrays(rock_physics, under_layers)
+    thks, vps, vss, rhobs = _disba_arrays(profile, under_layers)
     pd = PhaseDispersion(thks, vps, vss, rhobs)
     periods = 1 / fs[::-1]  # Hz to s and reverse
     pd = pd(periods, mode=mode, wave="rayleigh")
@@ -141,14 +150,20 @@ def fwd_petro_all_modes(
     the full given frequency axis, stopping at the first mode disba can't resolve.
 
     Petro-model counterpart of `seismic.forward.fwd_seismic_all_modes`, using
-    santiludo's rock-physics chain (see `_rock_physics_from_petro_model`) in place of
+    santiludo's rock-physics chain (see `rock_physics`) in place of
     a fixed Vp/Vs ratio to get Vp and density. Returns None if not even the
     fundamental mode can be resolved.
     """
-    rock_physics = _rock_physics_from_petro_model(
-        petro_model, dz, kk, frac, grain_properties, fluid_properties, g
+    profile = rock_physics(
+        petro_model,
+        dz=dz,
+        kk=kk,
+        frac=frac,
+        grain_properties=grain_properties,
+        fluid_properties=fluid_properties,
+        g=g,
     )
-    thks, vps, vss, rhobs = _disba_arrays(rock_physics, under_layers)
+    thks, vps, vss, rhobs = _disba_arrays(profile, under_layers)
     pd = PhaseDispersion(thks, vps, vss, rhobs)
 
     periods = (1 / fs[fs > 0])[::-1]  # Hz to s and reverse

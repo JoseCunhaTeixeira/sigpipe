@@ -17,7 +17,7 @@ class Pick[T: (Stream, DispersionImage)](Transformer[T, T]):
 
     def __init__(
         self,
-        method: Literal["none", "maximum"],
+        method: Literal["none", "maximum", "lasso", "tracking"],
         **params: object,
     ) -> None:
         self.method = method

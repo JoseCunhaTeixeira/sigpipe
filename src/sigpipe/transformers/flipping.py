@@ -1,32 +1,36 @@
 from collections.abc import Sequence
+from typing import Literal
 
-from sigpipe.algorithms.flipping.flipping import FlipAxis, flip
+from sigpipe.algorithms.flipping.registry import FLIPPING_METHODS
 from sigpipe.base.stream import Stream
 from sigpipe.base.transformer import Transformer
 
 
 class Flip(Transformer[Stream, Stream]):
-    """Flip transformer."""
+    """
+    Flip transformer.
+    """
 
     def __init__(
         self,
-        axis: FlipAxis = FlipAxis.SPACE,
-        flip_acquisition: bool = False,
+        method: Literal["none", "flip"] = "flip",
+        **params: object,
     ) -> None:
-        self.axis = axis
-        self.flip_acquisition = flip_acquisition
+        self.method = method
+        self.params = params
 
     def transform(self, data: Sequence[Stream]) -> list[Stream]:
 
         self.validate_sequence(data, Stream)
 
-        streams_out: list[Stream] = []
-        for stream in data:
-            stream_out = flip(
-                stream=stream,
-                axis=self.axis,
-                flip_acquisition=self.flip_acquisition,
-            )
-            streams_out.append(stream_out)
+        if self.method == "none":
+            return list(data)
 
-        return streams_out
+        algorithm = FLIPPING_METHODS.get(self.method)
+        if algorithm is None:
+            raise ValueError(
+                f"Unknown flipping method '{self.method}'. "
+                f"Available methods: {list(FLIPPING_METHODS.keys())}"
+            )
+
+        return [algorithm(stream=stream, **self.params) for stream in data]

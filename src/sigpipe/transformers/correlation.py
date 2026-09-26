@@ -16,11 +16,9 @@ class Correlate(Transformer[Stream, Stream]):
     def __init__(
         self,
         method: Literal["none", "cross"],
-        virtual_source_index: int,
         **params: object,
     ) -> None:
         self.method = method
-        self.virtual_source_index = virtual_source_index
         self.params = params
 
     def transform(self, data: Sequence[Stream]) -> list[Stream]:
@@ -39,11 +37,7 @@ class Correlate(Transformer[Stream, Stream]):
 
         streams_out: list[Stream] = []
         for stream in data:
-            obj = algorithm(
-                stream=stream,
-                virtual_source_index=self.virtual_source_index,
-                **self.params,
-            )
+            obj = algorithm(stream=stream, **self.params)
             streams_out.extend(obj)
 
         return streams_out

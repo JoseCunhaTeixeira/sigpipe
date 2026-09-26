@@ -1,6 +1,35 @@
 from sigpipe.base.stream import Stream
 
 
+def slice_segments(
+    stream: Stream,
+    *,
+    segment_duration: float,
+    segment_step: float,
+) -> list[Stream]:
+    """The segments of `stream`, `segment_duration` seconds long, one every `segment_step`
+    seconds, as long as they fit in the record."""
+    if segment_duration <= 0:
+        raise ValueError(f"requires segment_duration > 0 s, got {segment_duration} s")
+    if segment_step <= 0:
+        raise ValueError(f"requires segment_step > 0 s, got {segment_step} s")
+    if segment_step > segment_duration:
+        raise ValueError(
+            f"requires segment_step <= segment_duration, got {segment_step} s and {segment_duration} s"
+        )
+    record_duration = float(stream.ts[-1])
+    if segment_duration > record_duration:
+        raise ValueError(
+            f"requires segment_duration <= record duration, got {segment_duration} s and {record_duration} s"
+        )
+    segments: list[Stream] = []
+    t = 0.0
+    while t + segment_duration <= record_duration + 1e-12:
+        segments.append(segment_slice(stream, t, t + segment_duration))
+        t += segment_step
+    return segments
+
+
 def segment_slice(
     stream: Stream,
     t_slice_start: float,

@@ -1,54 +1,36 @@
 from collections.abc import Sequence
-from dataclasses import replace
+from typing import Literal
 
-import numpy as np
-
-from sigpipe.base.arrivals import TraceArrivals
+from sigpipe.algorithms.residual_phase.registry import RESIDUAL_PHASE_METHODS
 from sigpipe.base.stream import Stream
 from sigpipe.base.transformer import Transformer
 
 
 class ArrivalResidualPhase(Transformer[Stream, Stream]):
-    def __init__(self, f0: float) -> None:
-        self.f0 = float(f0)
+    """
+    Arrival residual phase transformer.
+    """
 
-    def transform(
+    def __init__(
         self,
-        data: Sequence[Stream],
-    ) -> list[Stream]:
+        method: Literal["none", "arrival"] = "arrival",
+        **params: object,
+    ) -> None:
+        self.method = method
+        self.params = params
+
+    def transform(self, data: Sequence[Stream]) -> list[Stream]:
 
         self.validate_sequence(data, Stream)
 
-        out = []
+        if self.method == "none":
+            return list(data)
 
-        for stream in data:
-            if stream.arrivals is None:
-                raise ValueError("ComputePhase requires arrivals. Run Pick before ComputePhase.")
-
-            trace_arrivals_new = []
-
-            for itrace, trace_arrivals in enumerate(stream.arrivals):
-                arrivals_new = []
-
-                for arrival in trace_arrivals:
-                    k = np.argmin(np.abs(stream.ts - arrival.time))
-
-                    residual_phase = stream.xt_phase[itrace, k] - 2 * np.pi * self.f0 * arrival.time
-
-                    arrivals_new.append(
-                        replace(
-                            arrival,
-                            residual_phase=float(residual_phase),
-                        )
-                    )
-
-                trace_arrivals_new.append(TraceArrivals(arrivals=tuple(arrivals_new)))
-
-            out.append(
-                replace(
-                    stream,
-                    arrivals=tuple(trace_arrivals_new),
-                )
+        algorithm = RESIDUAL_PHASE_METHODS.get(self.method)
+        if algorithm is None:
+            raise ValueError(
+                f"Unknown residual phase method '{self.method}'. "
+                f"Available methods: {list(RESIDUAL_PHASE_METHODS.keys())}"
             )
 
-        return out
+        return [algorithm(stream=stream, **self.params) for stream in data]

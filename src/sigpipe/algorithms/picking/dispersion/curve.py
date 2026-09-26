@@ -1,6 +1,10 @@
+import math
+from itertools import pairwise
+
 import numpy as np
 from scipy.interpolate import interp1d
-from scipy.signal import medfilt, savgol_filter
+from scipy.ndimage import median_filter
+from scipy.signal import savgol_filter
 
 from sigpipe.base.acquisition import Acquisition
 from sigpipe.base.dispersion_curve import (
@@ -51,19 +55,32 @@ def lorentzian_uncertainty(
     return uncertainty.astype(np.float32)
 
 
-def min_resolvable_wavelength(acquisition: Acquisition) -> float | None:
-    """Smallest wavelength a receiver array can reliably resolve (2x spacing,
-    the spatial Nyquist limit), or None when the array geometry isn't known.
-
-    Receiver spacing is taken from the first two receivers (assumed
-    uniform), same convention as lorentzian_uncertainty.
+def receiver_spacings(acquisition: Acquisition) -> list[float] | None:
+    """Distances between consecutive receivers of a line (ordered by x),
+    along the ground (x, z), or None when the array geometry isn't known.
     """
     if acquisition.is_unknown or len(acquisition.receivers) < 2:
         return None
 
-    receivers = acquisition.receivers
-    dx = abs(receivers[1].x - receivers[0].x)
-    return 2 * dx
+    receivers = sorted(acquisition.receivers, key=lambda receiver: receiver.x)
+    return [math.hypot(b.x - a.x, b.z - a.z) for a, b in pairwise(receivers)]
+
+
+def min_resolvable_wavelength(acquisition: Acquisition) -> float | None:
+    """Smallest wavelength a receiver line can reliably resolve: twice its
+    smallest spacing (the spatial Nyquist limit), or None when the array
+    geometry isn't known. Below it, picks are spatially aliased.
+    """
+    spacings = receiver_spacings(acquisition)
+    return 2 * min(spacings) if spacings else None
+
+
+def max_resolvable_wavelength(acquisition: Acquisition) -> float | None:
+    """Longest wavelength a receiver line resolves: its length along the
+    ground (the aperture), or None when the array geometry isn't known.
+    """
+    spacings = receiver_spacings(acquisition)
+    return sum(spacings) if spacings else None
 
 
 def resample_wavelength(
@@ -159,22 +176,24 @@ def pick_curves(
     noise) but the curve's rough shape is known in advance. Outside the
     modeled curve's own frequency range there is no band to search, so
     nothing is picked there.
+
+    A mode that already has a curve on `dispersion_image` gets the new one.
     """
 
-    if fmins is None:
-        fmins = [None]
-    if fmaxs is None:
-        fmaxs = [None]
-    if vmins is None:
-        vmins = [None]
-    if vmaxs is None:
-        vmaxs = [None]
-    if lbdmins is None:
-        lbdmins = [None]
-    if lbdmaxs is None:
-        lbdmaxs = [None]
     if labels is None:
         labels = [""]
+    if fmins is None:
+        fmins = [None for _ in labels]
+    if fmaxs is None:
+        fmaxs = [None for _ in labels]
+    if vmins is None:
+        vmins = [None for _ in labels]
+    if vmaxs is None:
+        vmaxs = [None for _ in labels]
+    if lbdmins is None:
+        lbdmins = [None for _ in labels]
+    if lbdmaxs is None:
+        lbdmaxs = [None for _ in labels]
     if modeled_curves is None:
         modeled_curves = [None for _ in labels]
     if modeled_dvs is None:
@@ -187,6 +206,7 @@ def pick_curves(
         if dispersion_image.dispersion_curves is not None
         else []
     )
+    picked_curves: list[DispersionCurve] = []
 
     lengths = {
         len(fmins),
@@ -279,25 +299,7 @@ def pick_curves(
             )
 
         idx = np.array([np.where(row == np.nanmax(row))[0][-1] for row in fv_map])
-        picked_vs = vs[idx]
-
-        median_vs = medfilt(picked_vs, kernel_size=5)
-        residual = np.abs(picked_vs - median_vs)
-        threshold = 2.5 * np.median(residual)
-        outliers = residual > threshold
-        if np.any(outliers):
-            valid = ~outliers
-            picked_vs[outliers] = np.interp(
-                fs[outliers],
-                fs[valid],
-                picked_vs[valid],
-            )
-
-        wl = len(picked_vs) // 2 + 1 if len(picked_vs) / 2 % 2 == 0 else len(picked_vs) // 2
-        picked_vs = np.asarray(
-            savgol_filter(picked_vs, window_length=wl, polyorder=2),
-            dtype=np.float32,
-        )
+        picked_vs = clean_picks(fs, vs[idx])
 
         picked_curve = DispersionCurve(
             fs=fs,
@@ -311,7 +313,10 @@ def pick_curves(
         if resample_over_wavelength:
             picked_curve = resample_wavelength(picked_curve)
 
-        dispersion_curves.append(picked_curve)
+        picked_curves.append(picked_curve)
+
+    repicked = {curve.mode for curve in picked_curves}
+    kept = [curve for curve in dispersion_curves if curve.mode not in repicked]
 
     return DispersionImage(
         fv_map=dispersion_image.fv_map,
@@ -319,5 +324,34 @@ def pick_curves(
         vs=dispersion_image.vs,
         type=dispersion_image.type,
         acquisition=dispersion_image.acquisition,
-        dispersion_curves=DispersionCurvesImage(dispersion_curves=tuple(dispersion_curves)),
+        dispersion_curves=DispersionCurvesImage(dispersion_curves=(*kept, *picked_curves)),
+    )
+
+
+def clean_picks(fs: np.ndarray, vs: np.ndarray, polyorder: int = 2) -> np.ndarray:
+    """Picked velocities `vs` at frequencies `fs`, cleaned: each point far from
+    the median of its 5 neighbours (beyond 2.5 times the median distance)
+    replaced by the others' interpolation, then the curve smoothed."""
+    vs = np.array(vs, dtype=np.float64)
+    # The ends padded with their own values: zeros would make them outliers.
+    median_vs = median_filter(vs, size=5, mode="nearest")
+    residual = np.abs(vs - median_vs)
+    outliers = residual > 2.5 * np.median(residual)
+    if np.any(outliers):
+        valid = ~outliers
+        vs[outliers] = np.interp(fs[outliers], fs[valid], vs[valid])
+    return _smooth(vs, polyorder)
+
+
+def _smooth(vs: np.ndarray, polyorder: int = 2) -> np.ndarray:
+    """Savitzky-Golay over about half the curve (an odd window). A curve too
+    short for the polynomial's order is kept as picked."""
+    window = len(vs) // 2
+    if window % 2 == 0:
+        window += 1
+    if window <= polyorder:
+        return np.asarray(vs, dtype=np.float32)
+    return np.asarray(
+        savgol_filter(vs, window_length=window, polyorder=polyorder),
+        dtype=np.float32,
     )

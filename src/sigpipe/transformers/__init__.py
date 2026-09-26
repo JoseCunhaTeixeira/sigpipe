@@ -20,6 +20,7 @@ from .plotting_section import PlotSection
 from .residual_phase import ArrivalResidualPhase
 from .saving import Save
 from .selection import Selection
+from .shifting import Shift
 from .slicing import Slice
 from .stacking import Stack
 from .whitening import Whiten
@@ -48,6 +49,7 @@ __all__ = [
     "PlotSection",
     "Save",
     "Selection",
+    "Shift",
     "Slice",
     "Stack",
     "Whiten",
