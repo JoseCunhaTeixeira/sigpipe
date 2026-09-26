@@ -1,10 +1,10 @@
 """Petrophysical inversion of a line's picked curves: soils, N values and the water table.
 
-PAC's petrophysical inversion (a Silex model on each window's fundamental mode, the curve its
+The petrophysical inversion (a Silex model on each window's fundamental mode, the curve its
 prediction gives back, the rock physics with depth) on each window of a run (window), on the
-windows of a line in worker processes (line), and the line's sections (section). Needs sigpipe's silex and santiludo extras; the models bundled with
-sigpipe, and what each was trained on, are in algorithms.inversion.rayleigh.petro.silex_catalog,
-which needs neither.
+windows of a line in worker processes (line), and the line's sections (section). Needs sigpipe's
+silex and santiludo extras; the models bundled with sigpipe, and what each was trained on, are
+in algorithms.inversion.rayleigh.petro.silex_catalog, which needs neither.
 """
 
 from .line import PetroOutcome, invert_line_petro, save_line_sections

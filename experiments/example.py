@@ -40,7 +40,7 @@ receivers = (
 )
 acquisition = PlanarAcquisition(
     source=source, receivers=receivers
-)  # Planar acquisition can can (x,y) coordinates but all z must be equal
+)  # Planar acquisition can have (x, y) coordinates, but all z must be equal
 
 pipeline = (
     Load(

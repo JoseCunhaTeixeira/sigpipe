@@ -62,8 +62,7 @@ def fwd_seismic_all_modes(
     """Forward-model every Rayleigh mode (0, 1, 2, ...) the model supports, across
     the full given frequency axis, stopping at the first mode disba can't resolve.
 
-    Port of the old Streamlit app's `full_pred_modes` loop in `run_inversion.py`,
-    used to overlay all superior modes a model predicts on a dispersion image
+    Used to overlay all superior modes a model predicts on a dispersion image
     (not just the picked ones). Returns None if not even the fundamental mode
     can be resolved.
     """

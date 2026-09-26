@@ -55,8 +55,7 @@ def test_the_curve_ends_are_not_flattened(image: DispersionImage) -> None:
     picked = pick_curves(image)
     assert picked.dispersion_curves is not None
     (curve,) = picked.dispersion_curves
-    # Zero-padded, the median filter took the two lowest frequencies for outliers: 548 m/s
-    # picked for 600.
+    # Zero-padded, the median filter would take the two lowest frequencies for outliers.
     assert abs(float(curve.vs[0]) - TRUE_VS[0]) < 20.0
 
 

@@ -1,5 +1,5 @@
-"""Fitting a preset to a profile: the values PAC's forms derive from the acquisition, and the rules
-sigpipe checks inside every window, checked once against the profile before any work."""
+"""Fitting a preset to a profile: the values derived from the acquisition, and the rules sigpipe
+checks inside every window, checked once against the profile before any work."""
 
 import contextlib
 from typing import Any
@@ -9,8 +9,8 @@ from sigpipe.masw.presets.models import ActivePreset, PassivePreset, PresetError
 from sigpipe.masw.presets.stages import ACTIVE_STAGES, PASSIVE_ACTIVE_STAGES, PASSIVE_STAGES, Stage
 from sigpipe.masw.profiles import MODES, ProcessingMode, Profile
 
-# A switched-on IIR filter without fmax stops just below the Nyquist frequency. PAC's form puts it
-# at Nyquist, which sigpipe's filter rejects (it requires fmax < Nyquist).
+# A switched-on IIR filter without fmax stops just below the Nyquist frequency: sigpipe's filter
+# requires fmax < Nyquist.
 IIR_FMAX_NYQUIST_FRACTION = 0.95
 # The ramps of the passive-active correlation window, as the signal QC pads its own window.
 CORRELATION_TAPER_S = 0.05
@@ -71,12 +71,12 @@ def method_defaults(mode: str, profile: Profile) -> dict[str, dict[str, dict[str
 
 
 def _derive_values(values: dict[str, Any], profile: Profile) -> list[str]:
-    """Fill the values left to None, as PAC's forms do; report those that clash with an override."""
+    """Fill the values left to None; report those that clash with an override."""
     nyquist = profile.nyquist_hz
     problems: list[str] = []
 
     if values["muting"]["method"] == "mute" and values["muting"]["tmax"] is None:
-        # As PAC's form shows it: the longest record, rounded to 10 ms.
+        # The longest record, rounded to 10 ms.
         record_length = round(max(record.duration_s for record in profile.records), 2)
         problems += _derive(values, "muting", "tmin", "tmax", record_length, "s", profile)
 

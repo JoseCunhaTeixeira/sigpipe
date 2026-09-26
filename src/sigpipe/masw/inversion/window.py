@@ -1,6 +1,5 @@
-"""One window's inversion: PAC's (its adapters/inversion.py and io/inversion.py, invert_position)
-on a window folder of a run: sigpipe's MCMC on the window's picked curves, and PAC's files beside
-them."""
+"""One window's inversion, on a window folder of a run: sigpipe's MCMC on the window's picked
+curves, and PAC's files beside them."""
 
 import logging
 from collections.abc import Collection
@@ -31,7 +30,7 @@ from sigpipe.transformers import Invert, Plot, Save
 
 logger = logging.getLogger(__name__)
 
-# PAC's fixed values (adapters/inversion.py).
+# The inversion's fixed values.
 DZ = 0.01  # m
 VP_VS_RATIO = 1.77
 SAMPLES_FILE = "SeismicInversion_Samples_0000.npz"  # PACo's own, next to PAC's files
@@ -39,7 +38,7 @@ M0 = Mode("M", 0)  # the fundamental mode, as the pickers label it
 
 
 def build_inversion_pipeline(parameters: InversionParameters, output_folder: Path) -> Pipeline:
-    """PAC's inversion pipeline: sigpipe's MCMC, then the models saved in `output_folder`."""
+    """The inversion pipeline: sigpipe's MCMC, then the models saved in `output_folder`."""
     return Invert(method="mcmc", Vp_Vs_ratio=VP_VS_RATIO, dz=DZ, **dict(parameters)) >> Save(
         folder_path=output_folder, file_name="SeismicInversion_Model"
     )
@@ -60,7 +59,7 @@ def invert_window(
     save_samples(result, parameters.n_chains, folder / SAMPLES_FILE)
 
     # The median model's M0 at the picked frequencies, and every mode it supports across the
-    # image, drawn over the image (the old Streamlit app's pred_modes and full_pred_modes).
+    # image, drawn over the image.
     median = result.median
     try:
         modeled_curves = DispersionCurves(
@@ -77,8 +76,7 @@ def invert_window(
         )
     except DispersionError:
         # A layer over a slower half-space has no normal mode faster than the half-space: the
-        # median of the samples can lack one where every sample had it. The figure goes without
-        # (PAC would lose the whole window here).
+        # median of the samples can lack one where every sample had it. The figure goes without.
         logger.warning("No mode of the median model at the picked frequencies in %s", folder)
         modeled_curves = None
     full_modeled_curves = fwd_seismic_all_modes(
@@ -123,7 +121,7 @@ def invert_window(
         figure = plot_posterior_marginals(samples)
         Plot.savefig(path=folder / "SeismicInversion_Marginals_0000.png", figure=figure)
         plt.close(figure)
-    except Exception:  # a figure must not lose the inversion, as in PAC
+    except Exception:  # a figure must not lose the inversion
         logger.exception("Could not plot the posterior marginals in %s", folder)
 
     return result
@@ -131,8 +129,7 @@ def invert_window(
 
 def save_samples(result: InversionResult, n_chains: int, path: Path) -> None:
     """The posterior samples, chain after chain as sigpipe concatenates them, with each
-    sample's misfit: what G5 judges convergence and the prior's bounds on. PAC does not keep
-    them."""
+    sample's misfit: what G5 judges convergence and the prior's bounds on."""
     arrays: dict[str, Any] = {name: np.asarray(values) for name, values in result.samples.items()}
     np.savez_compressed(
         path, n_chains=np.array(n_chains), misfits=np.asarray(result.misfits), **arrays

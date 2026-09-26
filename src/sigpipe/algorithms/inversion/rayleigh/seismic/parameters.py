@@ -10,8 +10,7 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 # iteration i when i > n_burnin and (i - n_burnin) is a multiple of save_every.
 SAVE_EVERY = 150
 
-# The descriptions are what a form or an agent shows of each value. Defaults are PAC's form
-# values.
+# The descriptions are what a form or an agent shows of each value.
 
 
 class VsLayer(BaseModel):
@@ -77,8 +76,8 @@ class InversionParameters(BaseModel):
     @model_validator(mode="before")
     @classmethod
     def _burnin_follows_iterations(cls, data: Any) -> Any:  # noqa: ANN401
-        """A tenth of n_iterations, PAC's ratio, when only the iterations are given: asking for
-        2,000 iterations kept PAC's 10,000 of burn-in, and left nothing to sample."""
+        """A tenth of n_iterations, the defaults' ratio, when only the iterations are given: a
+        fixed burn-in of 10,000 would leave nothing to sample from 2,000 iterations."""
         if not isinstance(data, dict):
             return data
         values = cast(dict[str, Any], data)

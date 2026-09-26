@@ -99,8 +99,6 @@ def plot_density_curves(
     forward-modeled at the observed frequencies.
     Right: every sampled model as a misfit-colored (greyscale) Vs(depth) step
     profile, plus the 5 named models, plus the smooth median's std band.
-
-    Port of the old Streamlit app's `density_curves.png` in `run_inversion.py`.
     """
     models = {name: getattr(result, name) for name in _MODEL_STYLE}
     depth_max = max(float(np.sum(model.thicknesses)) for model in models.values())

@@ -173,13 +173,12 @@ class LinearAcquisition(Acquisition):
         topography the highest and lowest points in a window are rarely
         at its middle, so those averages can land far from the receiver
         line entirely. Walking the arc length instead finds the point
-        that actually splits the receiver line in half, the same way
-        PAC's window-naming midpoint does for x alone.
+        that actually splits the receiver line in half.
 
         The source is deliberately excluded, unlike PlanarAcquisition's
-        centroid: PAC's window-building keeps the source outside the
-        receiver line by construction, so folding it in here would pull
-        the midpoint off the line instead of finding its actual middle.
+        centroid: window building keeps the source outside the receiver
+        line by construction, so folding it in here would pull the
+        midpoint off the line instead of finding its actual middle.
         """
         receivers = self.receivers
         if len(receivers) == 1:
@@ -232,8 +231,8 @@ def acquisition_from_kind(
 ) -> Acquisition:
     """Reconstruct the Acquisition subclass named by `kind` (as produced
     by `acquisition_kind`). Falls back to the geometry-agnostic base class
-    for a missing or unrecognized kind (e.g. a file saved before this
-    tag existed) rather than guessing a specific one.
+    for a missing or unrecognized kind (e.g. a file saved without this
+    tag) rather than guessing a specific one.
     """
     cls = _ACQUISITION_KINDS.get(kind, Acquisition)
     return cls(source=source, receivers=receivers)

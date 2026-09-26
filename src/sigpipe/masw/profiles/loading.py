@@ -16,7 +16,7 @@ from sigpipe.transformers import Load
 RECEIVER_POSITIONS_FILE = "receiver_positions.yaml"
 SOURCE_POSITIONS_FILE = "source_positions.yaml"
 
-# Files with these suffixes are metadata, not records (PAC's rule).
+# Files with these suffixes are metadata, not records.
 _NON_RECORD_SUFFIXES = {".yaml", ".json"}
 
 _MAX_LISTED = 5
@@ -87,8 +87,8 @@ def _read_record(
     receivers: tuple[Coordinate, ...],
     profile: str,
 ) -> Record:
-    # Passive records have no source; like PAC's windowing, the first receiver stands in
-    # for it. It only serves to read the record and is not kept.
+    # Passive records have no source; the first receiver stands in for it. It only serves to
+    # read the record and is not kept.
     acquisition = LinearAcquisition(source=source or receivers[0], receivers=receivers)
     try:
         streams = Load(
@@ -180,7 +180,7 @@ def _load_yaml(path: Path, profile: str) -> Any:  # noqa: ANN401
 
 
 def _parse_coordinate(entry: object, where: str, profile: str) -> Coordinate:
-    # As in PAC, profiles are 2D lines in (x, z): y is ignored and set to 0.
+    # Profiles are 2D lines in (x, z): y is ignored and set to 0.
     try:
         return Coordinate(x=float(entry["x"]), y=0.0, z=float(entry["z"]))  # type: ignore[index]
     except (KeyError, TypeError, ValueError) as exc:

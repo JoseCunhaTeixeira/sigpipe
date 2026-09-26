@@ -46,8 +46,7 @@ def _invert(
 
 
 def test_a_run_that_keeps_no_model_is_refused(linear_acquisition: LinearAcquisition) -> None:
-    # 2,000 iterations with PAC's default burn-in of 10,000: it used to fail after sampling,
-    # with KeyError: 'space.vs1'.
+    # 2,000 iterations with the default burn-in of 10,000 keep no model.
     with pytest.raises(
         ValueError,
         match=r"n_iterations \(2000\) must exceed n_burnin_iterations \(10000\) by at least 150",
@@ -84,7 +83,7 @@ def test_the_shortest_run_keeps_one_model(linear_acquisition: LinearAcquisition)
 
 
 def test_every_chain_starts_inside_each_layers_prior() -> None:
-    # Bounds that differ from layer to layer: the values drawn, then sorted, used to land in
+    # Bounds that differ from layer to layer: the values drawn, then sorted, could land in
     # another layer's range, outside their own prior, and such a chain may never move.
     priors = [
         UniformPrior(name="vs1", vmin=100.0, vmax=400.0, perturb_std=10.0),

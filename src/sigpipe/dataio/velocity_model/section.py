@@ -44,11 +44,9 @@ def smooth_laterally(grid: np.ndarray) -> np.ndarray:
     """Smooth a (positions, depths) section grid across positions.
 
     Three passes of a median filter with shrinking windows (4, 3, 2) along
-    the position axis only -- depths are untouched. Port of the old
-    Streamlit app's `mode_filter_median` + `generic_filter` cascade, whose
-    two even windows both leaned half a position the same way, moving every
-    edge one position toward larger x: here they lean opposite ways, so the
-    edges stay in place.
+    the position axis only -- depths are untouched. The two even windows
+    lean half a position opposite ways, so the edges stay in place; leaning
+    the same way would move every edge one position.
     """
     smoothed = grid
     for size, left in ((4, 2), (3, 1), (2, 0)):
@@ -149,8 +147,6 @@ def plot_velocity_and_std_section(
     X-axis: position [m]
     Y-axis: elevation [m] (decreasing downward)
     Top: Vs, terrain colormap. Bottom: Vs std, afmhot_r colormap (vmin=0).
-
-    Port of the old Streamlit app's `display_inverted_section` in `display.py`.
     """
     xs, zs, vs_s_grid, _vs_p_grid, _rhos_grid, vs_s_std_grid = velocity_section.to_grid(
         dz=dz, dx=dx

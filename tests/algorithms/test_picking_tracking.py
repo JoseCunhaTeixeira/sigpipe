@@ -12,7 +12,7 @@ from sigpipe.base import Coordinate, DispersionImage, LinearAcquisition, Mode, V
 type Dispersion = Callable[[np.ndarray], np.ndarray]
 
 # A synthetic line longer than the demo windows, so that its images resolve the modes: 48
-# receivers 1 m apart (a 47 m window), 2 s records at 500 Hz, and PAC's default dispersion grid.
+# receivers 1 m apart (a 47 m window), 2 s records at 500 Hz, and the default dispersion grid.
 SPACING = 1.0  # m
 ACQUISITION = LinearAcquisition(
     source=Coordinate(0.0, 0.0, 0.0),

@@ -1,4 +1,4 @@
-"""Building the MASW windows of a profile, as PAC's build_windows does."""
+"""Building the MASW windows of a profile."""
 
 import logging
 from pathlib import Path
@@ -27,8 +27,8 @@ def build_windows(profile: Profile, params: MASWParameters) -> list[MASWWindow]:
         receivers = profile.receivers[start:stop]
         xmin, xmax = receivers[0].x, receivers[-1].x
 
-        # sigpipe finds the window middle by arc length along (x, z), as PAC does. The source
-        # plays no part in it, so the first receiver fills that slot.
+        # sigpipe finds the window middle by arc length along (x, z). The source plays no part
+        # in it, so the first receiver fills that slot.
         xmid = LinearAcquisition(source=receivers[0], receivers=receivers).xmid
 
         selected_files: list[Path] = []
@@ -90,8 +90,8 @@ def apply_exclusions(
     (passive-active windows, whose correlation gathers are stacked): the receivers at least half
     the records excluded leave every record, and a record that excluded any other receiver of
     the window leaves it. "union" (passive windows, whose records are correlated trace by
-    trace): a trace any record excluded leaves every record. On active_p2, 66 shots a window,
-    the union left no window any receiver (2026-09-25)."""
+    trace): a trace any record excluded leaves every record. With many shots a window, the union
+    can leave no receiver."""
     if geometry == "per_record":
         return _per_record(window, exclusions)
     if geometry == "shared":
@@ -172,8 +172,7 @@ def _per_record(window: MASWWindow, exclusions: Exclusions) -> MASWWindow | None
     """`window` with each record giving the receivers it did not exclude, and none giving a
     receiver at least half the window's records excluded: a receiver's defect (a dead geophone,
     bad coupling) shows in most of its shots, while one record's (a clipped trace, a near-field
-    amplitude) is its own. On the demo's two shots this is the union: receiver 1, off the
-    decay in 2.dat, sits 1 m from 1.dat's shot, where everything is loud."""
+    amplitude) is its own. With two records this is the union."""
     records = [
         (path, acquisition)
         for path, acquisition in zip(window.selected_files, window.acquisitions, strict=True)

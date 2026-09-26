@@ -1,10 +1,10 @@
-"""Processing presets: the one schema of the processing settings, for PAC's active, passive and
-passive-active modes, with PAC's form defaults and the changes decided for PACo.
+"""Processing presets: the one schema of the processing settings, for the active, passive and
+passive-active modes.
 
-The preset models are generated from sigpipe's functions and restricted to what PAC uses
-(stages.py). A preset is picked by name and a few of its values overridden (make_preset), by a
-person in PAC or the agent in PACo; the preset is then fitted to a profile, which fills the
-values PAC derives from the data (resolve_preset).
+The preset models are generated from sigpipe's functions and restricted to what the pipelines
+use (stages.py). A preset is picked by name and a few of its values overridden (make_preset), by
+a person in PAC or the agent in PACo; the preset is then fitted to a profile, which fills the
+values derived from the data (resolve_preset).
 """
 
 from .explaining import explain_parameters

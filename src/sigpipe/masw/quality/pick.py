@@ -31,7 +31,7 @@ _CONSTANT_WAVELENGTH_SLOPE = 0.7
 _SLOPE_POINTS = 7
 # Prominence is counted up to this: beyond, any ridge stands out enough. A long array's perfect
 # plane wave has its sidelobes under the noise floor and would rise far above it, making any
-# real image look weak; the old fixed limit, 2, is half of it.
+# real image look weak.
 _PROMINENT_ENOUGH = 4.0
 
 

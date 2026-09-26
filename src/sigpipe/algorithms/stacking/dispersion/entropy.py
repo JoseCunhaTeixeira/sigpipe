@@ -97,10 +97,10 @@ def stack_ridge_entropy(
       weight, which is exactly backwards if it's spurious. A real ridge,
       by contrast, is smeared across a few adjacent velocity bins by
       finite frequency/velocity resolution -- a numerical improvement
-      worth considering (not implemented here, to avoid adding a tunable
-      nobody asked for) is smoothing each column slightly along velocity
-      before computing p(v|f), so an isolated spike registers as *less*
-      confident than a resolution-consistent ridge, not more.
+      worth considering (not implemented here, to avoid adding a tunable)
+      is smoothing each column slightly along velocity before computing
+      p(v|f), so an isolated spike registers as *less* confident than a
+      resolution-consistent ridge, not more.
     - Batch-size sensitivity: median/MAD standardization is well-defined
       but uninformative for very few images (at n=2, MAD is just half
       the gap between the two H_ridge values, so z is always +/-1

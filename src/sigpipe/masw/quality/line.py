@@ -1,8 +1,8 @@
 """Lateral consistency: each window compared with its neighbours along the line, on either side
-(PACo's line QC: G4 on the curves, G6 on the models): a window fits a side when it lies within a misfit of the side's median; it
-is off a side only when that side is full, agrees with itself and the window lies beyond. An
-isolated outlier is off neighbours that agree and fits no side; a change shared with one side
-is geology."""
+(PACo's line QC: G4 on the curves, G6 on the models, G8 on the petrophysical models): a window
+fits a side when it lies within a misfit of the side's median; it is off a side only when that
+side is full, agrees with itself and the window lies beyond. An isolated outlier is off
+neighbours that agree and fits no side; a change shared with one side is geology."""
 
 from collections.abc import Sequence
 from dataclasses import dataclass

@@ -1,5 +1,5 @@
-"""The line's petrophysical views and files, from its windows' petrophysical inversions (PAC's):
-the soils and their N values, the rock physics with depth (shear modulus and Vs), and the picked
+"""The line's petrophysical views and files, from its windows' petrophysical inversions: the
+soils and their N values, the rock physics with depth (shear modulus and Vs), and the picked
 curves against those the models give back. Functions take a run folder and window folders of it
 (`units`); each needs two inverted windows, the least a section has, and returns None with
 fewer."""

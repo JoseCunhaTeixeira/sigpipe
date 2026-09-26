@@ -15,8 +15,7 @@ def forward_model_all(
     """Forward-model every named model (best, smooth_best, median, smooth_median,
     ensemble) at each observed curve's own frequencies.
 
-    Mirrors the old Streamlit app's per-model `.pvc` saves in `run_inversion.py`,
-    one dispersion-curve collection per model name. A model is `None` if disba
+    One dispersion-curve collection per model name. A model is `None` if disba
     can't resolve any mode for it at all (e.g. a finely-discretized smoothed
     model occasionally too ill-conditioned for the fundamental-mode root
     finder); individual unresolved modes are otherwise just omitted.

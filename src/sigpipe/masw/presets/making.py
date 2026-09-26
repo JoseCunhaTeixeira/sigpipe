@@ -26,7 +26,7 @@ def make_preset(
     """The named preset with `overrides` applied.
 
     Overrides are a partial preset, e.g. {"filtering": {"method": "iir", "fmin": 5}}: stages
-    and fields left out keep PAC's defaults. Invalid overrides raise a PresetError listing each
+    and fields left out keep their defaults. Invalid overrides raise a PresetError listing each
     problem on its own line, with pydantic's ValidationError as its cause.
     """
     preset = PRESETS.get(name)

@@ -92,7 +92,7 @@ def resample_wavelength(
 
     Interpolates velocity (and uncertainty, if present) over wavelength
     w = v/f at uniform steps, then converts back to frequency and re-sorts
-    by frequency. Port of the old Streamlit app's `dispersion.py::resamp`.
+    by frequency.
     """
     fs = np.asarray(curve.fs, dtype=np.float64)
     vs = np.asarray(curve.vs, dtype=np.float64)

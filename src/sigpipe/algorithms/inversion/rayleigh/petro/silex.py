@@ -97,7 +97,7 @@ class SilexModel:
 
     def _preprocess(self, dispersion_curve: DispersionCurve) -> np.ndarray:
         """Resample onto the model's fixed frequency axis and min-max normalize,
-        matching the old repo's `misc.resamp` + `run_invertion.py` exactly.
+        matching the reference implementation's `misc.resamp` + `run_invertion.py` exactly.
 
         Raises ValueError if `dispersion_curve` doesn't cover the model's trained
         frequency/velocity range (silex_catalog.resampled_velocities): silently
@@ -114,7 +114,7 @@ class SilexModel:
         """Greedy, grammar-masked autoregressive decode -- a direct reimplementation
         of `Transformer.decode_seq_restrictive`/`RestrictiveSampler` without keras-nlp's
         Sampler machinery. `forbidden_tokens[i]` masks the logits used to fill prompt
-        position `i + 1`, mirroring the old sampler's `index-1`-vs-`index` bookkeeping."""
+        position `i + 1`, mirroring RestrictiveSampler's `index-1`-vs-`index` bookkeeping."""
         end_id = self.word_to_index["[END]"]
         pad_id = self.word_to_index["[PAD]"]
 

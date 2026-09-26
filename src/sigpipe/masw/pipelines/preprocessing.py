@@ -1,5 +1,5 @@
-"""The first steps of PAC's pipelines, on a whole record: trace editing, mute and filter, saved
-as a stream for the windows to read."""
+"""The first steps of the pipelines, on a whole record: trace editing, mute and filter, saved as
+a stream for the windows to read."""
 
 from pathlib import Path
 
@@ -17,8 +17,7 @@ def build_preprocessing_pipeline(
     that uses the record, since each step works trace by trace. A shot's trigger is corrected
     first, in the modes that process shots (t0 = 0 by default: no change)."""
     load = load_record(record, profile)
-    # The presets with a trigger stage: active and passive-active (whose correction PACo's signal
-    # QC asked for and never got, rejecting the demo's two shots, 2026-09-26).
+    # The presets with a trigger stage: active and passive-active.
     head = (
         load >> Shift(**stage_kwargs(preset, "trigger"))
         if "trigger" in type(preset).model_fields

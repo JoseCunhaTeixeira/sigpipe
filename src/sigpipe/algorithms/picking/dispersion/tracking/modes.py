@@ -169,8 +169,7 @@ def _resolved(
 ) -> np.ndarray:
     """Where a perfect plane wave at the pick's frequency and velocity stands at least
     `contrast` above its column's median, through the window's receivers (only the kept points
-    are computed). Measured on the demo (2026-09-25): at 1 %, the picks of 5- to 24-receiver
-    windows end at 8.5 to 10 Hz at the lowest, where some drifted smoothly to 5 Hz or below."""
+    are computed)."""
     resolved = np.zeros_like(kept)
     indices = np.flatnonzero(kept)
     columns = plane_wave_columns(image, frequencies[indices], velocities[indices], floor)
@@ -189,9 +188,7 @@ def _continuous_run(
     """`kept` reduced to its longest continuous run (the widest band; the lowest on a tie):
     consecutive kept points stay in one run while the columns between them that are not kept
     span at most `max_gap_hz`, and the step between them is at most `break_slope` in
-    |d ln v / d ln f|. Measured on the demo (2026-09-25): the pick is smooth from about 15 to
-    45 Hz, and scatters below and above; the user's rule is to pick down as far as the ridge
-    holds."""
+    |d ln v / d ln f|. A pick goes down as far as the ridge holds."""
     indices = np.flatnonzero(kept)
     if indices.size < 2:
         return kept

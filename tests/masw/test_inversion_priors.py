@@ -27,8 +27,8 @@ def test_the_bounds_come_from_the_curve() -> None:
 
     parameters = derived.parameters
     assert derived.notes == ()
-    assert parameters.n_layers == 4  # never 2 (the user, 2026-09-25)
-    # Vs from 0.8 x 150 to 1.5 x 300 m/s, the same for every layer, steps in PAC's proportion.
+    assert parameters.n_layers == 4  # never 2
+    # Vs from 0.8 x 150 to 1.5 x 300 m/s, the same for every layer, steps in the defaults' ratio.
     for layer in parameters.vs_layers:
         assert (layer.vs_min, layer.vs_max) == (120.0, 450.0)
         assert layer.vs_perturb_std == pytest.approx(330 * 20 / 900, abs=0.05)
@@ -37,7 +37,7 @@ def test_the_bounds_come_from_the_curve() -> None:
     assert [
         (layer.thickness_min, layer.thickness_max) for layer in parameters.thickness_layers
     ] == [(1.0, 5.0)] * 3
-    # PAC's effort, with its burn-in.
+    # The default effort, with its burn-in.
     assert (parameters.n_iterations, parameters.n_burnin_iterations, parameters.n_chains) == (
         100_000,
         10_000,

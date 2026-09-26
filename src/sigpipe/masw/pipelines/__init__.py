@@ -2,8 +2,7 @@
 (trace editing, mute, filter), then one image pipeline per MASW window on the preprocessed
 records.
 
-Port of PAC's adapters: the same steps in the same order, with the same fixed values, cut at the
-window. The preset's stages give the tunable ones.
+The preset's stages give the tunable values; the others are fixed.
 """
 
 from .active import build_active_pipeline

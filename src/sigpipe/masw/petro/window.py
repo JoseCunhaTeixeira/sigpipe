@@ -1,8 +1,7 @@
-"""One window's petrophysical inversion: PAC's (its io/petro_inversion.py, invert_position) on a
-window folder of a run. A Silex model predicts the soils, their N values and the water table
-from the window's fundamental mode; the curve that prediction gives back, and its rock physics
-with depth (the Hertz-Mindlin shear modulus and Vs), are saved beside it, so that the line's
-views only read files."""
+"""One window's petrophysical inversion, on a window folder of a run. A Silex model predicts
+the soils, their N values and the water table from the window's fundamental mode; the curve
+that prediction gives back, and its rock physics with depth (the Hertz-Mindlin shear modulus
+and Vs), are saved beside it, so that the line's views only read files."""
 
 import json
 from dataclasses import dataclass, replace

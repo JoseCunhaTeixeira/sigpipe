@@ -1,7 +1,7 @@
-"""PAC's passive-active pipeline, from the preprocessed records: interferometry on the window's
-shots (each gather cut to its surface-wave window, PACo's addition, then cross-correlated with
-the receiver nearest its shot, and flipped when the shot is past the window's far end), the
-correlations stacked, then a dispersion image."""
+"""The passive-active pipeline, from the preprocessed records: interferometry on the window's
+shots (each gather cut to its surface-wave window, then cross-correlated with the receiver
+nearest its shot, and flipped when the shot is past the window's far end), the correlations
+stacked, then a dispersion image."""
 
 from pathlib import Path
 

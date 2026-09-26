@@ -79,7 +79,7 @@ def test_stage_definitions_complete_the_signature() -> None:
     band = _validator("band", BAND).validate_python({"method": "band"})
     properties = type(band).model_json_schema()["properties"]
 
-    # PAC's default replaces the function's, a derived value starts at None, a fixed one is hidden.
+    # Stage defaults replace the function's, a derived value starts at None, a fixed one is hidden.
     assert band.model_dump() == {"method": "band", "fmin": 0.0, "fmax": None, "taper": 5.0}
     assert "flip" not in properties
     expected = {"description": "Hz", "exclusiveMinimum": 0, "maximum": 50}
@@ -203,10 +203,10 @@ def test_pacs_defaults_replace_sigpipes_where_they_differ() -> None:
         "passive", {"filtering": {"method": "iir"}, "whitening": {"method": "onebit_apod"}}
     ).model_dump()
 
-    # sigpipe's taper comes from its ultrasonic use; PAC's form uses 5 Hz.
+    # sigpipe's taper comes from its ultrasonic use; the preset uses 5 Hz.
     assert sigpipe_default(WHITENING_METHODS["onebit_apod"], "taper_width_Hz") == 1_000
     assert passive["whitening"]["taper_width_Hz"] == 5.0
-    # Where PAC gives no value, sigpipe's own default stays.
+    # Where the stage gives no value, sigpipe's own default stays.
     assert passive["filtering"]["order"] == sigpipe_default(FILTERING_METHODS["iir"], "order")
     assert passive["dispersion"]["nv"] == sigpipe_default(DISPERSION_METHODS["phase"], "nv")
 

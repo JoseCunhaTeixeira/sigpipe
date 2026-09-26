@@ -1,6 +1,6 @@
 """What a perfect plane wave gives in a window's phase-shift image: where the window resolves
 velocity at all (the picker keeps no point where it does not), and the reference G3 judges
-sharpness and prominence against (the user's decisions of 2026-09-25)."""
+sharpness and prominence against."""
 
 import numpy as np
 

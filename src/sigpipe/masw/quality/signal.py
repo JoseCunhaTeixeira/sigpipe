@@ -97,8 +97,7 @@ def snr_reach(
     """How far from the shot the traces still carry the wave: over every record's traces
     `measured` (offsets, SNR), binned every `bin_m` m from the shot, the distance where the
     bins' median SNR first falls below `min_db`, between the centres of the last bin above and
-    the first below; None when no bin falls below. Measured on 2026-09-25 at 2 dB: 63.35 m on
-    the 142.5 m active_p2 (53 dB at 0-10 m, 5 dB at 50-60 m), 24.34 m on the 24 m demo."""
+    the first below; None when no bin falls below."""
     if not measured or bin_m <= 0:
         return None
     offsets = np.concatenate([one[0] for one in measured])

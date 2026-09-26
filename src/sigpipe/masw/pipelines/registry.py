@@ -1,4 +1,4 @@
-"""Which image pipeline each preset builds, as in PAC's adapters/registry.py."""
+"""Which image pipeline each preset builds."""
 
 from collections.abc import Callable
 from pathlib import Path

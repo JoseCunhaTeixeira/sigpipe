@@ -152,7 +152,7 @@ def test_points_without_a_mode_are_counted_not_fitted() -> None:
 
 
 def test_points_without_an_uncertainty_weigh_nothing() -> None:
-    # A pick's end point can carry no uncertainty: it made the whole band's misfit NaN.
+    # A pick's end point can carry no uncertainty, which would make the whole band's misfit NaN.
     fs = np.array([10.0, 20.0, 30.0])
     picked = _curve(np.array([300.0, 260.0, 240.0]), fs, np.array([10.0, 10.0, np.nan]))
     predicted = _curve(np.array([310.0, 260.0, 250.0]), fs)

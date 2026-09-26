@@ -9,14 +9,12 @@ from sigpipe.base.acquisition import LinearAcquisition
 
 
 class MASWParameters(BaseModel):
-    """Defaults are PAC's form defaults, except distance_max (1000 m), so that a partial override
-    keeps the other values."""
+    """Every field has a default, so that a partial override keeps the other values."""
 
     # Unknown keys are errors: presets take these parameters in overrides.
     model_config = ConfigDict(frozen=True, extra="forbid")
 
-    # Receivers per window: 5 by default (the user, 2026-09-24), where PAC's form has 3. The
-    # descriptions say "receivers": Qwen3-8B sent 6.0 for 24 receivers 0.25 m apart.
+    # The descriptions say "receivers": a length in metres is an easy mistake.
     length: int = Field(default=5, ge=3, description="receivers, not metres")
     step: int = Field(default=1, gt=0, description="receivers between starts")
     distance_min: float = Field(default=0.0, ge=0)  # m, from the source to the window middle

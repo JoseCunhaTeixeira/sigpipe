@@ -40,7 +40,7 @@ SECTION_FIGURE = "SeismicInversion_VelocitySection_0000.png"
 SECTION_FILE = "SeismicInversion_VelocitySection_0000.hdf5"
 COMPARISON_FIGURE = "SeismicInversion_PseudoSectionComparison_0000_M0.png"
 # The depths of a section drawn on screen (PAC's canvas is 200 to 320 px high): at the
-# inversion's 1 cm, a modest line gave about 4,000, 60 MB of JSON, for no visible difference.
+# inversion's 1 cm, a modest line has about 4,000, 60 MB of JSON, for no visible difference.
 VIEW_NZ = 200
 
 

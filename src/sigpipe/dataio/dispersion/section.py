@@ -100,8 +100,6 @@ def plot_pseudo_section_comparison(
 
     3 stacked panels: observed (viridis), predicted (viridis), residual as a
     percentage (bwr, symmetric).
-
-    Port of the old Streamlit app's `display_pseudo_sections` in `display.py`.
     """
     positions, fs, obs_grid, pred_grid, residual = pseudo_section_comparison_grids(
         observed, predicted

@@ -1,8 +1,7 @@
-"""Preset models, generated from sigpipe's functions and completed by PAC's choices (stages.py).
+"""Preset models, generated from sigpipe's functions and completed by the stages (stages.py).
 
-A preset is a model built without arguments: its defaults are PAC's form defaults, and overrides
-are a partial dict validated by the same model. Values left to None are derived from the
-profile by resolve_preset, as PAC's forms derive them from the acquisition.
+A preset is a model built without arguments, from its defaults, and overrides are a partial dict
+validated by the same model. Values left to None are derived from the profile by resolve_preset.
 """
 
 from collections.abc import Mapping

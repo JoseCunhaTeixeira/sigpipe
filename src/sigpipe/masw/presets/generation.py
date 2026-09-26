@@ -81,7 +81,7 @@ def _field(annotation: Any, sigpipe_default: Any, parameter: Parameter | None) -
     elif sigpipe_default is not inspect.Parameter.empty:
         default = sigpipe_default
     else:
-        default = ...  # required: sigpipe has no default and PAC's form gives none
+        default = ...  # required: neither sigpipe nor the stage gives a default
     # The description is what a form or an agent shows of a value: its unit, and why it may be
     # null.
     notes = [parameter.unit, "null: from the profile" if parameter.derived else ""]

@@ -1,4 +1,4 @@
-"""PAC's active pipeline, from the preprocessed records: a dispersion image per shot, then the
+"""The active pipeline, from the preprocessed records: a dispersion image per shot, then the
 images stacked."""
 
 from pathlib import Path

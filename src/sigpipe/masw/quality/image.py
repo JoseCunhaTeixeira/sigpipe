@@ -32,8 +32,7 @@ def edge_peaks(
     looking above `floor` only (below it lie artifacts), within `edge_share` of its highest,
     among the columns where the window tells that velocity from an infinite one: a window of
     aperture L resolves slowness to about 1 / (f L), so below f = vmax / L a peak at vmax is
-    energy with no moveout (noise common to every trace: passive_p1's images, whose grid G2
-    widened to 3,375 m/s without the peak leaving its edge), not a ridge beyond the grid."""
+    energy with no moveout (noise common to every trace), not a ridge beyond the grid."""
     vs = np.asarray(image.vs, dtype=float)
     fs = np.asarray(image.fs, dtype=float)
     span = vs.max() - vs.min()

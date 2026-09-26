@@ -1,9 +1,9 @@
 """An inversion's parameters derived from the curve it inverts (the checks before S4 of PACo's QC
-workflow, its docs/qc_workflow.md), or checked against it. Bounds come from the window's own curve (a decision of milestone 13): Vs brackets
-the curve's velocities with a margin (Vs is about 1.09 Vr at PAC's Vp/Vs), no layer is thinner
-than the shortest wavelength resolves, and the half-space starts no deeper than the longest one
-reaches. Values given by the user or the loop are kept when they pass, and changed with a note
-when they do not."""
+workflow, its docs/qc_workflow.md), or checked against it. Bounds come from the window's own
+curve: Vs brackets the curve's velocities with a margin (Vs is about 1.09 Vr at the inversion's
+Vp/Vs), no layer is thinner than the shortest wavelength resolves, and the half-space starts no
+deeper than the longest one reaches. Values given by the user or the loop are kept when they
+pass, and changed with a note when they do not."""
 
 import math
 from collections.abc import Iterable, Mapping, Sequence
@@ -16,8 +16,8 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError
 from sigpipe.algorithms.inversion.rayleigh.seismic.parameters import InversionParameters
 from sigpipe.base.dispersion_curve import DispersionCurve
 
-# PAC's steps against its ranges: 20 m/s for Vs over 100-1,000 m/s, 1 m for thicknesses over
-# 1-10 m. Derived bounds keep the same proportions.
+# The default steps against the default ranges: 20 m/s for Vs over 100-1,000 m/s, 1 m for
+# thicknesses over 1-10 m. Derived bounds keep the same proportions.
 VS_STEP_SHARE = 20 / 900
 THICKNESS_STEP_SHARE = 1 / 9
 # Vs over Vr for a homogeneous half-space at Vp/Vs 1.77: the least a bound must allow above the
@@ -25,7 +25,7 @@ THICKNESS_STEP_SHARE = 1 / 9
 VS_OVER_VR = 1.09
 
 
-# The fewest layers an inversion has, the half-space among them (the user, 2026-09-25).
+# The fewest layers an inversion has, the half-space among them.
 MIN_LAYERS = 3
 
 
@@ -60,8 +60,8 @@ class PriorRules(BaseModel):
     n_layers: int = Field(
         default=4,
         ge=MIN_LAYERS,
-        description="Layers to start with, the half-space among them: never fewer than 3 (the "
-        "user, 2026-09-25); G5 adds layers up to what the curve resolves.",
+        description="Layers to start with, the half-space among them: never fewer than 3; G5 "
+        "adds layers up to what the curve resolves.",
     )
 
 
@@ -153,7 +153,7 @@ def derive_inversion(
         "thickness_min": top,
         "thickness_max": bottom,
         # At least 1 cm: with as many layers as the curve resolves, each may range over a few
-        # centimetres only (6 layers on the demo's xmid 16.50), and a step rounded to 0 fails.
+        # centimetres only, and a step rounded to 0 fails.
         "thickness_perturb_std": max(round((bottom - top) * THICKNESS_STEP_SHARE, 2), 0.01),
     }
     thickness_layers = [dict(derived_thickness) for _ in range(n_layers - 1)]
@@ -201,9 +201,8 @@ def derive_inversion(
 
 def broadcast_layers(given: Mapping[str, Any], default_layers: int = 4) -> dict[str, Any]:
     """`given` with a single Vs range (or thickness range) standing for every layer: "Vs between
-    100 and 180 m/s" is one range, where the parameters want one per layer (Qwen3-8B sent one,
-    and needed six calls to find the form). Several Vs ranges given without n_layers are that
-    many layers."""
+    100 and 180 m/s" is one range, where the parameters want one per layer. Several Vs ranges
+    given without n_layers are that many layers."""
     values = dict(given)
     vs_layers = values.get("vs_layers")
     if (
@@ -228,8 +227,8 @@ def broadcast_layers(given: Mapping[str, Any], default_layers: int = 4) -> dict[
 def checkable(given: Mapping[str, Any], default_layers: int) -> dict[str, Any]:
     """`given` as an inversion reads it, complete enough to check before it starts: one Vs (or
     thickness) range standing for every layer, and the count the inversion starts from when none
-    is given. Checked as given, the one range the card offers was refused against PAC's default
-    of 2 layers (Qwen3-8B then invented two ranges, 2026-09-26)."""
+    is given. Checked as given, the one range the card offers would be refused against the
+    default of 2 layers."""
     values = broadcast_layers(given, default_layers)
     count = values.get("n_layers", default_layers)
     if isinstance(count, int) and count >= 2:

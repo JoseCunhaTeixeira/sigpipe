@@ -49,7 +49,7 @@ class RunManifest(BaseModel):
     started_at: datetime
     finished_at: datetime
     n_positions: int  # windows the line allows, before shot selection
-    # In file order; empty in the runs made before the preprocessing split (2026-09-24).
+    # In file order; empty for a run whose run.json has no records.
     records: tuple[RecordOutcome, ...] = ()
     windows: tuple[WindowOutcome, ...]  # sorted by xmid
     # What G1 took out of the windows: the phase shift done again leaves them out too.

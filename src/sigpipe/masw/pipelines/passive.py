@@ -1,4 +1,4 @@
-"""PAC's passive pipeline, from the preprocessed records: noise segments cross-correlated and
+"""The passive pipeline, from the preprocessed records: noise segments cross-correlated and
 stacked, then a dispersion image."""
 
 from pathlib import Path
