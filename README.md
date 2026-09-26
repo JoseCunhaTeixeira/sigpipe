@@ -146,7 +146,9 @@ workspace = Folders(input_dir=Path("data/input"), output_dir=Path("data/output")
 
 if __name__ == "__main__":  # the run's worker processes need this guard
     # Process a profile in one of its modes, with a few settings changed from the preset's.
-    manifest = run_processing("active_p1", "active", {"masw": {"length": 24, "step": 12}}, workspace)
+    manifest = run_processing(
+        "active_p1", "active", {"masw": {"length": 24, "step": 12}}, workspace
+    )
     run_folder = find_run(manifest.run_id, workspace)
 
     units = [window.folder for window in manifest.windows if window.status == "succeeded"]
