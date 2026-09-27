@@ -190,19 +190,19 @@ class InversionParameters(BaseModel):
         "recorded.",
     )
     n_iterations: int = Field(
-        default=150_000,
+        default=200_000,
         gt=0,
         description=f"Iterations of each chain; one model is kept every {SAVE_EVERY} after the "
         "burn-in.",
     )
     n_burnin_iterations: int = Field(
-        default=37_500,
+        default=50_000,
         gt=0,
         description="First iterations of each chain, discarded. Left out: a quarter of "
         "n_iterations.",
     )
     n_chains: int = Field(
-        default=4, ge=1, description="Chains per window, compared to judge them (2 at least)."
+        default=5, ge=1, description="Chains per window, compared to judge them (2 at least)."
     )
 
     @model_validator(mode="before")

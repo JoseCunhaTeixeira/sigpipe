@@ -49,9 +49,9 @@ def test_the_bounds_come_from_the_curve() -> None:
     ] == [(1.0, 10.0, 1.0)] * 3
     # The default effort, with its burn-in.
     assert (parameters.n_iterations, parameters.n_burnin_iterations, parameters.n_chains) == (
-        150_000,
-        37_500,
-        4,
+        200_000,
+        50_000,
+        5,
     )
 
 
