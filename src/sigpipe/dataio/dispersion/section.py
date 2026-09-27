@@ -1,8 +1,10 @@
+from typing import Literal
+
 import matplotlib.pyplot as plt
 import numpy as np
 from matplotlib.figure import Figure
 
-from sigpipe.base.dispersion_curve import DispersionCurvesSection
+from sigpipe.base.dispersion_curve import DispersionCurve, DispersionCurvesSection
 from sigpipe.dataio.plot_config import (
     CM,
     DISP_DPI,
@@ -46,14 +48,17 @@ def plot_dispersion_curves_section(
 def pseudo_section_comparison_grids(
     observed: DispersionCurvesSection,
     predicted: DispersionCurvesSection,
+    along: Literal["frequency", "wavelength"] = "frequency",
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
     """
-    Build the (positions, fs, obs_grid, pred_grid, residual) grids underlying
+    Build the (positions, ys, obs_grid, pred_grid, residual) grids underlying
     a pseudo-section comparison, with no plotting -- reusable for a JSON API
     as well as `plot_pseudo_section_comparison` below.
 
     `observed` and `predicted` must cover the same positions (one curve per
-    position in each, same mode). obs_grid/pred_grid/residual have shape
+    position in each, same mode). ys are frequencies, or with
+    along="wavelength" wavelengths (each curve's velocity over its frequency),
+    as many either way. obs_grid/pred_grid/residual have shape
     (n_positions, n_f). residual is (pred-obs)/pred*100.
     """
     positions = observed.xs
@@ -69,26 +74,40 @@ def pseudo_section_comparison_grids(
         max(float(dc.fs.max()) for dc in predicted),
     )
     n_f = round(f_max - f_min) + 1
-    fs = np.linspace(f_min, f_max, n_f, dtype=np.float32)
+
+    def along_curve(dc: DispersionCurve) -> tuple[np.ndarray, np.ndarray]:
+        """The curve's abscissae along the axis, increasing, and its velocities with them."""
+        xs = dc.fs if along == "frequency" else dc.vs / dc.fs
+        order = np.argsort(xs)
+        return xs[order], dc.vs[order]
+
+    curves = [along_curve(dc) for dc in (*observed, *predicted)]
+    ys = np.linspace(
+        min(float(xs.min()) for xs, _ in curves),
+        max(float(xs.max()) for xs, _ in curves),
+        n_f,
+        dtype=np.float32,
+    )
 
     pred_by_x = {float(dc.acquisition.xmid): dc for dc in predicted}
 
     obs_grid = np.full((len(positions), n_f), np.nan, dtype=np.float32)
     pred_grid = np.full((len(positions), n_f), np.nan, dtype=np.float32)
     for i, obs_curve in enumerate(observed):
-        mask = (fs >= obs_curve.fs.min()) & (fs <= obs_curve.fs.max())
-        obs_grid[i, mask] = np.interp(fs[mask], obs_curve.fs, obs_curve.vs)
+        xs, vs = along_curve(obs_curve)
+        mask = (ys >= xs.min()) & (ys <= xs.max())
+        obs_grid[i, mask] = np.interp(ys[mask], xs, vs)
 
-        pred_curve = pred_by_x[float(obs_curve.acquisition.xmid)]
-        mask_p = (fs >= pred_curve.fs.min()) & (fs <= pred_curve.fs.max())
-        pred_grid[i, mask_p] = np.interp(fs[mask_p], pred_curve.fs, pred_curve.vs)
+        xs, vs = along_curve(pred_by_x[float(obs_curve.acquisition.xmid)])
+        mask_p = (ys >= xs.min()) & (ys <= xs.max())
+        pred_grid[i, mask_p] = np.interp(ys[mask_p], xs, vs)
 
     if np.all(np.isnan(obs_grid)) or np.all(np.isnan(pred_grid)):
         residual = np.full_like(obs_grid, np.nan)
     else:
         residual = (pred_grid - obs_grid) / pred_grid * 100
 
-    return positions, fs, obs_grid, pred_grid, residual
+    return positions, ys, obs_grid, pred_grid, residual
 
 
 def plot_pseudo_section_comparison(

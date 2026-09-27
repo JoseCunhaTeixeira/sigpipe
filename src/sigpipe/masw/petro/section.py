@@ -14,10 +14,9 @@ import numpy as np
 
 from sigpipe.base.dispersion_curve import DispersionCurve, DispersionCurvesSection
 from sigpipe.base.petro_model import PetroModel, PetroModelsSection, SoilType
-from sigpipe.dataio.dispersion.section import pseudo_section_comparison_grids
 from sigpipe.dataio.petro_model.section import plot_petro_models_section
 from sigpipe.dataio.plot_config import CM, DISP_DPI, DOUBLE_COLUMN_CM, HEIGHT_CM
-from sigpipe.masw.inversion.section import VIEW_NZ, ComparisonGrids
+from sigpipe.masw.inversion.section import VIEW_NZ, ComparisonGrids, grids_of
 from sigpipe.masw.petro.window import (
     QUANTITIES,
     Quantity,
@@ -217,8 +216,7 @@ def comparison_grids(run_folder: Path, units: Sequence[str]) -> ComparisonGrids 
         predicted.append(replace(modeled, acquisition=picked.acquisition))
     if len(observed) < 2:
         return None
-    positions, fs, observed_grid, predicted_grid, residual = pseudo_section_comparison_grids(
+    return grids_of(
         DispersionCurvesSection(dispersion_curves=tuple(observed)),
         DispersionCurvesSection(dispersion_curves=tuple(predicted)),
     )
-    return ComparisonGrids(positions, fs, observed_grid, predicted_grid, residual)

@@ -254,14 +254,41 @@ def save_comparison(
 
 @dataclass(frozen=True, slots=True)
 class ComparisonGrids:
-    """The pseudo-section comparison on a grid: picked, predicted and their residual, by
-    position and frequency."""
+    """The pseudo-section comparison on grids: picked, predicted and their residual, by
+    position and frequency, and by position and wavelength (as a pseudo-section's)."""
 
     positions: np.ndarray
     fs: np.ndarray
     observed: np.ndarray
     predicted: np.ndarray
     residual: np.ndarray
+    lambdas: np.ndarray
+    observed_by_wavelength: np.ndarray
+    predicted_by_wavelength: np.ndarray
+    residual_by_wavelength: np.ndarray
+
+
+def grids_of(
+    observed: DispersionCurvesSection, predicted: DispersionCurvesSection
+) -> ComparisonGrids:
+    """`observed` against `predicted` on both grids."""
+    positions, fs, by_f_observed, by_f_predicted, by_f_residual = pseudo_section_comparison_grids(
+        observed, predicted
+    )
+    _, lambdas, by_l_observed, by_l_predicted, by_l_residual = pseudo_section_comparison_grids(
+        observed, predicted, along="wavelength"
+    )
+    return ComparisonGrids(
+        positions,
+        fs,
+        by_f_observed,
+        by_f_predicted,
+        by_f_residual,
+        lambdas,
+        by_l_observed,
+        by_l_predicted,
+        by_l_residual,
+    )
 
 
 def comparison_grids(
@@ -274,5 +301,4 @@ def comparison_grids(
     sections = comparison_sections(run_folder, units, mode, model)
     if sections is None:
         return None
-    positions, fs, observed, predicted, residual = pseudo_section_comparison_grids(*sections)
-    return ComparisonGrids(positions, fs, observed, predicted, residual)
+    return grids_of(*sections)
