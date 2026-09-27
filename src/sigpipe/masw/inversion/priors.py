@@ -1,10 +1,13 @@
 """An inversion's parameters derived from the curve it inverts (the checks before S4 of PACo's QC
-workflow, its docs/qc_workflow.md), or checked against it. Vs spans wide ranges, 100 to 1,000 m/s
-for the layers and to 2,000 m/s for the half-space, widened when the curve needs it: the top
-layer as slow as the curve's slowest velocity, the half-space as fast as its fastest (Vs is
-about 1.09 Vr at the inversion's Vp/Vs). No layer is thinner than the shortest wavelength
-resolves, and the half-space starts no deeper than the longest one reaches. Values given by the
-user or the loop are kept when they pass, and changed with a note when they do not."""
+workflow, its docs/qc_workflow.md), or checked against it. The first inversion starts wide, for
+the loop to narrow to what the data inform: Vs 100 to 1,000 m/s for the layers and to 2,000 m/s
+for the half-space, widened when the curve needs it (the top layer as slow as the curve's
+slowest velocity, the half-space as fast as its fastest: Vs is about 1.09 Vr at the inversion's
+Vp/Vs), and every layer 1 to 10 m thick. The curve sets how many layers it resolves (each at
+least a third of its shortest wavelength, down to half its longest). Values given by the user
+or the loop are kept when they pass, and changed with a note when they do not: no layer thinner
+than the first range's or the curve's thinnest, whichever is thinner, and the half-space no
+deeper than the longest wavelength reaches."""
 
 import math
 from collections.abc import Iterable, Mapping, Sequence
@@ -74,6 +77,16 @@ class PriorRules(BaseModel):
         gt=0,
         description="Thinnest layer, as a share of the shortest wavelength: thinner is not "
         "resolved.",
+    )
+    thickness_min_m: float = Field(
+        default=1.0,
+        gt=0,
+        description="Thinnest layer the first inversion allows, m: wide, the loop narrows it.",
+    )
+    thickness_max_m: float = Field(
+        default=10.0,
+        gt=0,
+        description="Thickest layer the first inversion allows, m: wide, the loop narrows it.",
     )
     max_depth: float = Field(
         default=0.5,
@@ -176,33 +189,40 @@ def derive_inversion(
             )
             half_space["vs_max"] = float(ceiling)
 
-    bottom = round(deepest / (n_layers - 1), 2)
+    # The first inversion's range, the same for every layer whatever the curve: wide, for the
+    # loop to narrow to what the data inform.
+    first_min, first_max = rules.thickness_min_m, rules.thickness_max_m
     derived_thickness = {
-        "thickness_min": top,
-        "thickness_max": bottom,
-        # At least 1 cm: with as many layers as the curve resolves, each may range over a few
-        # centimetres only, and a step rounded to 0 fails.
-        "thickness_perturb_std": max(round((bottom - top) * THICKNESS_STEP_SHARE, 2), 0.01),
+        "thickness_min": first_min,
+        "thickness_max": first_max,
+        "thickness_perturb_std": max(
+            round((first_max - first_min) * THICKNESS_STEP_SHARE, 2), 0.01
+        ),
     }
     thickness_layers = [dict(derived_thickness) for _ in range(n_layers - 1)]
     if "thickness_layers" in given:
+        # Given, a layer is no thinner than the first range's or the curve's thinnest.
+        floor = min(top, first_min)
         thickness_layers = [
             {**derived_thickness, **dict(layer)} for layer in given["thickness_layers"]
         ]
-        thin = [i for i, layer in enumerate(thickness_layers) if layer["thickness_min"] < top]
+        thin = [i for i, layer in enumerate(thickness_layers) if layer["thickness_min"] < floor]
         thin_given = _values(thickness_layers[i]["thickness_min"] for i in thin)
         for index in thin:
-            thickness_layers[index]["thickness_min"] = top
+            thickness_layers[index]["thickness_min"] = floor
         if thin:
             notes.append(
-                f"thickness_min {thin_given} m thinner than the curve resolves ({top:g} m) in "
-                f"{_layers(thin)}: set to {top:g} m."
+                f"thickness_min {thin_given} m thinner than the thinnest allowed ({floor:g} m) "
+                f"in {_layers(thin)}: set to {floor:g} m."
             )
         total = sum(float(layer["thickness_max"]) for layer in thickness_layers)
         if round(total, 2) > round(deepest, 2):
             scale = deepest / total
             for layer in thickness_layers:
                 layer["thickness_max"] = round(float(layer["thickness_max"]) * scale, 2)
+                # A range scaled under its own minimum keeps a width.
+                if layer["thickness_min"] >= layer["thickness_max"]:
+                    layer["thickness_min"] = round(min(floor, layer["thickness_max"] / 2), 2)
             notes.append(
                 f"thickness_max puts the half-space as deep as {total:g} m, below the "
                 f"{deepest:.2f} m the curve reaches: scaled by {scale:.2f}."

@@ -9,6 +9,7 @@ from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
 
 from sigpipe.algorithms import (
+    DISPERSION_IMAGE_STACKING_METHODS,
     DISPERSION_METHODS,
     FILTERING_METHODS,
     MUTTING_METHODS,
@@ -159,12 +160,24 @@ DISPERSION = Stage(
     selectable=False,
 )
 
+# The active mode's shot images of a window, stacked. The nth root keeps what every shot sees and
+# damps what only a few do: on p2, long windows (24 receivers) passed G3 more often (17 against 13
+# of 27), short ones (11) kept shorter wavelengths (30 against 35 m). Linear stays the default.
+IMAGE_STACKING = Stage(
+    functions=pac_methods(DISPERSION_IMAGE_STACKING_METHODS, "linear", "root"),
+    # As sigpipe checks it: n of at least 1.
+    parameters={"root": {"n": Parameter(ge=1)}},
+    default="linear",
+    none=False,
+)
+
 # In pipeline order.
 ACTIVE_STAGES = {
     "trigger": TRIGGER,
     "muting": MUTING,
     "filtering": FILTERING,
     "dispersion": DISPERSION,
+    "image_stacking": IMAGE_STACKING,
 }
 # Before a shot is correlated (passive-active), its surface-wave window only, the window of
 # PACo's signal QC: correlated whole, a record's noise common to every trace makes the image peak

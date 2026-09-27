@@ -7,7 +7,7 @@ from sigpipe.base import Pipeline
 from sigpipe.masw.pipelines.common import load_record, stage_kwargs
 from sigpipe.masw.presets import ActivePreset, PassivePreset
 from sigpipe.masw.profiles import Profile, Record
-from sigpipe.transformers import Detrend, Filter, Mute, Plot, Save, Shift
+from sigpipe.transformers import Detrend, Filter, Mute, Save, Shift
 
 
 def build_preprocessing_pipeline(
@@ -29,6 +29,5 @@ def build_preprocessing_pipeline(
         >> Detrend(method="linear")
         >> Mute(**stage_kwargs(preset, "muting"))
         >> Filter(**stage_kwargs(preset, "filtering"))
-        >> Plot(folder_path=output_folder)
         >> Save(folder_path=output_folder)
     )

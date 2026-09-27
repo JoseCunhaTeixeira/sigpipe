@@ -21,7 +21,6 @@ def build_passive_active_pipeline(
         >> Apodize(method="hanning", frac=0.1)
         >> ActiveShotCorrelation(method="cross")
         >> Stack(**stage_kwargs(preset, "stacking"))
-        >> Plot(folder_path=output_folder)
         >> Save(folder_path=output_folder)
         >> Dispersion(method="phase", **stage_kwargs(preset, "dispersion"))
         >> Plot(folder_path=output_folder, normalize=True)

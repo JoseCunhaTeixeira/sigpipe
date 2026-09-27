@@ -77,6 +77,8 @@ class InversionMeasures(BaseModel):
     ess: dict[str, float | None] = {}
     autocorrelation: dict[str, float | None] = {}
     acceptance: tuple[float, ...]  # per chain, %
+    # Each parameter's 5th and 95th percentiles over every chain: where its samples lie.
+    quantiles: dict[str, tuple[float, float]] = {}
     steps: dict[str, float] = {}  # each parameter's step as the sampler ran it
     samples_per_chain: int
     at_bounds: tuple[BoundShare, ...]  # the most piled first
@@ -97,12 +99,14 @@ def measure_inversion(
     n_bands: int = 3,
     bound_edge: float = 0.02,
     std_ratio: float = 0.5,
+    reference: InversionParameters | None = None,
 ) -> InversionMeasures:
     """The measures of the inversion saved in window folder `folder`, inverted with
     `parameters`: the fits over `n_bands` bands of the picked curve's wavelengths, the share of
     each parameter's samples within `bound_edge` of its prior's range from each bound, the
-    useful depth where the posterior's spread of Vs reaches `std_ratio` of the prior's, and the
-    smooth median's Vs at `depths`."""
+    useful depth where the posterior's spread of Vs reaches `std_ratio` of the spread of the
+    `reference` prior (the first, wide one, when the loop narrowed the ranges since; by default
+    `parameters`' own), and the smooth median's Vs at `depths`."""
     picked = next(
         curve
         for curve in load_dispersion_curves([folder / CURVES_FILE])[0]
@@ -129,7 +133,14 @@ def measure_inversion(
         steps=_steps(load_parameters(ran).parameters) if ran.exists() else {},
         samples_per_chain=per_chain,
         at_bounds=bound_shares(samples, parameters, bound_edge),
-        useful_depth_m=useful_depth(samples, parameters, std_ratio),
+        useful_depth_m=useful_depth(samples, parameters, std_ratio, reference=reference),
+        quantiles={
+            name: (
+                round(float(np.percentile(values, 5)), 3),
+                round(float(np.percentile(values, 95)), 3),
+            )
+            for name, values in samples.items()
+        },
         depth_max_m=depth_max,
         vs_at_depths=tuple(
             (float(depth), vs)
@@ -280,15 +291,19 @@ def useful_depth(
     ratio: float,
     dz: float = 0.05,
     n_prior: int = 2_000,
+    reference: InversionParameters | None = None,
 ) -> float | None:
     """The depth below which the spread of the sampled Vs stays at least `ratio` of the prior's
     spread there (the prior drawn `n_prior` times, with a fixed seed): below it, the data say
-    little. The spread is the interquartile range, which a minority of samples in another mode
-    does not widen as it does the standard deviation. Read from the bottom up, so that a thin
-    top layer the data cannot resolve does not end it at the surface. 0 when the data inform no
-    depth, None when they inform the models down to their bottom."""
+    little. The prior is `reference`'s when given (the first, wide one: against a range the loop
+    narrowed to the samples, every model would look uninformed), else `parameters`'. The spread
+    is the interquartile range, which a minority of samples in another mode does not widen as it
+    does the standard deviation. Read from the bottom up, so that a thin top layer the data
+    cannot resolve does not end it at the surface. 0 when the data inform no depth, None when
+    they inform the models down to their bottom."""
     n_layers = parameters.n_layers
     depth_max = depth_bottom(parameters)
+    prior_of = reference if reference is not None else parameters
     posterior = _raster(
         np.array([samples[f"vs{i + 1}"] for i in range(n_layers)]),
         np.array([samples[f"thick{i + 1}"] for i in range(n_layers - 1)]),
@@ -298,12 +313,12 @@ def useful_depth(
     rng = np.random.default_rng(0)
     prior = _raster(
         np.array(
-            [rng.uniform(layer.vs_min, layer.vs_max, n_prior) for layer in parameters.vs_layers]
+            [rng.uniform(layer.vs_min, layer.vs_max, n_prior) for layer in prior_of.vs_layers]
         ),
         np.array(
             [
                 rng.uniform(layer.thickness_min, layer.thickness_max, n_prior)
-                for layer in parameters.thickness_layers
+                for layer in prior_of.thickness_layers
             ]
         ),
         dz,

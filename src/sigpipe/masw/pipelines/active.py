@@ -1,5 +1,5 @@
 """The active pipeline, from the preprocessed records: a dispersion image per shot, then the
-images stacked."""
+images stacked (linearly, or by nth root); the stacked image saved, with its figure."""
 
 from pathlib import Path
 
@@ -15,9 +15,8 @@ def build_active_pipeline(
 ) -> Pipeline:
     return (
         load_preprocessed(window, records_folder)
-        >> Plot(folder_path=output_folder)
         >> Dispersion(method="phase", **stage_kwargs(preset, "dispersion"))
-        >> Stack(method="linear")
+        >> Stack(**stage_kwargs(preset, "image_stacking"))
         >> Plot(folder_path=output_folder, normalize=True)
         >> Save(folder_path=output_folder)
     )

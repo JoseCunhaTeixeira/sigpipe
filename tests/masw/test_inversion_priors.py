@@ -35,11 +35,12 @@ def test_the_bounds_come_from_the_curve() -> None:
         assert (layer.vs_min, layer.vs_max, layer.vs_perturb_std) == (100.0, 1000.0, 20.0)
     assert (half_space.vs_min, half_space.vs_max) == (100.0, 2000.0)
     assert half_space.vs_perturb_std == pytest.approx(1900 * 20 / 900, abs=0.05)
-    # No layer thinner than a third of 3 m; the half-space no deeper than half of 30 m, shared
-    # by the three layers above it.
+    # The first inversion's thicknesses are wide, whatever the curve: 1 to 10 m, a step of 1 m,
+    # for the loop to narrow to what the data inform.
     assert [
-        (layer.thickness_min, layer.thickness_max) for layer in parameters.thickness_layers
-    ] == [(1.0, 5.0)] * 3
+        (layer.thickness_min, layer.thickness_max, layer.thickness_perturb_std)
+        for layer in parameters.thickness_layers
+    ] == [(1.0, 10.0, 1.0)] * 3
     # The default effort, with its burn-in.
     assert (parameters.n_iterations, parameters.n_burnin_iterations, parameters.n_chains) == (
         100_000,
@@ -48,11 +49,13 @@ def test_the_bounds_come_from_the_curve() -> None:
     )
 
 
-def test_more_layers_share_the_depth_the_curve_reaches() -> None:
+def test_more_layers_start_as_wide() -> None:
     parameters = derive_inversion(CURVE, RULES, {"n_layers": 6}).parameters
 
     assert parameters.n_layers == 6
-    assert [layer.thickness_max for layer in parameters.thickness_layers] == [3.0] * 5
+    assert [
+        (layer.thickness_min, layer.thickness_max) for layer in parameters.thickness_layers
+    ] == [(1.0, 10.0)] * 5
 
 
 def test_never_fewer_than_three_layers() -> None:
@@ -123,7 +126,7 @@ def test_values_given_that_fail_are_changed_with_a_note() -> None:
         # The values given are named: the user reads what they typed was changed.
         "vs_min 200 m/s of the top layer above the curve's slowest velocity (150 m/s): set to "
         "120 m/s.",
-        "thickness_min 0.5 m thinner than the curve resolves (1 m) in layers 1, 2: set to 1 m.",
+        "thickness_min 0.5 m thinner than the thinnest allowed (1 m) in layers 1, 2: set to 1 m.",
         "thickness_max puts the half-space as deep as 60 m, below the 15.00 m the curve reaches: "
         "scaled by 0.25.",
     )
@@ -189,26 +192,23 @@ def _two_points(longest: float, shortest: float = 5.0) -> DispersionCurve:
 
 def test_every_layer_keeps_a_range_at_the_count_the_curve_resolves() -> None:
     # 8.35 m of depth over layers of at least 1.67 m: 5.01 of them. Six layers would leave each
-    # of the five above the half-space 1.67 to 1.67 m once rounded; five keep 1.67 to 2.09 m.
+    # of the five above the half-space 1.67 to 1.67 m once rounded: the curve resolves five.
     derived = derive_inversion(_two_points(16.7), RULES, {"n_layers": 6})
 
     assert (derived.parameters.n_layers, derived.max_layers) == (5, 5)
-    layer = derived.parameters.thickness_layers[0]
-    assert (layer.thickness_min, layer.thickness_max, layer.thickness_perturb_std) == (
-        1.67,
-        2.09,
-        0.05,
-    )
-    # A hair deeper, six fit, each over a centimetre: the step stays 1 cm, never 0.
+    # A hair deeper, six fit.
     six = derive_inversion(_two_points(16.75), RULES, {"n_layers": 6}).parameters
     assert six.n_layers == 6
-    assert (
-        six.thickness_layers[0].thickness_max,
-        six.thickness_layers[0].thickness_perturb_std,
-    ) == (
-        1.68,
-        0.01,
-    )
+    # Given, a range the depth cap scales under its own minimum keeps a width: at least 1 cm
+    # of step, never 0.
+    narrow = derive_inversion(
+        _two_points(16.75),
+        RULES,
+        {"n_layers": 6, "thickness_layers": [{"thickness_min": 2.0, "thickness_max": 3.0}] * 5},
+    ).parameters
+    layer = narrow.thickness_layers[0]
+    assert layer.thickness_min < layer.thickness_max == 1.68
+    assert layer.thickness_perturb_std >= 0.01
     # A curve too short for three layers is said so, for the agent.
     with pytest.raises(InversionError, match=r"\(5.0 to 6.6 m\) resolve fewer than 3 layers"):
         derive_inversion(_two_points(6.6), RULES)
@@ -266,11 +266,21 @@ def test_the_ranges_widen_where_the_curve_needs_it() -> None:
 
 
 def test_the_rules_are_configurable() -> None:
-    rules = PriorRules(vs_min=50.0, vs_max=600.0, half_space_vs_max=900.0, max_depth=1.0 / 3)
+    rules = PriorRules(
+        vs_min=50.0,
+        vs_max=600.0,
+        half_space_vs_max=900.0,
+        thickness_min_m=0.5,
+        thickness_max_m=5.0,
+    )
     parameters = derive_inversion(CURVE, rules).parameters
 
     assert (parameters.vs_layers[0].vs_min, parameters.vs_layers[0].vs_max) == (50.0, 600.0)
     assert parameters.vs_layers[-1].vs_max == 900.0
-    # A third of 30 m for the half-space's top, shared by the three layers above it.
-    assert parameters.thickness_layers[0].thickness_max == 3.33
+    layer = parameters.thickness_layers[0]
+    assert (layer.thickness_min, layer.thickness_max, layer.thickness_perturb_std) == (
+        0.5,
+        5.0,
+        0.5,
+    )
     assert PriorRules.model_validate_json(rules.model_dump_json()) == rules
