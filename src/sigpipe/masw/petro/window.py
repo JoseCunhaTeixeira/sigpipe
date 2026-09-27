@@ -84,15 +84,19 @@ def fundamental_curve(folder: Path) -> DispersionCurve:
     return curve if curve.mode == FUNDAMENTAL else replace(curve, mode=FUNDAMENTAL)
 
 
-def invert_window_petro(folder: Path, model_name: str) -> PetroModel:
+def invert_window_petro(
+    folder: Path, model_name: str, output_folder: Path | None = None
+) -> PetroModel:
     """Invert the fundamental mode picked in window folder `folder` with the bundled Silex model
-    `model_name`, and write PAC's files beside it: the model, the curve it gives back, and its
-    rock-physics profiles. Raises ValueError when the curve falls outside the range the model
-    was trained on."""
+    `model_name`, and write PAC's files beside it, or in `output_folder` (a staging folder: see
+    sigpipe.masw.runs.stopping): the model, the curve it gives back, and its rock-physics
+    profiles. Raises ValueError when the curve falls outside the range the model was trained
+    on."""
+    out = output_folder or folder
     observed = fundamental_curve(folder)
     model_dir = bundled_silex_model_dir(model_name)
     pipeline = Invert(method="silex", model_dir=model_dir) >> Save(
-        folder_path=folder, file_name="PetroInversion_Model"
+        folder_path=out, file_name="PetroInversion_Model"
     )
     result: PetroModel = pipeline.run(
         data=[DispersionCurves(dispersion_curves=(observed,))], show_log=False
@@ -101,13 +105,13 @@ def invert_window_petro(folder: Path, model_name: str) -> PetroModel:
     under_layers = parse_under_layers(load_silex_card(model_dir).under_layers)
     modeled = fwd_petro_phase(result, mode=0, fs=observed.fs, under_layers=under_layers)
     save_dispersion_curves(
-        DispersionCurves(dispersion_curves=(modeled,)), path=folder / MODELED_CURVE_FILE
+        DispersionCurves(dispersion_curves=(modeled,)), path=out / MODELED_CURVE_FILE
     )
 
     # The rock physics of the forward model above, computed once: the sections read it back.
     profile = rock_physics(result)
-    _save_profile(folder, "shear_modulus", result.position, profile.dz, profile.muHMs)
-    _save_profile(folder, "vs", result.position, profile.dz, profile.VSs)
+    _save_profile(out, "shear_modulus", result.position, profile.dz, profile.muHMs)
+    _save_profile(out, "vs", result.position, profile.dz, profile.VSs)
     return result
 
 

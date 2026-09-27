@@ -1,12 +1,13 @@
 """The petrophysical inversion of a line: each window in a worker process, a window that fails
-kept to itself, then every section of the line."""
+kept to itself, then every section of the line. Stoppable: see sigpipe.masw.runs.stopping."""
 
 import functools
 import logging
+import threading
 import time
 import traceback
 from collections.abc import Callable, Sequence
-from concurrent.futures import Future, ProcessPoolExecutor, as_completed
+from concurrent.futures import Future, ProcessPoolExecutor
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -19,6 +20,7 @@ from sigpipe.masw.petro.section import (
 )
 from sigpipe.masw.petro.window import QUANTITIES, invert_window_petro
 from sigpipe.masw.runs import start_worker
+from sigpipe.masw.runs.stopping import Stopped, commit, finished, staging, undo
 
 logger = logging.getLogger(__name__)
 
@@ -44,9 +46,14 @@ def invert_line_petro(
     model_name: str,
     workers: int,
     on_window: OnWindow | None = None,
+    stop: threading.Event | None = None,
 ) -> tuple[PetroOutcome, ...]:
     """Each window folder of `units` inverted with the bundled Silex model `model_name`, in up to
-    `workers` processes, in the order given."""
+    `workers` processes, in the order given. A window's files are replaced only once its
+    inversion succeeded: one that fails keeps those it had.
+
+    `stop`, once set, stops them at once: the windows not finished keep what they had, and
+    Stopped is raised with the outcomes of those that finished."""
     outcomes: dict[str, PetroOutcome] = {}
     with ProcessPoolExecutor(
         max_workers=max(1, min(workers, len(units))),
@@ -54,31 +61,42 @@ def invert_line_petro(
         initargs=(run_folder,),
     ) as executor:
         futures: dict[Future[tuple[PetroModel, float]], str] = {
-            executor.submit(_invert_timed, run_folder / unit, model_name): unit for unit in units
+            executor.submit(
+                _invert_timed, run_folder / unit, model_name, staging(run_folder / unit)
+            ): unit
+            for unit in units
         }
-        for future in as_completed(futures):
-            unit = futures[future]
-            try:
-                model, duration_s = future.result()
-                outcome = PetroOutcome(unit, model, duration_s)
-            except Exception as error:
-                outcome = PetroOutcome(
-                    unit,
-                    None,
-                    error_type=type(error).__name__,
-                    message=str(error),
-                    traceback="".join(traceback.format_exception(error)),
-                )
-            outcomes[unit] = outcome
-            if on_window is not None:
-                on_window(len(outcomes), len(units), outcome)
+        try:
+            for future in finished(executor, futures, stop):
+                unit = futures.pop(future)
+                try:
+                    model, duration_s = future.result()
+                    commit(run_folder / unit)
+                    outcome = PetroOutcome(unit, model, duration_s)
+                except Exception as error:
+                    undo(run_folder / unit, created=False)
+                    outcome = PetroOutcome(
+                        unit,
+                        None,
+                        error_type=type(error).__name__,
+                        message=str(error),
+                        traceback="".join(traceback.format_exception(error)),
+                    )
+                outcomes[unit] = outcome
+                if on_window is not None:
+                    on_window(len(outcomes), len(units), outcome)
+        except Stopped:
+            for unit in futures.values():
+                undo(run_folder / unit, created=False)
+            raise Stopped(tuple(outcomes[unit] for unit in units if unit in outcomes)) from None
     return tuple(outcomes[unit] for unit in units)
 
 
-def _invert_timed(folder: Path, model_name: str) -> tuple[PetroModel, float]:
-    """Runs in a worker: one window's inversion, and its duration in seconds."""
+def _invert_timed(folder: Path, model_name: str, output_folder: Path) -> tuple[PetroModel, float]:
+    """Runs in a worker: one window's inversion into `output_folder`, and its duration in
+    seconds."""
     start = time.perf_counter()
-    model = invert_window_petro(folder, model_name)
+    model = invert_window_petro(folder, model_name, output_folder)
     return model, time.perf_counter() - start
 
 

@@ -9,11 +9,13 @@ everything needed to understand or reproduce it.
 from .finding import find_run, list_runs, load_image, load_manifest, window_folders, xmid_of
 from .models import RecordOutcome, RunError, RunManifest, WindowOutcome
 from .processing import package_versions, run_processing, start_worker
+from .stopping import Stopped
 
 __all__ = [
     "RecordOutcome",
     "RunError",
     "RunManifest",
+    "Stopped",
     "WindowOutcome",
     "find_run",
     "list_runs",

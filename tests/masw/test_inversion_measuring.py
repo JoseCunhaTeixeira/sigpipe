@@ -7,10 +7,12 @@ import pytest
 
 from sigpipe.base import DispersionCurve, Mode, VelocityType
 from sigpipe.base.acquisition import UNKNOWN_ACQUISITION
-from sigpipe.masw.inversion import InversionParameters
+from sigpipe.base.inversion import LayeredSamples
+from sigpipe.masw.inversion import InversionParameters, ThicknessLayer, VsLayer
 from sigpipe.masw.inversion.measuring import (
     acceptance_rates,
     bound_shares,
+    depth_bottom,
     effective_sample_size,
     fit_by_band,
     lag1_autocorrelation,
@@ -27,6 +29,15 @@ PARAMETERS = InversionParameters.model_validate(
         "thickness_layers": [{"thickness_min": 1.0, "thickness_max": 5.0}],
     }
 )
+
+
+def _profiles(samples: dict[str, np.ndarray]) -> LayeredSamples:
+    """Two-layer samples, as the samplers keep them."""
+    return LayeredSamples(
+        depths=samples["thick1"][:, None],
+        vs=np.column_stack([samples["vs1"], samples["vs2"]]),
+        n_chains=1,
+    )
 
 
 def _curve(vs: np.ndarray, fs: np.ndarray, errors: np.ndarray | None = None) -> DispersionCurve:
@@ -111,7 +122,7 @@ def test_the_useful_depth_ends_where_the_data_stop_informing_vs() -> None:
         "vs2": RNG.uniform(100.0, 500.0, 3_000),
     }
 
-    depth = useful_depth(samples, PARAMETERS, 0.5)
+    depth = useful_depth(_profiles(samples), PARAMETERS, 0.5)
     assert depth is not None and 2.8 <= depth <= 3.1
 
 
@@ -133,10 +144,10 @@ def test_a_thin_top_layer_the_data_cannot_resolve_does_not_end_the_useful_depth(
     )
 
     # Informed below the top layer, to the models' bottom.
-    assert useful_depth(samples, parameters, 0.5) is None
+    assert useful_depth(_profiles(samples), parameters, 0.5) is None
     # Nothing informed at all: 0.
     samples["vs2"] = RNG.uniform(100.0, 500.0, 3_000)
-    assert useful_depth(samples, parameters, 0.5) == 0.0
+    assert useful_depth(_profiles(samples), parameters, 0.5) == 0.0
 
 
 def test_a_model_informed_to_its_bottom_has_no_useful_depth() -> None:
@@ -146,7 +157,7 @@ def test_a_model_informed_to_its_bottom_has_no_useful_depth() -> None:
         "vs2": RNG.normal(350.0, 5.0, 3_000),
     }
 
-    assert useful_depth(samples, PARAMETERS, 0.5) is None
+    assert useful_depth(_profiles(samples), PARAMETERS, 0.5) is None
 
 
 def test_the_fit_is_judged_by_band_of_wavelength() -> None:
@@ -225,3 +236,21 @@ def test_the_effective_sample_size_counts_independent_samples() -> None:
     assert lag1_autocorrelation(correlated) == pytest.approx(0.9, abs=0.05)
     assert abs(lag1_autocorrelation(independent) or 0) < 0.05
     assert effective_sample_size(independent[:, :6]) is None
+
+
+def test_values_fixed_are_left_out_of_the_measures() -> None:
+    parameters = InversionParameters(
+        n_layers=2,
+        vs_layers=(VsLayer(), VsLayer(vs_fixed=400.0)),
+        thickness_layers=(ThicknessLayer(thickness_fixed=3.0),),
+    )
+    samples = {
+        "vs1": np.linspace(150.0, 250.0, 50),
+        "vs2": np.full(50, 400.0),
+        "thick1": np.full(50, 3.0),
+    }
+
+    # Not sampled: no prior to pile against; the models end under the fixed thickness.
+    assert {share.parameter for share in bound_shares(samples, parameters, 0.02)} == {"vs1"}
+    assert depth_bottom(parameters) == 4.0
+    assert parameters.fixed() == {"vs2": 400.0, "thick1": 3.0}

@@ -17,12 +17,10 @@ from sigpipe.algorithms.inversion.rayleigh.seismic.forward import (
 )
 from sigpipe.algorithms.inversion.rayleigh.seismic.parameters import (
     InversionParameters,
-    ThicknessLayer,
-    VsLayer,
 )
 from sigpipe.algorithms.picking.dispersion.curve import min_resolvable_wavelength
 from sigpipe.base.dispersion_curve import DispersionCurves, Mode
-from sigpipe.base.inversion import InversionResult
+from sigpipe.base.inversion import InversionResult, LayeredSamples
 from sigpipe.base.pipeline import Pipeline
 from sigpipe.dataio.dispersion.loading import load_dispersion_curves
 from sigpipe.dataio.dispersion.plotting import plot_dispersion_image
@@ -40,18 +38,24 @@ DZ = 0.01  # m
 VP_VS_RATIO = 1.77
 SAMPLES_FILE = "SeismicInversion_Samples_0000.npz"  # PACo's own, next to PAC's files
 PARAMETERS_FILE = "SeismicInversion_Parameters_0000.json"
+# The samples file's arrays that are no named value: the layers, and what describes the file.
+_DEPTHS = "profile_depths"
+_VS = "profile_vs"
+_NOT_NAMED = ("n_chains", "misfits", _DEPTHS, _VS)
 M0 = Mode("M", 0)  # the fundamental mode, as the pickers label it
 
 
 class WindowParameters(BaseModel):
-    """What a window's sampler ran with: each layer's prior and the sampler's effort, the steps
-    as the trial runs tuned them, and how often each chain accepted a proposal."""
+    """What a window's chains ran with: the layering and its priors (the free layering's bounds
+    as found from the curves), the chains' effort, how often each chain accepted a move, and
+    each sampled parameter's typical move (the fixed layering)."""
 
     model_config = ConfigDict(frozen=True)
 
-    parameters: InversionParameters  # as run: each step as the trial runs tuned it
-    tuning: tuple[tuple[float, float], ...]  # each trial run's step factor and acceptance (%)
+    parameters: InversionParameters  # as run
+    tuning: tuple[tuple[float, float], ...] = ()  # bayesbay's trial runs (factor, acceptance %)
     acceptance: tuple[float, ...]  # each chain's over the run (%), the burn-in included
+    steps: dict[str, float] = {}  # each sampled parameter's typical move (vs1, ..., thick1, ...)
 
 
 def build_inversion_pipeline(
@@ -70,18 +74,21 @@ def invert_window(
     parameters: InversionParameters,
     modes: Collection[Mode] = (M0,),
     chain_jobs: int = 1,
+    output_folder: Path | None = None,
 ) -> InversionResult:
     """Invert the curves of `modes` saved in window folder `folder` (M0 by default), the chains
-    in `chain_jobs` processes, and write PAC's files next to them."""
+    in `chain_jobs` processes, and write PAC's files next to them, or in `output_folder` (a
+    staging folder: see sigpipe.masw.runs.stopping)."""
+    out = output_folder or folder
     image = load_image(folder)
     curves = _curves(folder, modes)
-    result: InversionResult = build_inversion_pipeline(parameters, folder, chain_jobs).run(
+    result: InversionResult = build_inversion_pipeline(parameters, out, chain_jobs).run(
         data=[curves], show_log=False
     )[0]
 
-    (folder / "SeismicInversion_Log_0000.log").write_text(result.log)
-    save_parameters(parameters, result, folder / PARAMETERS_FILE)
-    save_samples(result, parameters.n_chains, folder / SAMPLES_FILE)
+    (out / "SeismicInversion_Log_0000.log").write_text(result.log)
+    save_parameters(parameters, result, out / PARAMETERS_FILE)
+    save_samples(result, out / SAMPLES_FILE)
 
     # The median model's M0 at the picked frequencies, and every mode it supports across the
     # image, drawn over the image.
@@ -119,7 +126,7 @@ def invert_window(
         normalize=True,
         show_errorbars=True,
     )
-    Plot.savefig(path=folder / "SeismicInversion_DispersionImage_0000.png", figure=figure)
+    Plot.savefig(path=out / "SeismicInversion_DispersionImage_0000.png", figure=figure)
     plt.close(figure)
 
     forward_modeled = forward_model_all(result, curves, VP_VS_RATIO)
@@ -131,20 +138,16 @@ def invert_window(
             )
             continue
         save_dispersion_curves(
-            modeled, path=folder / f"SeismicInversion_DispersionCurves_0000_{model_name}.csv"
+            modeled, path=out / f"SeismicInversion_DispersionCurves_0000_{model_name}.csv"
         )
 
     figure = plot_density_curves(result, curves, VP_VS_RATIO)
-    Plot.savefig(path=folder / "SeismicInversion_DensityCurves_0000.png", figure=figure)
+    Plot.savefig(path=out / "SeismicInversion_DensityCurves_0000.png", figure=figure)
     plt.close(figure)
 
-    samples = {f"Vs{i + 1} [m/s]": result.samples[f"vs{i + 1}"] for i in range(result.n_layers)}
-    samples |= {
-        f"H{i + 1} [m]": result.samples[f"thick{i + 1}"] for i in range(result.n_layers - 1)
-    }
     try:
-        figure = plot_posterior_marginals(samples)
-        Plot.savefig(path=folder / "SeismicInversion_Marginals_0000.png", figure=figure)
+        figure = plot_posterior_marginals(marginals(result))
+        Plot.savefig(path=out / "SeismicInversion_Marginals_0000.png", figure=figure)
         plt.close(figure)
     except Exception:  # a figure must not lose the inversion
         logger.exception("Could not plot the posterior marginals in %s", folder)
@@ -152,33 +155,40 @@ def invert_window(
     return result
 
 
+def marginals(result: InversionResult) -> dict[str, np.ndarray]:
+    """What the marginals figure shows, one value per kept model: each sampled value of the
+    fixed layering; the number of layers and the Vs at three depths, from the shallowest
+    interface allowed to the deepest, when the data chose the layers; the noise factor. A value
+    the same in every model has no density: left out."""
+    shown: dict[str, np.ndarray] = {}
+    for name, values in result.samples.items():
+        if name.startswith("vs") and name[2:].isdigit():
+            shown[f"Vs{name[2:]} [m/s]"] = values
+        elif name.startswith("thick") and name[5:].isdigit():
+            shown[f"H{name[5:]} [m]"] = values
+    if "layers" in result.samples:
+        shown["Layers"] = result.samples["layers"]
+        free = result.parameters.get("free") or {}
+        top, bottom = free.get("depth_min"), free.get("depth_max")
+        if result.profiles is not None and top and bottom:
+            depths = np.round(np.geomspace(float(top), float(bottom), 3), 1)
+            at = result.profiles.at(depths)
+            shown |= {f"Vs at {depth:g} m [m/s]": at[:, i] for i, depth in enumerate(depths)}
+    if "noise" in result.samples:
+        shown["Noise factor"] = result.samples["noise"]
+    return {name: values for name, values in shown.items() if np.ptp(values) > 0}
+
+
 def save_parameters(parameters: InversionParameters, result: InversionResult, path: Path) -> None:
-    """`parameters` as `result`'s sampler ran them, with its tuning and acceptance."""
-
-    def step(name: str, given: float) -> float:
-        return _significant(result.steps.get(name, given))
-
-    ran = parameters.model_copy(
-        update={
-            "vs_layers": tuple(
-                VsLayer(
-                    vs_min=layer.vs_min,
-                    vs_max=layer.vs_max,
-                    vs_perturb_std=step(f"vs{i + 1}", layer.vs_perturb_std),
-                )
-                for i, layer in enumerate(parameters.vs_layers)
-            ),
-            "thickness_layers": tuple(
-                ThicknessLayer(
-                    thickness_min=layer.thickness_min,
-                    thickness_max=layer.thickness_max,
-                    thickness_perturb_std=step(f"thick{i + 1}", layer.thickness_perturb_std),
-                )
-                for i, layer in enumerate(parameters.thickness_layers)
-            ),
-        }
+    """The parameters `result`'s chains ran with (the free layering's bounds found from the
+    curves), each chain's acceptance and the sampled parameters' typical moves."""
+    ran = InversionParameters.model_validate(result.parameters) if result.parameters else parameters
+    window = WindowParameters(
+        parameters=ran,
+        tuning=result.tuning,
+        acceptance=result.acceptance,
+        steps={name: _significant(step) for name, step in result.steps.items()},
     )
-    window = WindowParameters(parameters=ran, tuning=result.tuning, acceptance=result.acceptance)
     path.write_text(window.model_dump_json(indent=2))
 
 
@@ -187,22 +197,45 @@ def load_parameters(path: Path) -> WindowParameters:
     return WindowParameters.model_validate_json(path.read_text())
 
 
-def save_samples(result: InversionResult, n_chains: int, path: Path) -> None:
-    """The posterior samples, chain after chain as sigpipe concatenates them, with each
-    sample's misfit: what G5 judges convergence and the prior's bounds on."""
+def save_samples(result: InversionResult, path: Path) -> None:
+    """The kept models, chain after chain: their named values, their layers (interfaces' depths
+    and Vs, NaN beyond a model's layers) and each one's misfit."""
     arrays: dict[str, Any] = {name: np.asarray(values) for name, values in result.samples.items()}
+    if result.profiles is not None:
+        arrays[_DEPTHS] = result.profiles.depths
+        arrays[_VS] = result.profiles.vs
+        n_chains = result.profiles.n_chains
+    else:
+        n_chains = len(result.acceptance) or 1
     np.savez_compressed(
         path, n_chains=np.array(n_chains), misfits=np.asarray(result.misfits), **arrays
     )
 
 
 def load_samples(path: Path) -> tuple[dict[str, np.ndarray], int]:
-    """The samples `save_samples` wrote, by parameter (vs1, ..., thick1, ...), and the number
-    of chains they come from."""
+    """The named values `save_samples` wrote (vs1, ..., thick1, ..., layers, noise), and the
+    number of chains they come from."""
     with np.load(path) as saved:
         n_chains = int(saved["n_chains"])
-        samples = {name: saved[name] for name in saved.files if name not in ("n_chains", "misfits")}
+        samples = {name: saved[name] for name in saved.files if name not in _NOT_NAMED}
     return samples, n_chains
+
+
+def load_profiles(path: Path) -> LayeredSamples:
+    """The kept models as layers; for a run saved before they were, rebuilt from its layers'
+    named values (vs1, ..., thick1, ...)."""
+    with np.load(path) as saved:
+        n_chains = int(saved["n_chains"])
+        if _VS in saved.files:
+            return LayeredSamples(depths=saved[_DEPTHS], vs=saved[_VS], n_chains=n_chains)
+        n_layers = sum(1 for name in saved.files if name.startswith("vs") and name[2:].isdigit())
+        vs = np.column_stack([saved[f"vs{i + 1}"] for i in range(n_layers)])
+        thickness = (
+            np.column_stack([saved[f"thick{i + 1}"] for i in range(n_layers - 1)])
+            if n_layers > 1
+            else np.empty((vs.shape[0], 0))
+        )
+    return LayeredSamples(depths=np.cumsum(thickness, axis=1), vs=vs, n_chains=n_chains)
 
 
 def _significant(step: float) -> float:

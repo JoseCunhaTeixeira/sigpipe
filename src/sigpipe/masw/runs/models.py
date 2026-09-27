@@ -54,3 +54,5 @@ class RunManifest(BaseModel):
     windows: tuple[WindowOutcome, ...]  # sorted by xmid
     # What G1 took out of the windows: the phase shift done again leaves them out too.
     exclusions: Exclusions = Exclusions()
+    # Stopped on request: its windows are those that had finished.
+    stopped: bool = False

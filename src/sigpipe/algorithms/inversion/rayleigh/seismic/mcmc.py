@@ -1,78 +1,50 @@
-import contextlib
-import io
-from collections.abc import Callable, Mapping, Sequence
-from typing import Any, cast
+"""The seismic inversion: layered Vs models sampled against picked phase-velocity curves, the
+layers chosen by the data (transdimensional.py) or given (dream.py), and the models it keeps.
+
+Both samplers keep models as layers (sigpipe.base.inversion.LayeredSamples). From them:
+- the ensemble model, each depth's median and spread of the kept models' Vs;
+- the median model, the kept model nearest the ensemble (least mean squared difference of the
+  logarithm of Vs over the depths): a model the chains kept, which fits as they do, where the
+  median of each layer's values would glue different models' layers together;
+- the best model, the least misfit of every model the chains visited;
+- the smooth best and median, their layers' steps eased (VelocityModel.smoothed).
+"""
+
+import math
+from collections.abc import Sequence
+from concurrent.futures import ProcessPoolExecutor
+from dataclasses import dataclass
 
 import numpy as np
-from bayesbay import BaseMarkovChain, BayesianInversion, ParameterSpaceState, State
-from bayesbay.likelihood import LogLikelihood, Target
-from bayesbay.parameterization import Parameterization, ParameterSpace
-from bayesbay.prior import UniformPrior
-from disba import DispersionError, PhaseDispersion
 
 from sigpipe.base.coordinate import Coordinate
-from sigpipe.base.dispersion_curve import DispersionCurvesImage
-from sigpipe.base.inversion import InversionResult
+from sigpipe.base.dispersion_curve import DispersionCurve, DispersionCurvesImage
+from sigpipe.base.inversion import InversionResult, LayeredSamples
 from sigpipe.base.velocity_model import VelocityModel
 
-from .forward import fwd_function, vp_rho_from_vs
+from . import dream, transdimensional
+from .data import Curve, curves_of, phase_velocities
+from .forward import vp_rho_from_vs
 from .parameters import SAVE_EVERY, InversionParameters
 
-# The share of proposals the chains accept when their steps suit the posterior, in %: short
-# trial runs scale every step together until it falls within this band.
-TARGET_ACCEPTANCE = (20.0, 30.0)
-# Each trial run is a twentieth of the run, within these bounds.
-TRIAL_ITERATIONS = (200, 2_000)
-MAX_TRIALS = 4
+# The free layering's tempered copies of each chain, and the hottest one's temperature.
+TEMPERATURES = 5
+HOTTEST = 100.0
+# The medians' distance is measured every so many rows of the depth grid.
+_EVERY = 10
 
 
-def _ensemble_model(
-    sampled_Vs: np.ndarray,
-    sampled_thicknesses: np.ndarray,
-    Vp_Vs_ratio: float,
-    dz: float,
-    depth_max: float,
-    position: Coordinate,
-) -> VelocityModel:
-    """Rasterize every posterior sample onto a uniform depth grid, then take the per-depth median and std."""
-    n_samples = sampled_Vs.shape[1]
-    n_rows = int(np.ceil(depth_max / dz))
+@dataclass(frozen=True, slots=True)
+class _Run:
+    """What either sampler kept, in one form."""
 
-    rasterized_Vs = np.empty((n_samples, n_rows), dtype=np.float64)
-    for s in range(n_samples):
-        layer_rows = (sampled_thicknesses[:, s] / dz).astype(int)
-        raster = np.repeat(sampled_Vs[:, s], layer_rows)
-        if raster.shape[0] < n_rows:
-            pad = np.full(n_rows - raster.shape[0], sampled_Vs[-1, s])
-            raster = np.concatenate((raster, pad))
-        rasterized_Vs[s] = raster[:n_rows]
-
-    median_Vs = np.median(rasterized_Vs, axis=0)
-    std_Vs = np.std(rasterized_Vs, axis=0)
-    median_Vp, median_rho = vp_rho_from_vs(median_Vs, Vp_Vs_ratio)
-
-    return VelocityModel(
-        vs_s=tuple(median_Vs.tolist()),
-        vs_p=tuple(median_Vp.tolist()),
-        rhos=tuple(median_rho.tolist()),
-        vs_s_std=tuple(std_Vs.tolist()),
-        thicknesses=tuple([dz] * n_rows),
-        position=position,
-    )
-
-
-def _make_fwd_function(
-    mode: int, fs: np.ndarray, n_layers: int, Vp_Vs_ratio: float
-) -> Callable[[dict[str, np.ndarray]], np.ndarray]:
-    """A fully-typed def instead of a lambda -- lambda parameters can't carry
-    annotations, and mode/fs need to be bound as real arguments (not closed
-    over) since they vary per dispersion curve in the list comprehension
-    that calls this."""
-
-    def fwd(state: dict[str, np.ndarray]) -> np.ndarray:
-        return fwd_function(state, n_layers, mode, fs, Vp_Vs_ratio)
-
-    return fwd
+    profiles: LayeredSamples
+    samples: dict[str, np.ndarray]
+    rms: np.ndarray
+    best: tuple[np.ndarray, np.ndarray]  # interfaces' depths, layers' Vs
+    acceptance: tuple[float, ...]
+    steps: dict[str, float]
+    log: str
 
 
 def inversion_mcmc(
@@ -82,387 +54,277 @@ def inversion_mcmc(
     Vp_Vs_ratio: float = 1.77,
     dz: float = 0.01,
     chain_jobs: int = 1,
+    seed: int | None = None,
     **parameters: object,
 ) -> InversionResult:
     """The layered Vs models that fit `dispersion_curves`, sampled by Markov chains.
 
-    `parameters` are InversionParameters' fields, which validate them: the number of layers,
-    each layer's prior (its Vs and thickness bounds, and the sampler's steps) and the sampler's
-    effort. `chain_jobs` processes run the chains (1: one after the other, in this process, as
-    when a caller already runs windows in parallel). Vp and density follow Vs by `Vp_Vs_ratio`;
-    the smooth and ensemble models are
-    sampled every `dz` metres.
+    `parameters` are InversionParameters' fields, which validate them: the layering (the data
+    choosing the layers within bounds, or the layers given), the Vs drop allowed and the chains'
+    effort. The free layering's chains run in `chain_jobs` processes (1: one after the other, in
+    this process, as when a caller already runs windows in parallel); the fixed layering's run
+    together in this one. Vp and density follow Vs by `Vp_Vs_ratio`; the smooth and ensemble
+    models are sampled every `dz` metres. `seed` makes a run repeatable.
     """
     settings = InversionParameters.model_validate(parameters)
-    n_layers = settings.n_layers
-
     if len(dispersion_curves) == 0:
         raise ValueError("At least one dispersion curve must be provided for inversion.")
-
-    modes: list[int] = sorted({dc.mode.number for dc in dispersion_curves})
-
-    if len(modes) != len(dispersion_curves):
+    picked: list[DispersionCurve] = list(dispersion_curves)
+    modes = [curve.mode.number for curve in picked]
+    if len(set(modes)) != len(modes):
         raise ValueError("All dispersion curves must have a different mode.")
+    if chain_jobs < 1:
+        raise ValueError(f"chain_jobs must be at least 1, not {chain_jobs}")
 
-    ordered_curves = sorted(dispersion_curves, key=lambda dc: dc.mode.number)
-
-    # Targets
-    targets: list[Target] = []
-    for dispersion_curve in ordered_curves:
-        assert dispersion_curve.vs_err is not None, "vs_err must be provided for MCMC inversion"
-        covariance_mat_inv = np.diag(1 / dispersion_curve.vs_err**2)
-        target = Target(
-            name=f"rayleigh_M{dispersion_curve.mode.number}",
-            dobs=dispersion_curve.vs,
-            covariance_mat_inv=covariance_mat_inv,
-        )
-        targets.append(target)
-
-    # Forward functions
-    fwd_functions = [
-        _make_fwd_function(dispersion_curve.mode.number, dispersion_curve.fs, n_layers, Vp_Vs_ratio)
-        for dispersion_curve in ordered_curves
-    ]
-
-    # Log-likelihood
-    log_likelihood = LogLikelihood(
-        targets=targets,
-        fwd_functions=fwd_functions,  # pyright: ignore[reportArgumentType]
+    settings = settings.resolved(
+        np.concatenate([np.asarray(curve.fs, dtype=float) for curve in picked]),
+        np.concatenate([np.asarray(curve.vs, dtype=float) for curve in picked]),
     )
+    curves = curves_of(picked)
+    seeds = np.random.SeedSequence(seed).generate_state(settings.n_chains + 1).tolist()
+    run = (
+        _fixed(settings, curves, Vp_Vs_ratio, seeds[0])
+        if settings.layering == "fixed"
+        else _free(settings, curves, Vp_Vs_ratio, seeds[1:], chain_jobs)
+    )
+    return _result(settings, run, picked, Vp_Vs_ratio, dz, position)
 
-    fs_per_mode = [dispersion_curve.fs for dispersion_curve in ordered_curves]
 
-    # Each parameter's prior, and the step it is given.
+def _fixed(
+    settings: InversionParameters, curves: tuple[Curve, ...], vp_vs: float, seed: int
+) -> _Run:
+    """The layers given, sampled together by DREAM(ZS)."""
+    fixed = settings.fixed()
     bounds = {
         f"vs{i + 1}": (layer.vs_min, layer.vs_max) for i, layer in enumerate(settings.vs_layers)
     } | {
         f"thick{i + 1}": (layer.thickness_min, layer.thickness_max)
         for i, layer in enumerate(settings.thickness_layers)
     }
-    given = {f"vs{i + 1}": layer.vs_perturb_std for i, layer in enumerate(settings.vs_layers)} | {
-        f"thick{i + 1}": layer.thickness_perturb_std
-        for i, layer in enumerate(settings.thickness_layers)
-    }
+    bounds = {name: prior for name, prior in bounds.items() if name not in fixed}
+    problem = dream.Problem(
+        curves=curves,
+        names=tuple(bounds),
+        low=np.array([low for low, _ in bounds.values()], dtype=float),
+        high=np.array([high for _, high in bounds.values()], dtype=float),
+        fixed=fixed,
+        n_layers=settings.n_layers,
+        vp_vs=vp_vs,
+        least_ratio=settings.least_ratio,
+    )
+    sampled = dream.sample(
+        problem,
+        dream.Settings(
+            n_iterations=settings.n_iterations,
+            n_burnin=settings.n_burnin_iterations,
+            save_every=SAVE_EVERY,
+            n_chains=settings.n_chains,
+        ),
+        seed,
+    )
+    values = np.concatenate([chain.values for chain in sampled.chains])
+    layered = [problem.layers(row) for row in values]
+    thickness = np.array([t for t, _ in layered])
+    vs = np.array([v for _, v in layered])
+    samples = {f"vs{i + 1}": vs[:, i] for i in range(settings.n_layers)}
+    samples |= {f"thick{i + 1}": thickness[:, i] for i in range(settings.n_layers - 1)}
+    samples["noise"] = np.concatenate([chain.noise for chain in sampled.chains])
+    best_thickness, best_vs = problem.layers(sampled.best_values)
+    acceptance = tuple(
+        round(100 * chain.accepted / max(chain.proposed, 1), 2) for chain in sampled.chains
+    )
+    steps = np.mean([chain.steps for chain in sampled.chains], axis=0)
+    log = (
+        f"DREAM(ZS), {settings.n_chains} chains of {settings.n_iterations:,} iterations "
+        f"({settings.n_burnin_iterations:,} burn-in), {settings.n_layers} layers given; "
+        f"acceptance {', '.join(f'{rate:g} %' for rate in acceptance)}; crossover "
+        f"probabilities {', '.join(f'{p:.2f}' for p in sampled.crossover)}; noise factor, "
+        f"median {float(np.median(samples['noise'])):.3g}.\n"
+    )
+    return _Run(
+        profiles=LayeredSamples(
+            depths=np.cumsum(thickness[:, :-1], axis=1),
+            vs=vs,
+            n_chains=settings.n_chains,
+        ),
+        samples=samples,
+        rms=np.concatenate([chain.rms for chain in sampled.chains]),
+        best=(np.cumsum(best_thickness[:-1]), best_vs),
+        acceptance=acceptance,
+        steps={
+            name: round(float(step), 4) for name, step in zip(problem.names, steps, strict=True)
+        },
+        log=log,
+    )
 
-    def sampler(steps: Mapping[str, float], n_chains: int) -> BayesianInversion:
-        """The sampler with each parameter's step from `steps`."""
-        priors: list[UniformPrior] = [
-            UniformPrior(
-                name=name,
-                vmin=low,  # pyright: ignore[reportArgumentType]
-                vmax=high,  # pyright: ignore[reportArgumentType]
-                perturb_std=steps[name],  # pyright: ignore[reportArgumentType]
-            )
-            for name, (low, high) in bounds.items()
-        ]
-        param_space: ParameterSpace = ParameterSpace(
-            name="space",
-            n_dimensions=1,
-            parameters=priors,  # pyright: ignore[reportArgumentType]
-        )
-        parameterization = CustomParametrization(param_space, modes, fs_per_mode, Vp_Vs_ratio)
-        return BayesianInversion(
-            log_likelihood=log_likelihood,
-            parameterization=parameterization,
-            n_chains=n_chains,
-        )
 
-    low, high = TRIAL_ITERATIONS
-    trial_iterations = min(high, max(low, settings.n_iterations // 20))
-    steps, trials = dict(given), []
-    tuned = ""
-    if settings.tune_steps:
-        steps, trials, tuned = _tuned_steps(sampler, given, settings.n_chains, trial_iterations)
-    inversion = sampler(steps, settings.n_chains)
-
-    # The chains in `chain_jobs` processes: 1 by default, since callers run windows in parallel
-    # already, and bayesbay's own default (a process per chain) would take n_workers x n_chains
-    # cores; more when a caller has cores to spare. The trial runs above stay in this process.
-    if chain_jobs < 1:
-        raise ValueError(f"chain_jobs must be at least 1, not {chain_jobs}")
-    inversion.run(
+def _free(
+    settings: InversionParameters,
+    curves: tuple[Curve, ...],
+    vp_vs: float,
+    seeds: Sequence[int],
+    chain_jobs: int,
+) -> _Run:
+    """The layers chosen by the data: one reversible-jump chain each (and its tempered copies),
+    in `chain_jobs` processes."""
+    free = settings.free
+    assert free.vs_min is not None and free.vs_max is not None  # resolved
+    assert free.depth_min is not None and free.depth_max is not None
+    space = transdimensional.Space(
+        curves=curves,
+        vs_bounds=(free.vs_min, free.vs_max),
+        depth_bounds=(free.depth_min, free.depth_max),
+        max_layers=free.max_layers,
+        least_ratio=settings.least_ratio,
+        vp_vs=vp_vs,
+    )
+    run_settings = transdimensional.Settings(
         n_iterations=settings.n_iterations,
-        burnin_iterations=settings.n_burnin_iterations,
+        n_burnin=settings.n_burnin_iterations,
         save_every=SAVE_EVERY,
-        verbose=False,
-        parallel_config={"n_jobs": min(chain_jobs, settings.n_chains)},
+        temperatures=TEMPERATURES,
+        hottest=HOTTEST,
+    )
+    jobs = min(chain_jobs, settings.n_chains)
+    if jobs > 1:
+        with ProcessPoolExecutor(jobs) as executor:
+            futures = [
+                executor.submit(transdimensional.run_chain, space, run_settings, seed)
+                for seed in seeds
+            ]
+            chains = [future.result() for future in futures]
+    else:
+        chains = [transdimensional.run_chain(space, run_settings, seed) for seed in seeds]
+    best = min(chains, key=lambda chain: chain.best_misfit)
+    layers = np.concatenate([chain.layers for chain in chains])
+    noise = np.concatenate([chain.noise for chain in chains])
+    lines = [
+        f"Transdimensional, {settings.n_chains} chains of {settings.n_iterations:,} iterations "
+        f"({settings.n_burnin_iterations:,} burn-in), each with {TEMPERATURES - 1} hotter "
+        f"copies up to {HOTTEST:g}; Vs {free.vs_min:g}-{free.vs_max:g} m/s, interfaces "
+        f"{free.depth_min:g}-{free.depth_max:g} m, at most {free.max_layers} layers."
+    ]
+    lines += [
+        f"Chain {i + 1}: acceptance {chain.accepted:g} % "
+        f"({', '.join(f'{move} {rate:g} %' for move, rate in chain.acceptance.items())}), "
+        f"exchanges {chain.swaps:g} %."
+        for i, chain in enumerate(chains)
+    ]
+    counts = np.bincount(layers, minlength=free.max_layers + 1)[1:]
+    lines.append(
+        "Layers kept: "
+        + ", ".join(f"{k} in {100 * n / layers.size:.0f} %" for k, n in enumerate(counts, 1) if n)
+        + f"; noise factor, median {float(np.median(noise)):.3g}."
+    )
+    return _Run(
+        profiles=LayeredSamples(
+            depths=np.concatenate([chain.depths for chain in chains]),
+            vs=np.concatenate([chain.vs for chain in chains]),
+            n_chains=settings.n_chains,
+        ),
+        samples={"layers": layers.astype(float), "noise": noise},
+        rms=np.concatenate([chain.rms for chain in chains]),
+        best=(best.best_depths, best.best_vs),
+        acceptance=tuple(chain.accepted for chain in chains),
+        steps={},
+        log="\n".join(lines) + "\n",
     )
 
-    log_buffer = io.StringIO()
-    with contextlib.redirect_stdout(log_buffer):
-        for chain in inversion.chains:
-            chain.print_statistics()
-    log = log_buffer.getvalue()
-    if tuned:
-        log = tuned + log
 
-    per_chain = cast(dict[str, list[list[Any]]], inversion.get_results(concatenate_chains=False))
-    results, left_out = _saved_with_predictions(
-        per_chain, [f"rayleigh_M{mode}.dpred" for mode in modes]
-    )
-    if left_out:
-        log += (
-            f"{left_out} saved models left out: saved before their chain computed a likelihood "
-            "(a chain still on its starting model), they carry no predicted curve.\n"
-        )
-
-    # Extract sampled models
-    sampled_Vs = np.array(
-        [np.asarray(results[f"space.vs{i + 1}"]).reshape(-1) for i in range(n_layers)]
-    )
-    n_samples = sampled_Vs.shape[1]
-    sampled_thicknesses = np.array(
-        [np.asarray(results[f"space.thick{i + 1}"]).reshape(-1) for i in range(n_layers - 1)]
-        + [np.full(n_samples, 1000.0)]
-    )
-
-    # Misfits, summed across all dispersion curves
-    misfits = np.zeros(n_samples)
-    n_points = 0
-    dpred: dict[int, np.ndarray] = {}
-    for dispersion_curve in ordered_curves:
-        d_pred = np.asarray(results[f"rayleigh_M{dispersion_curve.mode.number}.dpred"])
-        dpred[dispersion_curve.mode.number] = d_pred
-        misfits += np.sum((dispersion_curve.vs - d_pred) ** 2, axis=1)
-        n_points += len(dispersion_curve.vs)
-    misfits = np.sqrt(misfits / n_points)
-
-    depth_max = sum(layer.thickness_max for layer in settings.thickness_layers) + 1.0
-    Vs_stds = np.std(sampled_Vs, axis=1)
-
-    # Best layered model (lowest-misfit sample)
-    best_idx = np.argmin(misfits)
-    best_Vs = sampled_Vs[:, best_idx]
-    best_thicknesses = sampled_thicknesses[:, best_idx].copy()
-    best_Vp, best_rho = vp_rho_from_vs(best_Vs, Vp_Vs_ratio)
-    best_thicknesses[-1] = (depth_max - np.sum(best_thicknesses[:-1])) / 2
-
-    best = VelocityModel(
-        vs_s=tuple(best_Vs.tolist()),
-        vs_p=tuple(best_Vp.tolist()),
-        rhos=tuple(best_rho.tolist()),
-        vs_s_std=tuple(Vs_stds.tolist()),
-        thicknesses=tuple(best_thicknesses.tolist()),
-        position=position,
-    )
-
-    # Median layered model (per-layer median across all samples)
-    median_Vs = np.median(sampled_Vs, axis=1)
-    median_thicknesses = np.median(sampled_thicknesses, axis=1)
-    median_Vp, median_rho = vp_rho_from_vs(median_Vs, Vp_Vs_ratio)
-    median_thicknesses[-1] = (depth_max - np.sum(median_thicknesses[:-1])) / 2
-
-    median = VelocityModel(
-        vs_s=tuple(median_Vs.tolist()),
-        vs_p=tuple(median_Vp.tolist()),
+def _result(
+    settings: InversionParameters,
+    run: _Run,
+    picked: Sequence[DispersionCurve],
+    vp_vs: float,
+    dz: float,
+    position: Coordinate,
+) -> InversionResult:
+    """The models the kept ones make, and each one's curves at the picked frequencies."""
+    bottom = settings.bottom
+    rows = int(np.ceil(bottom / dz))
+    grid = (np.arange(rows) + 0.5) * dz
+    rasters = run.profiles.at(grid)  # models x depths
+    median_vs = np.median(rasters, axis=0)
+    spread = np.std(rasters, axis=0)
+    median_vp, median_rho = vp_rho_from_vs(median_vs, vp_vs)
+    ensemble = VelocityModel(
+        vs_s=tuple(median_vs.tolist()),
+        vs_p=tuple(median_vp.tolist()),
         rhos=tuple(median_rho.tolist()),
-        vs_s_std=tuple(Vs_stds.tolist()),
-        thicknesses=tuple(median_thicknesses.tolist()),
+        vs_s_std=tuple(spread.tolist()),
+        thicknesses=tuple([dz] * rows),
         position=position,
     )
+    coarse = np.log(rasters[:, ::_EVERY])
+    nearest = int(np.argmin(np.mean((coarse - np.log(median_vs[::_EVERY])) ** 2, axis=1)))
+    median = _layered(*run.profiles.model(nearest), spread, grid, bottom, vp_vs, position)
+    best = _layered(*run.best, spread, grid, bottom, vp_vs, position)
 
-    # Smoothed (cubic-interpolated, continuous-with-depth) best/median profiles
-    smooth_best = best.smoothed(dz, depth_max)
-    smooth_median = median.smoothed(dz, depth_max)
-
-    # Ensemble model (per-depth median/std after rasterizing every sample)
-    ensemble = _ensemble_model(
-        sampled_Vs, sampled_thicknesses, Vp_Vs_ratio, dz, depth_max, position
-    )
-
-    samples = {f"vs{i + 1}": sampled_Vs[i] for i in range(n_layers)}
-    samples.update({f"thick{i + 1}": sampled_thicknesses[i] for i in range(n_layers - 1)})
+    full = curves_of(picked, max_points=None)
+    dpred: dict[int, np.ndarray] = {}
+    predictions = [_predicted(full, run.profiles, i, vp_vs) for i in range(len(run.rms))]
+    for c, curve in enumerate(full):
+        rows_predicted = [
+            prediction[c][curve.order]
+            if prediction is not None
+            else np.full(curve.order.size, np.nan)
+            for prediction in predictions
+        ]
+        dpred[curve.mode] = np.array(rows_predicted)
 
     return InversionResult(
         best=best,
-        smooth_best=smooth_best,
+        smooth_best=best.smoothed(dz, bottom),
         median=median,
-        smooth_median=smooth_median,
+        smooth_median=median.smoothed(dz, bottom),
         ensemble=ensemble,
-        n_layers=n_layers,
-        samples=samples,
-        misfits=misfits,
+        n_layers=median.n_layers,
+        samples=run.samples,
+        misfits=run.rms,
         dpred=dpred,
-        log=log,
-        steps={name: round(step, 4) for name, step in steps.items()},
-        tuning=tuple(trials),
-        acceptance=tuple(
-            round(100 * accepted / max(proposed, 1), 2)
-            for accepted, proposed in map(_counts, inversion.chains)
-        ),
+        log=run.log,
+        profiles=run.profiles,
+        steps=run.steps,
+        acceptance=run.acceptance,
+        parameters=settings.model_dump(mode="json"),
     )
 
 
-def _tuned_steps(
-    sampler: Callable[[Mapping[str, float], int], BayesianInversion],
-    given: Mapping[str, float],
-    n_chains: int,
-    iterations: int,
-) -> tuple[dict[str, float], list[tuple[float, float]], str]:
-    """Each parameter's step for the run: the steps given, scaled together until the chains
-    accept a share of their proposals within TARGET_ACCEPTANCE; the trial runs' factors and
-    acceptances (%), and a line for the log. Each step keeps its share of its prior's range:
-    measured on the demo and p2 curves, steps set from each parameter's own spread in a trial
-    run did not raise the effective sample size, whose limit is the posterior's trade-offs."""
-    scale, trials = _tuned_scale(
-        lambda factor, chains: sampler(_times(given, factor), chains), n_chains, iterations
+def _layered(
+    depths: np.ndarray,
+    vs: np.ndarray,
+    spread: np.ndarray,
+    grid: np.ndarray,
+    bottom: float,
+    vp_vs: float,
+    position: Coordinate,
+) -> VelocityModel:
+    """A layered model, each layer's spread the ensemble's mean spread over its depths; the
+    half-space drawn half way down to `bottom`, as the smoothing extends it."""
+    tops = np.concatenate(([0.0], depths))
+    thickness = np.diff(np.append(tops, bottom)).tolist()
+    thickness[-1] = max((bottom - float(tops[-1])) / 2, float(grid[1] - grid[0]))
+    below = np.append(tops[1:], math.inf)
+    std = [
+        float(np.mean(spread[(grid >= top) & (grid < base)]))
+        if np.any((grid >= top) & (grid < base))
+        else 0.0
+        for top, base in zip(tops, below, strict=True)
+    ]
+    vp, rho = vp_rho_from_vs(np.asarray(vs, dtype=float), vp_vs)
+    return VelocityModel(
+        vs_s=tuple(float(v) for v in vs),
+        vs_p=tuple(vp.tolist()),
+        rhos=tuple(rho.tolist()),
+        vs_s_std=tuple(std),
+        thicknesses=tuple(thickness),
+        position=position,
     )
-    said = (
-        f"Steps scaled by {scale:g} after {len(trials)} trial run(s) of {iterations} iterations: "
-        f"{_trials(trials)} accepted.\n"
-    )
-    return _times(given, scale), trials, said
 
 
-def _times(steps: Mapping[str, float], scale: float) -> dict[str, float]:
-    return {name: step * scale for name, step in steps.items()}
-
-
-def _trials(trials: Sequence[tuple[float, float]]) -> str:
-    return ", ".join(f"x{factor:g} {rate:g} %" for factor, rate in trials)
-
-
-def _tuned_scale(
-    sampler: Callable[[float, int], BayesianInversion], n_chains: int, iterations: int
-) -> tuple[float, list[tuple[float, float]]]:
-    """The factor on every step that brings the chains' acceptance within TARGET_ACCEPTANCE, from
-    short trial runs, and each trial's factor and acceptance (%). A random walk accepts fewer of
-    its proposals as its steps grow: each trial scales the steps by its acceptance over the
-    band's middle. Without a trial within the band, the one closest to it."""
-    low, high = TARGET_ACCEPTANCE
-    middle = (low + high) / 2
-    # A trial is kept within the band's middle half: the run's chains, further into the
-    # posterior, accept a little less or more than the trial's.
-    margin = (high - low) / 4
-    scale = 1.0
-    trials: list[tuple[float, float]] = []
-    for _ in range(MAX_TRIALS):
-        trial = sampler(scale, min(n_chains, 2))
-        # A burn-in as long as the run: nothing is kept, only the acceptance is read.
-        trial.run(
-            n_iterations=iterations,
-            burnin_iterations=iterations,
-            save_every=SAVE_EVERY,
-            verbose=False,
-            parallel_config={"n_jobs": 1},
-        )
-        counts = [_counts(chain) for chain in trial.chains]
-        rate = 100 * sum(accepted for accepted, _ in counts) / max(sum(n for _, n in counts), 1)
-        trials.append((round(scale, 3), round(rate, 1)))
-        if low + margin <= rate <= high - margin:
-            return scale, trials
-        scale *= min(4.0, max(0.25, rate / middle))
-    return min(trials, key=lambda trial: abs(trial[1] - middle))[0], trials
-
-
-def _counts(chain: BaseMarkovChain) -> tuple[int, int]:
-    """The models `chain` accepted and those it was proposed, in bayesbay's statistics of every
-    kind."""
-    statistics = cast(dict[str, Any], chain.statistics)
-    return int(statistics["n_accepted_models_total"]), int(statistics["n_proposed_models_total"])
-
-
-def _saved_with_predictions(
-    per_chain: dict[str, list[list[Any]]], dpred_keys: Sequence[str]
-) -> tuple[dict[str, list[Any]], int]:
-    """The chains' saved states that carry a predicted curve for every target, concatenated
-    over the chains, and how many were left out.
-
-    bayesbay saves a state's predicted curve only once its likelihood has been computed: a
-    chain whose proposals all fall outside the prior never computes one, and saves its starting
-    model with no predicted curve. Those saves come first in their chain (once computed, every
-    later state carries it), so each chain keeps its last saves, as many as it has predicted
-    curves. A chain that never moved keeps none; no chain keeping any is an error.
-    """
-    n_chains = len(per_chain["space.vs1"])
-    kept: dict[str, list[Any]] = {key: [] for key in per_chain}
-    left_out = 0
-    for chain in range(n_chains):
-        n_saved = len(per_chain["space.vs1"][chain])
-        n_predicted = min(
-            len(per_chain[key][chain]) if key in per_chain else 0 for key in dpred_keys
-        )
-        left_out += n_saved - n_predicted
-        if n_predicted == 0:
-            continue
-        for key, chains in per_chain.items():
-            kept[key].extend(chains[chain][-n_predicted:])
-    if not kept["space.vs1"]:
-        raise ValueError(
-            "No chain moved from its starting model: every proposal fell outside the prior, so "
-            "no model has a predicted curve. Check that each layer's bounds hold the curve."
-        )
-    return kept, left_out
-
-
-class CustomParametrization(Parameterization):  # type: ignore[misc]
-    def __init__(
-        self,
-        param_space: ParameterSpace,
-        modes: list[int],
-        fs_per_mode: list[np.ndarray],
-        Vp_Vs_ratio: float = 1.77,
-    ) -> None:
-        super().__init__(param_space)
-        self.modes = modes
-        self.fs_per_mode = fs_per_mode
-        self.Vp_Vs_ratio = Vp_Vs_ratio
-        self._rng = np.random.default_rng()
-
-    def initialize(self) -> State:
-        param_values = {}
-        for ps_name, ps in self.parameter_spaces.items():
-            param_values[ps_name] = self.initialize_param_space(ps)
-        return State(param_values)
-
-    def initialize_param_space(self, param_space: ParameterSpace) -> ParameterSpaceState:
-        while True:
-            vs_vals: list[float] = []
-            vs_bounds: list[tuple[float, float]] = []
-            thick_vals: list[float] = []
-            thick_bounds: list[tuple[float, float]] = []
-            for name, param in param_space.parameters.items():
-                vmin, vmax = param.get_vmin_vmax(None)  # pyright: ignore[reportAttributeAccessIssue]
-                if "vs" in name:
-                    vs_vals.append(self._rng.uniform(vmin, vmax))
-                    vs_bounds.append((vmin, vmax))
-                elif "thick" in name:
-                    thick_vals.append(self._rng.uniform(vmin, vmax))
-                    thick_bounds.append((vmin, vmax))
-            # Sorted, the start is normally dispersive; clipped, each value stays inside its own
-            # layer's prior. Sorting alone could move a value outside it when the layers' bounds
-            # differ, and a chain starting outside its prior may never move (every proposal
-            # rejected) nor compute a predicted curve.
-            vs_arr = _within(np.sort(vs_vals), vs_bounds)
-            thick_arr = _within(np.sort(thick_vals), thick_bounds)
-            vp_vals, rho_vals = vp_rho_from_vs(vs_arr, self.Vp_Vs_ratio)
-            velocity_model = np.column_stack(
-                (np.append(thick_arr, 1000), vp_vals, vs_arr, rho_vals)
-            )
-            velocity_model /= 1000  # m to km and kg/m^3 to g/cm^3
-            try:
-                for mode, fs in zip(self.modes, self.fs_per_mode, strict=False):
-                    pd = PhaseDispersion(*velocity_model.T)
-                    periods = 1 / fs[::-1]
-                    d_pred = pd(periods, mode=mode, wave="rayleigh").velocity
-                    if (
-                        d_pred.shape[0] != periods.shape[0]
-                    ):  # Test if the dispersion curve is too short - It is often the case for low velocities (i.e. high periods) on superior modes
-                        raise DispersionError(
-                            f"Dispersion curve length for mode {mode} is not the same as the observed one"
-                        )
-                break
-            except DispersionError:
-                continue
-        vals = np.concatenate((vs_arr, thick_arr))
-        param_values = {}
-        for i, name in enumerate(param_space.parameters.keys()):
-            param_values[name] = np.array([vals[i]])
-        return ParameterSpaceState(1, param_values)
-
-
-def _within(values: np.ndarray, bounds: Sequence[tuple[float, float]]) -> np.ndarray:
-    """`values`, each clipped into its own (min, max) bounds."""
-    lows = np.array([low for low, _ in bounds], dtype=float)
-    highs = np.array([high for _, high in bounds], dtype=float)
-    return np.clip(values, lows, highs)
+def _predicted(
+    curves: Sequence[Curve], profiles: LayeredSamples, index: int, vp_vs: float
+) -> list[np.ndarray] | None:
+    depths, vs = profiles.model(index)
+    thickness = np.append(np.diff(np.concatenate(([0.0], depths))), 1_000.0)
+    return phase_velocities(curves, thickness, vs, vp_vs)

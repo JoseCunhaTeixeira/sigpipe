@@ -1,6 +1,7 @@
 """A synthetic line from its records to its velocity section: profiles, presets fitted to them,
 runs in each mode, picks, and the inversion of two windows."""
 
+import threading
 from pathlib import Path
 
 import numpy as np
@@ -14,11 +15,21 @@ from sigpipe.masw.inversion import (
     invert_window,
     load_parameters,
 )
+from sigpipe.masw.inversion.measuring import measure_inversion
 from sigpipe.masw.inversion.section import SECTION_FIGURE, save_comparison, save_section
 from sigpipe.masw.picks import save_pick
 from sigpipe.masw.presets import PresetError, make_preset, resolve_preset
 from sigpipe.masw.profiles import ProfileError, ProfileKind, list_profiles, load_profile
-from sigpipe.masw.runs import RunError, find_run, load_image, load_manifest, run_processing
+from sigpipe.masw.runs import (
+    RunError,
+    RunManifest,
+    Stopped,
+    find_run,
+    load_image,
+    load_manifest,
+    run_processing,
+)
+from sigpipe.masw.runs.processing import preprocess_records
 from sigpipe.masw.workspace import Folders
 
 WINDOWS = {"masw": {"length": 6, "step": 3}}
@@ -69,9 +80,64 @@ def test_every_mode_runs_into_pacs_layout(workspace: Folders, profile: str, mode
     assert load_manifest(manifest.run_id, workspace) == manifest
     for window in manifest.windows:
         assert (folder / window.folder / "DispersionImage_0000.hdf5").exists()
+    assert not list(folder.rglob(".partial"))  # every task's outputs moved into place
     assert all(
         (folder / record.folder / "Stream_0000.hdf5").exists() for record in manifest.records
     )
+
+
+def test_a_stopped_run_keeps_the_windows_that_finished_and_nothing_half_written(
+    input_dir: Path, tmp_path: Path
+) -> None:
+    workspace = Folders(input_dir=input_dir, output_dir=tmp_path / "output", workers=1)
+    stop = threading.Event()
+
+    # Stopped as the first window finishes: with one worker, the next is killed or never starts.
+    with pytest.raises(Stopped) as stopped:
+        run_processing(
+            "shots",
+            "active",
+            {"masw": {"length": 6, "step": 1}},
+            workspace,
+            on_progress=lambda done, _: stop.set() if done >= 1 else None,
+            stop=stop,
+        )
+
+    manifest = stopped.value.kept
+    assert isinstance(manifest, RunManifest) and manifest.stopped
+    assert load_manifest(manifest.run_id, workspace) == manifest
+    folder = find_run(manifest.run_id, workspace)
+    kept = {window.folder for window in manifest.windows}
+    assert 1 <= len(kept) < manifest.n_positions
+    assert {path.name for path in folder.glob("xmid_*")} == kept  # the others undone
+    assert not list(folder.rglob(".partial"))
+    assert all((folder / name / "DispersionImage_0000.hdf5").exists() for name in kept)
+
+
+def test_a_run_stopped_before_any_window_leaves_nothing(workspace: Folders) -> None:
+    stop = threading.Event()
+    stop.set()
+
+    with pytest.raises(Stopped) as stopped:
+        run_processing("shots", "active", WINDOWS, workspace, stop=stop)
+
+    assert stopped.value.kept is None
+    assert not list(workspace.output_dir.glob("shots/*"))
+
+
+def test_records_stopped_are_undone(workspace: Folders, tmp_path: Path) -> None:
+    profile = load_profile("shots", workspace)
+    preset = resolve_preset(make_preset("active", WINDOWS), profile)
+    run_folder = tmp_path / "run"
+    run_folder.mkdir()
+    stop = threading.Event()
+    stop.set()
+
+    with pytest.raises(Stopped) as stopped:
+        preprocess_records(preset, profile, run_folder, 2, stop=stop)
+
+    assert stopped.value.kept == ()
+    assert not list((run_folder / "records").iterdir())
 
 
 def test_unknown_runs_are_refused(workspace: Folders) -> None:
@@ -109,12 +175,27 @@ def test_the_shots_wave_is_picked_and_inverted_into_a_section(
         result = invert_window(folder / unit, parameters)
         assert 100 <= result.median.vs_s[0] <= 400
         assert (folder / unit / "SeismicInversion_Model_0000_smooth_median.csv").exists()
-        # What the sampler ran with, next to the models: each step as the trial runs tuned it.
+        # What the chains ran with, next to the models: each chain's acceptance, each value's
+        # typical move.
         ran = load_parameters(folder / unit / PARAMETERS_FILE)
-        assert ran.parameters.vs_layers[0].vs_perturb_std == pytest.approx(
-            result.steps["vs1"], rel=0.01
-        )
-        assert (ran.tuning, len(ran.acceptance)) == (result.tuning, 2)
+        assert ran.steps == pytest.approx(result.steps, rel=0.01)
+        assert (ran.parameters.layering, len(ran.acceptance)) == ("fixed", 2)
+        # The chains' agreement measured on Vs at the depths the curve resolves.
+        measures = measure_inversion(folder / unit, parameters)
+        assert measures.watched and set(measures.watched) <= set(measures.rhat)
+        assert {"vs1", "vs2", "thick1", "noise"} <= set(measures.rhat)
+
+    # The data choosing the layers: the bounds left out found from the curve, saved as run.
+    free = InversionParameters(n_iterations=1_500, n_chains=2)
+    invert_window(folder / units[0], free)
+    ran = load_parameters(folder / units[0] / PARAMETERS_FILE).parameters
+    assert ran.layering == "free" and ran.free.depth_max is not None
+    measures = measure_inversion(folder / units[0], free)
+    assert {"layers", "top_vs", "half_space_vs", "deepest_interface"} <= {
+        share.parameter for share in measures.at_bounds
+    }
+    assert measures.depth_max_m == ran.bottom
+    assert {"layers", "noise"} <= set(measures.rhat)
 
     assert save_section(folder, units) == folder / SECTION_FIGURE
     assert save_comparison(folder, units) is not None

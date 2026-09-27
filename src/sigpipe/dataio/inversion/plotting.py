@@ -178,15 +178,11 @@ def plot_density_curves(
     norm = colors.LogNorm(
         vmin=max(float(np.min(result.misfits)), 1e-12), vmax=float(np.max(result.misfits))
     )
-    n_finite_layers = result.n_layers - 1
     worst_first = np.argsort(result.misfits)[::-1]  # best (lowest misfit) drawn last, on top
-    for s in worst_first:
-        vs_vals = np.array([result.samples[f"vs{i + 1}"][s] for i in range(result.n_layers)])
-        thick_vals = np.array(
-            [result.samples[f"thick{i + 1}"][s] for i in range(n_finite_layers)] + [0.0]
-        )
-        thick_vals[-1] = (depth_max - np.sum(thick_vals[:-1])) / 2
-        depths = np.insert(np.cumsum(thick_vals), 0, 0.0)
+    for s in worst_first if result.profiles is not None else ():
+        interfaces, vs_vals = result.profiles.model(int(s))  # pyright: ignore[reportOptionalMemberAccess]
+        bottom = max(depth_max, float(interfaces[-1]) if interfaces.size else 0.0)
+        depths = np.concatenate(([0.0], interfaces, [bottom]))
         vs_step = np.append(vs_vals, vs_vals[-1])
         # where="pre": each layer's own Vs spans its own depth range (depths[i]
         # to depths[i+1]); where="post" would draw the *next* layer's Vs there

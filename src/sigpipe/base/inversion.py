@@ -1,10 +1,47 @@
 from dataclasses import dataclass, field
+from typing import Any
 
 import numpy as np
 
 from sigpipe.base.velocity_model import VelocityModel
 
 from ._repr import array_repr
+
+
+@dataclass(slots=True, frozen=True)
+class LayeredSamples:
+    """The kept models, chain after chain (as many from each), as layers: a row per model, its
+    interfaces' depths then its layers' Vs top down, padded with NaN beyond its layers. The one
+    form of both layerings' samples, fixed or chosen by the data."""
+
+    depths: np.ndarray  # (models, most layers - 1) m
+    vs: np.ndarray  # (models, most layers) m/s, the half-space the last value of a row
+    n_chains: int
+
+    @property
+    def layers(self) -> np.ndarray:
+        """Each model's layers, the half-space included."""
+        return np.sum(~np.isnan(self.vs), axis=1)
+
+    def model(self, index: int) -> tuple[np.ndarray, np.ndarray]:
+        """One model's interfaces' depths and layers' Vs."""
+        vs = self.vs[index]
+        depths = self.depths[index]
+        return depths[~np.isnan(depths)], vs[~np.isnan(vs)]
+
+    def at(self, depths: np.ndarray) -> np.ndarray:
+        """Every model's Vs at `depths` (models x depths); a depth on an interface belongs to the
+        layer below."""
+        depths = np.asarray(depths, dtype=float)
+        # The interfaces at or above each depth; the padding (NaN) never is.
+        interfaces = np.nan_to_num(self.depths, nan=np.inf)
+        above = np.sum(interfaces[:, None, :] <= depths[None, :, None], axis=2)
+        return np.take_along_axis(self.vs, above, axis=1)
+
+    def per_chain(self, values: np.ndarray) -> np.ndarray:
+        """`values` (one per model, or models x anything) split by chain: chains x models x ..."""
+        per = values.shape[0] // self.n_chains
+        return values[: per * self.n_chains].reshape(self.n_chains, per, *values.shape[1:])
 
 
 @dataclass(slots=True, frozen=True)
@@ -15,21 +52,27 @@ class InversionResult:
     smooth_median: VelocityModel
     ensemble: VelocityModel
     n_layers: int
+    """The median model's layers, the half-space included."""
     samples: dict[str, np.ndarray]
-    """Raw per-iteration posterior samples (e.g. "vs1", "thick1"), for diagnostics such as marginal plots."""
+    """Each kept model's named values, for diagnostics such as marginal plots: the fixed
+    layering's own (vs1, ..., thick1, ...), the layers' count ("layers") and the noise factor
+    ("noise")."""
     misfits: np.ndarray
-    """Per-sample RMS misfit, same ordering/length as the arrays in `samples`."""
+    """Per-sample RMS misfit (m/s), same ordering/length as the arrays in `samples`."""
     dpred: dict[int, np.ndarray]
     """Per-mode posterior-predicted-data samples (mode number -> (n_samples, n_freq_obs)), for diagnostics such as the dispersion-fit percentile band."""
     log: str
-    """Captured per-chain statistics (acceptance rates, etc.) printed by the MCMC sampler."""
+    """How the chains ran, in words."""
+    profiles: LayeredSamples | None = None
+    """Every kept model as layers, chain after chain."""
     steps: dict[str, float] = field(default_factory=dict)
-    """Each parameter's step the sampler ran with (vs1, ..., thick1, ...), tuned by its trial
-    runs or as given."""
+    """Each sampled parameter's typical move (vs1, ..., thick1, ...), in the fixed layering."""
     tuning: tuple[tuple[float, float], ...] = ()
-    """Each trial run's step factor and acceptance rate (%), in order."""
+    """Each trial run's step factor and acceptance rate (%): bayesbay's runs'."""
     acceptance: tuple[float, ...] = ()
     """Each chain's acceptance rate over the run (%), the burn-in included."""
+    parameters: dict[str, Any] = field(default_factory=dict)
+    """The parameters as the chains ran them: the free layering's bounds found from the curves."""
 
     def __repr__(self) -> str:
         samples_repr = ", ".join(f"{k!r}: {array_repr(v)}" for k, v in self.samples.items())

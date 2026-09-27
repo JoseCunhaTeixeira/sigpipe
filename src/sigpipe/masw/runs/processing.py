@@ -4,10 +4,12 @@ one sigpipe pipeline per MASW window on the preprocessed records."""
 import json
 import os
 import secrets
+import shutil
+import threading
 import time
 import traceback
 from collections.abc import Callable, Mapping, Sequence
-from concurrent.futures import Future, ProcessPoolExecutor, as_completed
+from concurrent.futures import Future, ProcessPoolExecutor
 from datetime import UTC, datetime
 from importlib.metadata import distribution, version
 from pathlib import Path
@@ -18,6 +20,7 @@ from sigpipe.masw.pipelines import build_image_pipeline, build_preprocessing_pip
 from sigpipe.masw.presets import ActivePreset, PassivePreset, make_preset, resolve_preset
 from sigpipe.masw.profiles import Profile, Record, load_profile, summarize
 from sigpipe.masw.runs.models import RecordOutcome, RunError, RunManifest, WindowOutcome
+from sigpipe.masw.runs.stopping import Stopped, check, commit, finished, staging, undo
 from sigpipe.masw.windows import (
     Exclusions,
     Geometry,
@@ -47,6 +50,7 @@ def run_processing(
     workspace: Workspace,
     on_progress: ProgressCallback | None = None,
     packages: Sequence[str] = (),
+    stop: threading.Event | None = None,
 ) -> RunManifest:
     """Process `profile` with `preset` and `overrides`, and write the run to disk: its manifest,
     which records the versions of sigpipe and of `packages` (the application's).
@@ -54,6 +58,10 @@ def run_processing(
     Unknown names and invalid overrides raise before anything is written. A record or a window
     that fails does not stop the run: its error goes to run.json and to its folder's error.log,
     and a window whose record failed fails with it.
+
+    `stop`, once set, stops the run at once (see stopping): a run stopped before any window
+    succeeded is removed, and Stopped raised; otherwise the run keeps the windows that finished,
+    its manifest says it was stopped, and Stopped carries the manifest.
 
     Records and windows run in worker processes, which Python 3.14 starts with forkserver: a
     script calling this function needs an `if __name__ == "__main__":` guard.
@@ -68,12 +76,35 @@ def run_processing(
             "were skipped. Widen masw.distance_min and masw.distance_max, or change masw.length."
         )
 
+    check(stop)
     run_id, run_folder = new_run_folder(workspace.output_dir / profile)
     started_at = datetime.now(UTC)
-    records = preprocess_records(resolved, loaded, run_folder, workspace.workers)
-    outcomes = process_windows(
-        resolved, windows, records, run_folder, workspace.workers, on_progress
-    )
+    try:
+        records = preprocess_records(resolved, loaded, run_folder, workspace.workers, stop=stop)
+    except Stopped:
+        shutil.rmtree(run_folder, ignore_errors=True)  # no window yet: nothing to keep
+        raise Stopped() from None
+    try:
+        outcomes = process_windows(
+            resolved, windows, records, run_folder, workspace.workers, on_progress, stop=stop
+        )
+    except Stopped as stopped:
+        done: tuple[WindowOutcome, ...] = stopped.kept if isinstance(stopped.kept, tuple) else ()
+        if not any(window.status == "succeeded" for window in done):
+            shutil.rmtree(run_folder, ignore_errors=True)
+            raise Stopped() from None
+        manifest = write_manifest(
+            run_id,
+            run_folder,
+            loaded,
+            resolved,
+            started_at,
+            records,
+            done,
+            packages=packages,
+            stopped=True,
+        )
+        raise Stopped(manifest) from None
     return write_manifest(
         run_id,
         run_folder,
@@ -101,9 +132,11 @@ def write_manifest(
     windows: tuple[WindowOutcome, ...],
     exclusions: Exclusions | None = None,
     packages: Sequence[str] = (),
+    stopped: bool = False,
 ) -> RunManifest:
     """The run's manifest, run.json: what was processed, with what, and how it went, with the
-    versions of sigpipe and of `packages` (the application's)."""
+    versions of sigpipe and of `packages` (the application's); `stopped`: on request, with the
+    windows that had finished."""
     manifest = RunManifest(
         run_id=run_id,
         profile=summarize(profile),
@@ -115,6 +148,7 @@ def write_manifest(
         records=records,
         windows=windows,
         exclusions=exclusions or Exclusions(),
+        stopped=stopped,
     )
     (run_folder / "run.json").write_text(manifest.model_dump_json(indent=2))
     return manifest
@@ -138,34 +172,45 @@ def preprocess_records(
     run_folder: Path,
     workers: int,
     presets: Mapping[str, ActivePreset | PassivePreset] | None = None,
+    stop: threading.Event | None = None,
 ) -> tuple[RecordOutcome, ...]:
     """Every record of `profile` preprocessed once, into <run_folder>/records/<record>/; or, with
     `presets` (by record file name), those records only, each with its own preset (the signal
-    QC's changes: a record's trigger delay is its own)."""
+    QC's changes: a record's trigger delay is its own).
+
+    `stop`, once set, stops them at once: the records not finished undone, Stopped raised with
+    those that finished."""
     outcomes: dict[int, RecordOutcome] = {}
     with ProcessPoolExecutor(
         max_workers=workers, initializer=start_worker, initargs=(run_folder,)
     ) as executor:
-        futures: dict[Future[float], tuple[int, Record, Path]] = {}
+        futures: dict[Future[float], tuple[int, Record, Path, bool]] = {}
         for index, record in enumerate(profile.records):
             if presets is not None and record.path.name not in presets:
                 continue
             chosen = presets[record.path.name] if presets is not None else preset
             folder = record_folder(run_folder / RECORDS_FOLDER, record)
+            created = not folder.exists()
             folder.mkdir(parents=True, exist_ok=presets is not None)
-            future = executor.submit(_preprocess_record, chosen, record, profile, folder)
-            futures[future] = (index, record, folder)
+            future = executor.submit(_preprocess_record, chosen, record, profile, staging(folder))
+            futures[future] = (index, record, folder, created)
 
-        for future in as_completed(futures):
-            index, record, folder = futures[future]
-            duration_s, error = _finish(future, folder)
-            outcomes[index] = RecordOutcome(
-                name=record.path.name,
-                folder=f"{RECORDS_FOLDER}/{folder.name}",
-                status="succeeded" if error is None else "failed",
-                duration_s=duration_s,
-                error=error,
-            )
+        try:
+            for future in finished(executor, futures, stop):
+                index, record, folder, _ = futures.pop(future)
+                commit(folder)
+                duration_s, error = _finish(future, folder)
+                outcomes[index] = RecordOutcome(
+                    name=record.path.name,
+                    folder=f"{RECORDS_FOLDER}/{folder.name}",
+                    status="succeeded" if error is None else "failed",
+                    duration_s=duration_s,
+                    error=error,
+                )
+        except Stopped:
+            for _, _, folder, created in futures.values():
+                undo(folder, created)
+            raise Stopped(tuple(outcomes[index] for index in sorted(outcomes))) from None
     return tuple(outcomes[index] for index in sorted(outcomes))
 
 
@@ -178,12 +223,15 @@ def process_windows(
     on_progress: ProgressCallback | None = None,
     records_folder: Path | None = None,
     exclusions: Exclusions | None = None,
+    stop: threading.Event | None = None,
 ) -> tuple[WindowOutcome, ...]:
     """One image pipeline per window, into `run_folder`, on the preprocessed records of
     `records_folder` (those of `run_folder` by default: trial windows read a run's records),
     without the records and traces of `exclusions`.
 
-    A window that uses a record that failed fails at once, with the record's error.
+    A window that uses a record that failed fails at once, with the record's error. `stop`,
+    once set, stops them at once: the windows not finished undone (a folder this call made,
+    removed), Stopped raised with the outcomes of those that finished.
     """
     records_folder = records_folder or run_folder / RECORDS_FOLDER
     exclusions = exclusions or Exclusions()
@@ -192,9 +240,10 @@ def process_windows(
     with ProcessPoolExecutor(
         max_workers=workers, initializer=start_worker, initargs=(run_folder,)
     ) as executor:
-        futures: dict[Future[float], tuple[float, Path]] = {}
+        futures: dict[Future[float], tuple[float, Path, bool]] = {}
         for built in windows:
             folder = run_folder / f"xmid_{built.xmid:.2f}"  # PAC's window folder name
+            created = not folder.exists()
             folder.mkdir(exist_ok=True)  # exists when the stage is done again (PACo's QC)
             window = apply_exclusions(built, exclusions, GEOMETRIES[preset.mode])
             if window is None:
@@ -214,25 +263,33 @@ def process_windows(
                     )
                 )
                 continue
-            future = executor.submit(_process_window, preset, window, records_folder, folder)
-            futures[future] = (window.xmid, folder)
+            future = executor.submit(
+                _process_window, preset, window, records_folder, staging(folder)
+            )
+            futures[future] = (window.xmid, folder, created)
 
         if on_progress is not None:
             on_progress(len(outcomes), len(windows))
-        for future in as_completed(futures):
-            xmid, folder = futures[future]
-            duration_s, error = _finish(future, folder)
-            outcomes.append(
-                WindowOutcome(
-                    xmid=xmid,
-                    folder=folder.name,
-                    status="succeeded" if error is None else "failed",
-                    duration_s=duration_s,
-                    error=error,
+        try:
+            for future in finished(executor, futures, stop):
+                xmid, folder, _ = futures.pop(future)
+                commit(folder)
+                duration_s, error = _finish(future, folder)
+                outcomes.append(
+                    WindowOutcome(
+                        xmid=xmid,
+                        folder=folder.name,
+                        status="succeeded" if error is None else "failed",
+                        duration_s=duration_s,
+                        error=error,
+                    )
                 )
-            )
-            if on_progress is not None:
-                on_progress(len(outcomes), len(windows))
+                if on_progress is not None:
+                    on_progress(len(outcomes), len(windows))
+        except Stopped:
+            for _, folder, created in futures.values():
+                undo(folder, created)
+            raise Stopped(tuple(sorted(outcomes, key=lambda outcome: outcome.xmid))) from None
 
     return tuple(sorted(outcomes, key=lambda outcome: outcome.xmid))
 

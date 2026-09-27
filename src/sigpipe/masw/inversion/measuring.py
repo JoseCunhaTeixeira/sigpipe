@@ -1,8 +1,10 @@
 """What a window's inversion files say about its models: the fit of the monitored smooth median
 and of the layered median it comes from, by band of wavelength; how the chains agree, how many
-independent samples they hold and how autocorrelated they are; how much of the posterior sits
-on the prior's bounds; down to which depth the data inform the model; and the smooth median's Vs
-at given depths. Measurements only: PACo's QC (G5) judges them."""
+independent samples they hold and how autocorrelated they are, on the models' Vs at depths the
+curve resolves (the one measure of both layerings: a layer's own values mean nothing when the
+data choose the layers); how much of the posterior sits on the prior's bounds; down to which
+depth the data inform the model; and the smooth median's Vs at given depths. Measurements only:
+PACo's QC (G5) judges them."""
 
 import re
 from collections.abc import Sequence
@@ -14,13 +16,16 @@ from pydantic import BaseModel, ConfigDict
 from scipy.stats import norm, rankdata
 
 from sigpipe.algorithms.inversion.rayleigh.seismic.parameters import InversionParameters
+from sigpipe.algorithms.inversion.rayleigh.seismic.transdimensional import THINNEST
 from sigpipe.base.dispersion_curve import DispersionCurve
+from sigpipe.base.inversion import LayeredSamples
 from sigpipe.dataio.dispersion.loading import load_dispersion_curves
 from sigpipe.dataio.velocity_model.loading import load_velocity_models
 from sigpipe.masw.inversion.window import (
     PARAMETERS_FILE,
     SAMPLES_FILE,
     load_parameters,
+    load_profiles,
     load_samples,
 )
 from sigpipe.masw.picks import CURVES_FILE
@@ -28,7 +33,10 @@ from sigpipe.masw.picks import CURVES_FILE
 # The monitored model first (PAC's default view), then the layered model it smooths.
 MODELS = ("smooth_median", "median")
 LOG_FILE = "SeismicInversion_Log_0000.log"
-_RATE = re.compile(r"ACCEPTANCE RATE: \d+/\d+ \(([\d.]+) %\)")
+_RATE = re.compile(r"ACCEPTANCE RATE: \d+/\d+ \(([\d.]+) %\)")  # bayesbay's, runs saved before
+# Depths the chains' agreement is measured at, between a third of the shortest and of the longest
+# picked wavelength.
+WATCHED = 5
 
 
 class BandFit(BaseModel):
@@ -59,7 +67,9 @@ class BoundShare(BaseModel):
 
     model_config = ConfigDict(frozen=True)
 
-    parameter: str  # vs1, ..., thick1, ... (layers from the top)
+    # vs1, ..., thick1, ... (layers from the top) when the layers are given; when the data chose
+    # them: top_vs, half_space_vs, deepest_interface, layers
+    parameter: str
     bound: Literal["min", "max"]
     value: float  # the bound
     share: float  # of the samples within the watched edge of the prior's range
@@ -71,7 +81,10 @@ class InversionMeasures(BaseModel):
     model_config = ConfigDict(frozen=True)
 
     fits: tuple[ModelFit, ...]  # in the order of MODELS
-    rhat: dict[str, float | None]  # split R-hat per parameter; None: not measurable
+    # Split R-hat per series: Vs at depths (vs@2.5m, ...), the layers' own values when given
+    # (vs1, ..., thick1, ...), the number of layers, the noise factor; None: not measurable.
+    rhat: dict[str, float | None]
+    watched: tuple[str, ...] = ()  # the series whose agreement judges the chains: Vs at depths
     # Effective samples per parameter over every chain (rank-normalized, split chains), and the
     # chains' mean lag-1 autocorrelation of the saved samples; None: not measurable.
     ess: dict[str, float | None] = {}
@@ -100,8 +113,10 @@ def measure_inversion(
     bound_edge: float = 0.02,
     std_ratio: float = 0.5,
     reference: InversionParameters | None = None,
+    output_folder: Path | None = None,
 ) -> InversionMeasures:
-    """The measures of the inversion saved in window folder `folder`, inverted with
+    """The measures of the inversion saved in window folder `folder` (or in `output_folder`, a
+    staging folder, beside the curves `folder` keeps), inverted with
     `parameters`: the fits over `n_bands` bands of the picked curve's wavelengths, the share of
     each parameter's samples within `bound_edge` of its prior's range from each bound, the
     useful depth where the posterior's spread of Vs reaches `std_ratio` of the spread of the
@@ -112,45 +127,82 @@ def measure_inversion(
         for curve in load_dispersion_curves([folder / CURVES_FILE])[0]
         if curve.mode.number == 0
     )
-    fits = tuple(fit_by_band(model, picked, _forward(folder, model), n_bands) for model in MODELS)
-    samples, n_chains = load_samples(folder / SAMPLES_FILE)
-    per_chain = len(next(iter(samples.values()))) // n_chains
+    out = output_folder or folder
+    fits = tuple(fit_by_band(model, picked, _forward(out, model), n_bands) for model in MODELS)
+    ran_file = out / PARAMETERS_FILE
+    window = load_parameters(ran_file) if ran_file.exists() else None
+    # As the chains ran: the free layering's bounds as found from the curves.
+    fs, vs = np.asarray(picked.fs, dtype=float), np.asarray(picked.vs, dtype=float)
+    ran = window.parameters if window is not None else parameters.resolved(fs, vs)
+    samples, n_chains = load_samples(out / SAMPLES_FILE)
+    profiles = load_profiles(out / SAMPLES_FILE)
+    depths_watched = convergence_depths(picked, ran.bottom)
+    at_depths = profiles.at(np.asarray(depths_watched))
+    watched = tuple(f"vs@{depth:g}m" for depth in depths_watched)
+    series = {name: at_depths[:, j] for j, name in enumerate(watched)}
+    # The convergence of what was sampled: a value fixed has none to measure.
+    fixed = ran.fixed()
+    series |= {name: values for name, values in samples.items() if name not in fixed}
     chains = {
-        name: np.asarray(values)[: per_chain * n_chains].reshape(n_chains, per_chain)
-        for name, values in samples.items()
+        name: profiles.per_chain(np.asarray(values, dtype=float)) for name, values in series.items()
     }
-    rhat = {name: split_rhat(values) for name, values in chains.items()}
-    smooth = load_velocity_models([folder / "SeismicInversion_Model_0000_smooth_median.csv"])[0][0]
-    median = load_velocity_models([folder / "SeismicInversion_Model_0000_median.csv"])[0][0]
-    depth_max = depth_bottom(parameters)
-    ran = folder / PARAMETERS_FILE
+    per_chain = profiles.vs.shape[0] // n_chains
+    smooth = load_velocity_models([out / "SeismicInversion_Model_0000_smooth_median.csv"])[0][0]
+    median = load_velocity_models([out / "SeismicInversion_Model_0000_median.csv"])[0][0]
+    prior = reference.resolved(fs, vs) if reference is not None else None
+    acceptance = (
+        window.acceptance
+        if window is not None and window.acceptance
+        else acceptance_rates((out / LOG_FILE).read_text())
+        if (out / LOG_FILE).exists()
+        else ()
+    )
     return InversionMeasures(
         fits=fits,
-        rhat=rhat,
+        rhat={name: split_rhat(values) for name, values in chains.items()},
+        watched=watched,
         ess={name: effective_sample_size(values) for name, values in chains.items()},
         autocorrelation={name: lag1_autocorrelation(values) for name, values in chains.items()},
-        acceptance=acceptance_rates((folder / LOG_FILE).read_text()),
-        steps=_steps(load_parameters(ran).parameters) if ran.exists() else {},
+        acceptance=acceptance,
+        steps=dict(window.steps) if window is not None and window.steps else _steps(ran),
         samples_per_chain=per_chain,
-        at_bounds=bound_shares(samples, parameters, bound_edge),
-        useful_depth_m=useful_depth(samples, parameters, std_ratio, reference=reference),
+        at_bounds=(
+            bound_shares(samples, ran, bound_edge)
+            if ran.layering == "fixed"
+            else free_bound_shares(profiles, ran, bound_edge)
+        ),
+        useful_depth_m=useful_depth(profiles, ran, std_ratio, reference=prior),
         quantiles={
             name: (
                 round(float(np.percentile(values, 5)), 3),
                 round(float(np.percentile(values, 95)), 3),
             )
-            for name, values in samples.items()
+            for name, values in series.items()
         },
-        depth_max_m=depth_max,
+        depth_max_m=ran.bottom,
         vs_at_depths=tuple(
-            (float(depth), vs)
-            for depth, vs in zip(
+            (float(depth), value)
+            for depth, value in zip(
                 depths, vs_at(smooth.thicknesses, smooth.vs_s, depths), strict=True
             )
         ),
-        vs_layers=tuple(round(float(vs), 1) for vs in median.vs_s),
+        vs_layers=tuple(round(float(value), 1) for value in median.vs_s),
         interfaces_m=tuple(round(float(depth), 2) for depth in np.cumsum(median.thicknesses[:-1])),
     )
+
+
+def convergence_depths(
+    picked: DispersionCurve, bottom: float, count: int = WATCHED
+) -> tuple[float, ...]:
+    """`count` depths (m) evenly spaced in their logarithm, from a third of the shortest to a
+    third of the longest picked wavelength (the bottom of the models at most): where the curve
+    resolves the models for sure, and so where the chains must agree. Deeper, down to half the
+    longest wavelength, the curve still says something, but the deepest interfaces allowed sit
+    there, and the Vs of a depth an interface may be above or below takes two values."""
+    wavelengths = np.asarray(picked.vs, dtype=float) / np.asarray(picked.fs, dtype=float)
+    top = max(0.1, float(np.min(wavelengths)) / 3)
+    base = max(top * 1.5, min(float(np.max(wavelengths)) / 3, bottom))
+    return tuple(sorted({round(float(depth), 1) for depth in np.geomspace(top, base, count)}))
 
 
 def fit_by_band(
@@ -264,6 +316,8 @@ def bound_shares(
         f"thick{i + 1}": (layer.thickness_min, layer.thickness_max)
         for i, layer in enumerate(parameters.thickness_layers)
     }
+    fixed = parameters.fixed()  # not sampled: no prior to pile against
+    priors = {name: prior for name, prior in priors.items() if name not in fixed}
     shares: list[BoundShare] = []
     for name, (low, high) in priors.items():
         values = np.asarray(samples[name], dtype=float)
@@ -285,8 +339,66 @@ def bound_shares(
     return tuple(sorted(shares, key=lambda share: -share.share))
 
 
+def free_bound_shares(
+    profiles: LayeredSamples, parameters: InversionParameters, edge: float
+) -> tuple[BoundShare, ...]:
+    """When the data chose the layers: the shares of the models whose top layer's or
+    half-space's Vs lies within `edge` of the Vs prior's range (in its logarithm, as it is
+    sampled) from a bound, whose deepest interface lies as close to the deepest allowed, and
+    which hold as many layers as allowed; the most piled first."""
+    free = parameters.free
+    assert free.vs_min is not None and free.vs_max is not None and free.depth_max is not None
+    assert free.depth_min is not None
+    low, high = np.log(free.vs_min), np.log(free.vs_max)
+    width = edge * (high - low)
+    count = profiles.layers
+    top = np.log(profiles.vs[:, 0])
+    half_space = np.log(profiles.vs[np.arange(count.size), count - 1])
+    shares = [
+        BoundShare(
+            parameter=name,
+            bound=bound,
+            value=round(float(np.exp(limit)), 1),
+            share=round(
+                float(
+                    np.mean(values <= limit + width if bound == "min" else values >= limit - width)
+                ),
+                3,
+            ),
+        )
+        for name, values in (("top_vs", top), ("half_space_vs", half_space))
+        for bound, limit in _ends(low, high)
+    ]
+    deepest = np.nanmax(
+        np.where(np.isnan(profiles.depths), -np.inf, profiles.depths), axis=1, initial=-np.inf
+    )
+    reach = np.log(free.depth_max) - edge * np.log(free.depth_max / free.depth_min)
+    shares.append(
+        BoundShare(
+            parameter="deepest_interface",
+            bound="max",
+            value=free.depth_max,
+            share=round(float(np.mean(deepest >= np.exp(reach))), 3),
+        )
+    )
+    shares.append(
+        BoundShare(
+            parameter="layers",
+            bound="max",
+            value=float(free.max_layers),
+            share=round(float(np.mean(count >= free.max_layers)), 3),
+        )
+    )
+    return tuple(sorted(shares, key=lambda share: -share.share))
+
+
+def _ends(low: float, high: float) -> tuple[tuple[Literal["min", "max"], float], ...]:
+    """A range's two bounds, each named."""
+    return (("min", low), ("max", high))
+
+
 def useful_depth(
-    samples: dict[str, np.ndarray],
+    profiles: LayeredSamples,
     parameters: InversionParameters,
     ratio: float,
     dz: float = 0.05,
@@ -296,34 +408,15 @@ def useful_depth(
     """The depth below which the spread of the sampled Vs stays at least `ratio` of the prior's
     spread there (the prior drawn `n_prior` times, with a fixed seed): below it, the data say
     little. The prior is `reference`'s when given (the first, wide one: against a range the loop
-    narrowed to the samples, every model would look uninformed), else `parameters`'. The spread
-    is the interquartile range, which a minority of samples in another mode does not widen as it
-    does the standard deviation. Read from the bottom up, so that a thin top layer the data
-    cannot resolve does not end it at the surface. 0 when the data inform no depth, None when
-    they inform the models down to their bottom."""
-    n_layers = parameters.n_layers
-    depth_max = depth_bottom(parameters)
-    prior_of = reference if reference is not None else parameters
-    posterior = _raster(
-        np.array([samples[f"vs{i + 1}"] for i in range(n_layers)]),
-        np.array([samples[f"thick{i + 1}"] for i in range(n_layers - 1)]),
-        dz,
-        depth_max,
-    )
-    rng = np.random.default_rng(0)
-    prior = _raster(
-        np.array(
-            [rng.uniform(layer.vs_min, layer.vs_max, n_prior) for layer in prior_of.vs_layers]
-        ),
-        np.array(
-            [
-                rng.uniform(layer.thickness_min, layer.thickness_max, n_prior)
-                for layer in prior_of.thickness_layers
-            ]
-        ),
-        dz,
-        depth_max,
-    )
+    narrowed to the samples, every model would look uninformed), else `parameters`' (both
+    resolved). The spread is the interquartile range, which a minority of samples in another
+    mode does not widen as it does the standard deviation. Read from the bottom up, so that a
+    thin top layer the data cannot resolve does not end it at the surface. 0 when the data
+    inform no depth, None when they inform the models down to their bottom."""
+    depth_max = parameters.bottom
+    grid = (np.arange(int(np.ceil(depth_max / dz))) + 0.5) * dz
+    posterior = profiles.at(grid)
+    prior = prior_draws(reference if reference is not None else parameters, n_prior).at(grid)
     informed = np.flatnonzero(_spread(posterior) < ratio * _spread(prior))
     if not informed.size:
         return 0.0
@@ -332,12 +425,69 @@ def useful_depth(
     return round(float((informed[-1] + 1) * dz), 2)
 
 
+def prior_draws(parameters: InversionParameters, count: int, seed: int = 0) -> LayeredSamples:
+    """`count` models of the priors (resolved), as the chains' priors hold them: the layers given
+    or chosen, the Vs drop allowed (a draw breaking it drawn again, then its Vs sorted after a
+    while: close enough to the prior for its spread)."""
+    rng = np.random.default_rng(seed)
+    fixed = parameters.layering == "fixed"
+    most = parameters.n_layers if fixed else parameters.free.max_layers
+    depths = np.full((count, most - 1), np.nan)
+    vs = np.full((count, most), np.nan)
+    draw = _fixed_draw if fixed else _free_draw
+    for row in range(count):
+        model_depths, model_vs = draw(parameters, rng)
+        attempts = 1
+        while np.any(model_vs[1:] < parameters.least_ratio * model_vs[:-1]):
+            if attempts == 200:
+                model_vs = np.sort(model_vs)
+                break
+            model_depths, model_vs = draw(parameters, rng)
+            attempts += 1
+        depths[row, : model_depths.size] = model_depths
+        vs[row, : model_vs.size] = model_vs
+    return LayeredSamples(depths=depths, vs=vs, n_chains=1)
+
+
+def _fixed_draw(
+    parameters: InversionParameters, rng: np.random.Generator
+) -> tuple[np.ndarray, np.ndarray]:
+    thickness = np.array([rng.uniform(*layer.bounds) for layer in parameters.thickness_layers])
+    return np.cumsum(thickness), np.array(
+        [rng.uniform(*layer.bounds) for layer in parameters.vs_layers]
+    )
+
+
+def _free_draw(
+    parameters: InversionParameters, rng: np.random.Generator
+) -> tuple[np.ndarray, np.ndarray]:
+    free = parameters.free
+    assert free.vs_min is not None and free.vs_max is not None
+    assert free.depth_min is not None and free.depth_max is not None
+    k = int(rng.integers(1, free.max_layers + 1))
+    low, high = np.log(free.depth_min), np.log(free.depth_max)
+    gap = np.log(1 + THINNEST)
+    log_depths = np.sort(rng.uniform(low, high, k - 1))
+    for _ in range(100):
+        if k < 3 or np.all(np.diff(log_depths) >= gap):
+            break
+        log_depths = np.sort(rng.uniform(low, high, k - 1))
+    log_vs = rng.uniform(np.log(free.vs_min), np.log(free.vs_max), k)
+    return np.exp(log_depths), np.exp(log_vs)
+
+
 def _steps(parameters: InversionParameters) -> dict[str, float]:
-    """Each parameter's step in `parameters`, by name (vs1, ..., thick1, ...)."""
-    return {f"vs{i + 1}": layer.vs_perturb_std for i, layer in enumerate(parameters.vs_layers)} | {
+    """Each sampled parameter's step in `parameters`, by name (vs1, ..., thick1, ...): the
+    steps runs saved before give in their parameters; none when the data chose the layers."""
+    if parameters.layering != "fixed":
+        return {}
+    steps = {f"vs{i + 1}": layer.vs_perturb_std for i, layer in enumerate(parameters.vs_layers)}
+    steps |= {
         f"thick{i + 1}": layer.thickness_perturb_std
         for i, layer in enumerate(parameters.thickness_layers)
     }
+    fixed = parameters.fixed()
+    return {name: step for name, step in steps.items() if name not in fixed}
 
 
 def _spread(rasters: np.ndarray) -> np.ndarray:
@@ -347,8 +497,9 @@ def _spread(rasters: np.ndarray) -> np.ndarray:
 
 
 def depth_bottom(parameters: InversionParameters) -> float:
-    """The bottom of the models sigpipe builds: the deepest interface the prior allows, plus 1 m."""
-    return float(sum(layer.thickness_max for layer in parameters.thickness_layers)) + 1.0
+    """The bottom of the models sigpipe builds (the parameters resolved): InversionParameters'
+    own."""
+    return parameters.bottom
 
 
 def vs_at(
@@ -406,14 +557,3 @@ def _weighable(errors: np.ndarray) -> np.ndarray:
 
 def _rms(picked: np.ndarray, predicted: np.ndarray, errors: np.ndarray) -> float:
     return round(float(np.sqrt(np.mean(((picked - predicted) / errors) ** 2))), 3)
-
-
-def _raster(vs: np.ndarray, thicknesses: np.ndarray, dz: float, depth_max: float) -> np.ndarray:
-    """Every sampled model (layers x samples) as Vs on a grid of `dz` down to `depth_max`, the
-    half-space filling the rest: sigpipe's ensemble model, before its median."""
-    rows = int(np.ceil(depth_max / dz))
-    tops = np.cumsum(thicknesses, axis=0) if thicknesses.size else np.empty((0, vs.shape[1]))
-    grid = (np.arange(rows) + 0.5) * dz
-    # For each depth and sample, the layer it falls in: the number of interfaces above it.
-    layer = (grid[None, :, None] >= tops.T[:, None, :]).sum(axis=2)
-    return np.take_along_axis(vs.T, layer, axis=1)

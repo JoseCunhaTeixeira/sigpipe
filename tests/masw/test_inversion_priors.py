@@ -1,5 +1,5 @@
 """The checks before S4: bounds derived from the curve, values given kept when they pass and
-changed with a note when they do not."""
+changed with a note when they do not; the layers chosen by the data by default, or given."""
 
 import numpy as np
 import pytest
@@ -7,9 +7,15 @@ import pytest
 from sigpipe.base import DispersionCurve, Mode, VelocityType
 from sigpipe.base.acquisition import UNKNOWN_ACQUISITION
 from sigpipe.masw.inversion import InversionError
-from sigpipe.masw.inversion.priors import PriorRules, broadcast_layers, derive_inversion
+from sigpipe.masw.inversion.priors import (
+    PriorRules,
+    broadcast_layers,
+    checkable,
+    derive_inversion,
+)
 
-RULES = PriorRules()
+# The layers given (the fixed layering): the rules' checks layer by layer.
+RULES = PriorRules(layering="fixed")
 # 150 m/s at 30 m, rising to 300 m/s at 3 m: wavelengths 3 to 30 m, velocities 150 to 300 m/s.
 WAVELENGTHS = np.array([30.0, 15.0, 9.0, 6.0, 3.0])
 VELOCITIES = np.array([150.0, 180.0, 220.0, 260.0, 300.0])
@@ -43,9 +49,9 @@ def test_the_bounds_come_from_the_curve() -> None:
     ] == [(1.0, 10.0, 1.0)] * 3
     # The default effort, with its burn-in.
     assert (parameters.n_iterations, parameters.n_burnin_iterations, parameters.n_chains) == (
-        100_000,
-        10_000,
-        5,
+        150_000,
+        37_500,
+        4,
     )
 
 
@@ -111,7 +117,7 @@ def test_values_given_are_kept_when_they_pass() -> None:
     assert [(layer.vs_min, layer.vs_max) for layer in parameters.vs_layers] == [(100.0, 800.0)] * 3
     assert parameters.thickness_layers[0].thickness_max == 7.0
     # The burn-in follows the iterations given.
-    assert (parameters.n_iterations, parameters.n_burnin_iterations) == (20_000, 2_000)
+    assert (parameters.n_iterations, parameters.n_burnin_iterations) == (20_000, 5_000)
 
 
 def test_values_given_that_fail_are_changed_with_a_note() -> None:
@@ -267,6 +273,7 @@ def test_the_ranges_widen_where_the_curve_needs_it() -> None:
 
 def test_the_rules_are_configurable() -> None:
     rules = PriorRules(
+        layering="fixed",
         vs_min=50.0,
         vs_max=600.0,
         half_space_vs_max=900.0,
@@ -284,3 +291,36 @@ def test_the_rules_are_configurable() -> None:
         0.5,
     )
     assert PriorRules.model_validate_json(rules.model_dump_json()) == rules
+
+
+def test_the_data_choose_the_layers_by_default() -> None:
+    derived = derive_inversion(CURVE, PriorRules())
+
+    parameters = derived.parameters
+    assert (parameters.layering, derived.notes, derived.reach_m) == ("free", (), 15.0)
+    free = parameters.free
+    # 100 to 2,000 m/s, a third of the shortest wavelength to half the longest, 8 layers.
+    assert (free.vs_min, free.vs_max, free.depth_min, free.depth_max, free.max_layers) == (
+        100.0,
+        2_000.0,
+        1.0,
+        15.0,
+        8,
+    )
+    # Layers given mean them.
+    assert derive_inversion(CURVE, PriorRules(), {"n_layers": 3}).parameters.layering == "fixed"
+
+
+def test_the_free_bounds_given_are_kept_where_they_pass() -> None:
+    derived = derive_inversion(
+        CURVE,
+        PriorRules(),
+        {"free": {"vs_min": 200.0, "vs_max": 250.0, "depth_max": 40.0, "max_layers": 5}},
+    )
+
+    free = derived.parameters.free
+    # Above the slowest pick, under the fastest, deeper than the curve reaches: each set back.
+    assert (free.vs_min, free.vs_max, free.depth_max, free.max_layers) == (120.0, 450.0, 15.0, 5)
+    assert len(derived.notes) == 3 and derived.notes[-1].startswith("free.depth_max 40 m")
+    # Checked as given: no layer of the fixed layering added to it.
+    assert checkable({"free": {"max_layers": 5}}, 4) == {"free": {"max_layers": 5}}

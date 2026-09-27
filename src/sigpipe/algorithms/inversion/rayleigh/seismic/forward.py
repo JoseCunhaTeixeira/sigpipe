@@ -1,3 +1,5 @@
+from collections.abc import Mapping
+
 import numpy as np
 from disba import DispersionError, PhaseDispersion
 
@@ -107,9 +109,17 @@ def fwd_function(
     mode: int,
     fs: np.ndarray,
     Vp_Vs_ratio: float,
+    fixed: Mapping[str, float] | None = None,
 ) -> np.ndarray:
-    Vs_per_layer = [state["space"][f"vs{i + 1}"][0] for i in range(n_layers)]
-    thickness_per_layer = [state["space"][f"thick{i + 1}"][0] for i in range(n_layers - 1)]
+    """The curve of the model in `state`, the values `fixed` (by name: vs1, thick1, ...) taken
+    as they are: they are not sampled."""
+    fixed = fixed or {}
+
+    def value(name: str) -> float:
+        return fixed[name] if name in fixed else float(state["space"][name][0])
+
+    Vs_per_layer = [value(f"vs{i + 1}") for i in range(n_layers)]
+    thickness_per_layer = [value(f"thick{i + 1}") for i in range(n_layers - 1)]
     thickness_per_layer.append(1000)
     dispersion_curve = fwd_seismic_phase(thickness_per_layer, Vs_per_layer, mode, fs, Vp_Vs_ratio)
     return dispersion_curve.vs

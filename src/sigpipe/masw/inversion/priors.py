@@ -1,5 +1,13 @@
 """An inversion's parameters derived from the curve it inverts (the checks before S4 of PACo's QC
-workflow, its docs/qc_workflow.md), or checked against it. The first inversion starts wide, for
+workflow, its docs/qc_workflow.md), or checked against it.
+
+The layers chosen by the data (the free layering, the rules' default): Vs from 100 to 2,000 m/s,
+widened where the curve needs it (as slow as 0.8 of its slowest velocity, as fast as 1.5 of its
+fastest), interfaces from a third of its shortest wavelength (thinner is not resolved) down to
+half its longest (deeper is not resolved), at most `max_layers` layers. Values given are kept
+when they pass, changed with a note when they do not.
+
+The layers given (the fixed layering). The first inversion starts wide, for
 the loop to narrow to what the data inform: Vs 100 to 1,000 m/s for the layers and to 2,000 m/s
 for the half-space, widened when the curve needs it (the top layer as slow as the curve's
 slowest velocity, the half-space as fast as its fastest: Vs is about 1.09 Vr at the inversion's
@@ -12,7 +20,7 @@ deeper than the longest wavelength reaches."""
 import math
 from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass
-from typing import Any, cast
+from typing import Any, Literal, cast
 
 import numpy as np
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
@@ -32,6 +40,8 @@ VS_OVER_VR = 1.09
 
 # The fewest layers an inversion has, the half-space among them.
 MIN_LAYERS = 3
+# The keys of the fixed layering: given, they mean it.
+FIXED_KEYS = ("n_layers", "vs_layers", "thickness_layers")
 
 
 class InversionError(ValueError):
@@ -94,11 +104,23 @@ class PriorRules(BaseModel):
         description="Deepest top of the half-space, as a share of the longest wavelength: deeper "
         "is not resolved.",
     )
+    layering: Literal["free", "fixed"] = Field(
+        default="free",
+        description="free: the data choose the layers, up to max_layers; fixed: n_layers given, "
+        "G5 adding or removing one where the model asks.",
+    )
+    max_layers: int = Field(
+        default=8,
+        ge=1,
+        le=20,
+        description="The free layering's most layers, the half-space among them; G5 allows more "
+        "where the models pile at it.",
+    )
     n_layers: int = Field(
         default=4,
         ge=MIN_LAYERS,
-        description="Layers to start with, the half-space among them: never fewer than 3; G5 "
-        "adds layers up to what the curve resolves.",
+        description="The fixed layering's layers to start with, the half-space among them: never "
+        "fewer than 3; G5 adds layers up to what the curve resolves.",
     )
 
 
@@ -116,7 +138,10 @@ def derive_inversion(
     curve: DispersionCurve, rules: PriorRules, given: Mapping[str, Any] | None = None
 ) -> Derived:
     """The parameters to invert `curve` with: `given` (InversionParameters' fields, from the
-    user or the loop) where they pass the checks, the rest derived from the curve."""
+    user or the loop) where they pass the checks, the rest derived from the curve. The layers
+    chosen by the data unless given (or the fixed layering named, or the rules' own)."""
+    if layering_of(given or {}, rules) == "free":
+        return _derive_free(curve, rules, given or {})
     given = broadcast_layers(given or {}, rules.n_layers)
     velocities = np.asarray(curve.vs, dtype=float)
     wavelengths = velocities / np.asarray(curve.fs, dtype=float)
@@ -247,6 +272,69 @@ def derive_inversion(
         raise InversionError(f"The inversion's parameters do not hold: {problems}") from error
 
 
+def layering_of(given: Mapping[str, Any], rules: PriorRules) -> str:
+    """The layering an inversion runs with: the one named, the fixed one when layers are given,
+    else the rules'."""
+    named = given.get("layering")
+    if isinstance(named, str):
+        return named
+    return "fixed" if any(key in given for key in FIXED_KEYS) else rules.layering
+
+
+def _derive_free(curve: DispersionCurve, rules: PriorRules, given: Mapping[str, Any]) -> Derived:
+    """The free layering's bounds from the curve, those `given` kept where they pass."""
+    velocities = np.asarray(curve.vs, dtype=float)
+    wavelengths = velocities / np.asarray(curve.fs, dtype=float)
+    vr_min, vr_max = float(velocities.min()), float(velocities.max())
+    floor, ceiling = round(rules.vs_low * vr_min), round(rules.vs_high * vr_max)
+    deepest = round(rules.max_depth * float(wavelengths.max()), 2)
+    shallowest = round(rules.min_thickness * float(wavelengths.min()), 2)
+    derived = {
+        "vs_min": float(min(rules.vs_min, floor)),
+        "vs_max": float(max(rules.half_space_vs_max, ceiling)),
+        "depth_min": shallowest,
+        "depth_max": deepest,
+        "max_layers": rules.max_layers,
+    }
+    asked = {
+        key: value
+        for key, value in dict(cast(Mapping[str, Any], given.get("free") or {})).items()
+        if value is not None
+    }
+    free = {**derived, **asked}
+    notes: list[str] = []
+    if free["vs_min"] > vr_min:
+        notes.append(
+            f"free.vs_min {free['vs_min']:g} m/s above the curve's slowest velocity "
+            f"({vr_min:.0f} m/s): set to {floor} m/s."
+        )
+        free["vs_min"] = float(floor)
+    if free["vs_max"] < VS_OVER_VR * vr_max:
+        notes.append(
+            f"free.vs_max {free['vs_max']:g} m/s below {VS_OVER_VR} times the curve's fastest "
+            f"velocity ({vr_max:.0f} m/s): set to {ceiling} m/s."
+        )
+        free["vs_max"] = float(ceiling)
+    if free["depth_max"] > deepest:
+        notes.append(
+            f"free.depth_max {free['depth_max']:g} m below the {deepest:g} m the curve reaches: "
+            f"set to {deepest:g} m."
+        )
+        free["depth_max"] = deepest
+    if free["depth_min"] >= free["depth_max"]:
+        free["depth_min"] = round(free["depth_max"] / 2, 2)
+    values = {
+        **{key: value for key, value in given.items() if key not in ("free", *FIXED_KEYS)},
+        "layering": "free",
+        "free": free,
+    }
+    try:
+        return Derived(InversionParameters.model_validate(values), tuple(notes), deepest)
+    except ValidationError as error:
+        problems = "; ".join(str(problem["msg"]) for problem in error.errors())
+        raise InversionError(f"The inversion's parameters do not hold: {problems}") from error
+
+
 def _vs_range(low: float, high: float) -> dict[str, float]:
     """A layer's Vs bounds, with the step in the defaults' proportion."""
     return {
@@ -285,7 +373,11 @@ def checkable(given: Mapping[str, Any], default_layers: int) -> dict[str, Any]:
     """`given` as an inversion reads it, complete enough to check before it starts: one Vs (or
     thickness) range standing for every layer, and the count the inversion starts from when none
     is given. Checked as given, the one range the card offers would be refused against the
-    default of 2 layers."""
+    default of 2 layers. The free layering is checked as given."""
+    if given.get("layering") == "free" or (
+        "layering" not in given and not any(key in given for key in FIXED_KEYS)
+    ):
+        return dict(given)
     values = broadcast_layers(given, default_layers)
     count = values.get("n_layers", default_layers)
     if isinstance(count, int) and count >= 2:
