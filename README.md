@@ -15,7 +15,14 @@ Raw waveforms go in; dispersion curves and inverted velocity models come out. Ea
 - **Correlation & stacking** — cross-correlation, bidirectional correlation, active-shot correlation, linear/root/phase-weighted stacking.
 - **Beamforming** — cross-beamforming and f-k based receiver selection.
 - **Dispersion analysis** — phase-shift and FTAN dispersion imaging; curve picking within bounds (`maximum`), inside a hand-drawn polygon (`lasso`) or automatically, mode after mode (`tracking`).
-- **Inversion** — Bayesian MCMC inversion of Rayleigh-wave dispersion curves to 1D velocity models (via [`disba`](https://github.com/keurfonluu/disba) + [`BayesBay`](https://github.com/fmagrini/bayes-bay)). AI petrophysical inversion of Rayleigh-wave dispersion curves to 1D soil models (via [`silex`](https://github.com/josecunhateixeira/silex)).
+- **Seismic inversion** — Bayesian inversion of Rayleigh-wave dispersion curves into 1D Vs profiles. Markov chains (MCMC) try many layered models and keep them in proportion to how well they fit the curve; [`disba`](https://github.com/keurfonluu/disba) computes each model's curve. The layers can be:
+  - *chosen by the data* (the default): the number of layers is sampled too, so the result uses as many layers as the curve supports (reversible-jump MCMC with parallel tempering);
+  - *given*: you set the number of layers and each one's Vs and thickness ranges (DREAM(ZS)).
+
+  See [References](#references).
+
+  The inversion also estimates how noisy the picks really are, and by default a layer's Vs may be at most 20 % lower than the one above (a stiff layer over a much softer one gives false fits).
+- **Petrophysical inversion** — AI inversion of Rayleigh-wave dispersion curves to 1D soil models (via [`silex`](https://github.com/josecunhateixeira/silex)).
 - **Forward modeling** — 1D velocity or soil models to Rayleigh dispersion curves, via a fixed Vp/Vs ratio or real rock physics (via [`santiludo`](https://github.com/JoseCunhaTeixeira/santiludo)) respectively, dispatched by model type through a single `Forward` transformer.
 - **I/O & plotting** — saving/loading and plotting for every data type above, plus section views across multiple acquisitions.
 - **MASW** (`sigpipe.masw`) — a line's records to its velocity section: profiles, windows along the line, the processing settings, runs on disk, picks, inversion per window and sections of the line, and the measures of their quality. [PAC](https://github.com/JoseCunhaTeixeira/PAC) (the web application) and [PACo](https://github.com/JoseCunhaTeixeira/PACo) (its AI agent) are built on it.
@@ -122,7 +129,7 @@ Every processing step follows the same pattern, so that a new method is a functi
 2. **A registry** names the algorithms of a category: `MUTTING_METHODS = {"mute": mute}`.
 3. **A transformer** takes a method name and its parameters, and runs the method on every element: `Mute(method="mute", vmin=80, vmax=1500, taper=50)`. `method="none"` passes the data through.
 4. **Settings schemas** are generated from the algorithms' signatures (`sigpipe.masw.presets`): a form or an agent validates the same parameters, with the same names, that the functions take.
-5. **An algorithm with many or nested parameters** validates them with a pydantic model defined next to it: the tracking picker with `PickingParameters`, the MCMC inversion with `InversionParameters` (its layers' priors and the sampler's effort). The call stays a method and its parameters, `Invert(method="mcmc", n_layers=3, vs_layers=[...], ...)`, and a form or an agent sends the same JSON.
+5. **An algorithm with many or nested parameters** validates them with a pydantic model defined next to it: the tracking picker with `PickingParameters`, the MCMC inversion with `InversionParameters` (its layering and priors, the Vs drop allowed and the chains' effort). The call stays a method and its parameters, `Invert(method="mcmc", free={"max_layers": 6})` or `Invert(method="mcmc", n_layers=3, vs_layers=[...], ...)`, and a form or an agent sends the same JSON.
 
 Data (streams, dispersion images, curves, models) are frozen dataclasses in `sigpipe.base`; parameters, settings and records written to disk are pydantic models.
 
@@ -193,6 +200,19 @@ uv run pre-commit install
 ```
 
 CI runs linting, formatting checks, and the test suite on every push and pull request to `main` (see [.github/workflows/ci.yml](.github/workflows/ci.yml)).
+
+## References
+
+The seismic inversion's samplers (`sigpipe/algorithms/inversion/rayleigh/seismic/`):
+
+- **DREAM(ZS)**, the layers given (`dream.py`):
+  - ter Braak, C. J. F., & Vrugt, J. A. (2008). Differential Evolution Markov Chain with snooker updater and fewer chains. *Statistics and Computing*, 18(4), 435–446. https://doi.org/10.1007/s11222-008-9104-9
+  - Vrugt, J. A., ter Braak, C. J. F., Diks, C. G. H., Robinson, B. A., Hyman, J. M., & Higdon, D. (2009). Accelerating Markov chain Monte Carlo simulation by differential evolution with self-adaptive randomized subspace sampling. *International Journal of Nonlinear Sciences and Numerical Simulation*, 10(3), 273–290. https://doi.org/10.1515/IJNSNS.2009.10.3.273
+  - Vrugt, J. A. (2016). Markov chain Monte Carlo simulation using the DREAM software package: Theory, concepts, and MATLAB implementation. *Environmental Modelling & Software*, 75, 273–316. https://doi.org/10.1016/j.envsoft.2015.08.013
+- **Reversible-jump MCMC with parallel tempering**, the layers chosen by the data (`transdimensional.py`):
+  - Green, P. J. (1995). Reversible jump Markov chain Monte Carlo computation and Bayesian model determination. *Biometrika*, 82(4), 711–732. https://doi.org/10.1093/biomet/82.4.711
+  - Bodin, T., Sambridge, M., Tkalčić, H., Arroucau, P., Gallagher, K., & Rawlinson, N. (2012). Transdimensional inversion of receiver functions and surface wave dispersion. *Journal of Geophysical Research: Solid Earth*, 117, B02301. https://doi.org/10.1029/2011JB008560 (also the noise level sampled with the model: hierarchical Bayes)
+  - Earl, D. J., & Deem, M. W. (2005). Parallel tempering: Theory, applications, and new perspectives. *Physical Chemistry Chemical Physics*, 7(23), 3910–3916. https://doi.org/10.1039/B509983H
 
 ## License
 

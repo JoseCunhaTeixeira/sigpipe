@@ -68,7 +68,7 @@ class InversionResult:
     steps: dict[str, float] = field(default_factory=dict)
     """Each sampled parameter's typical move (vs1, ..., thick1, ...), in the fixed layering."""
     tuning: tuple[tuple[float, float], ...] = ()
-    """Each trial run's step factor and acceptance rate (%): bayesbay's runs'."""
+    """Each trial run's step factor and acceptance rate (%): runs saved before 2026-09-27."""
     acceptance: tuple[float, ...] = ()
     """Each chain's acceptance rate over the run (%), the burn-in included."""
     parameters: dict[str, Any] = field(default_factory=dict)

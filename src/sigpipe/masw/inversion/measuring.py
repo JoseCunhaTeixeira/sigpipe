@@ -33,7 +33,8 @@ from sigpipe.masw.picks import CURVES_FILE
 # The monitored model first (PAC's default view), then the layered model it smooths.
 MODELS = ("smooth_median", "median")
 LOG_FILE = "SeismicInversion_Log_0000.log"
-_RATE = re.compile(r"ACCEPTANCE RATE: \d+/\d+ \(([\d.]+) %\)")  # bayesbay's, runs saved before
+# The acceptance rates in the log of runs saved before 2026-09-27, which their parameters lack.
+_RATE = re.compile(r"ACCEPTANCE RATE: \d+/\d+ \(([\d.]+) %\)")
 # Depths the chains' agreement is measured at, between a third of the shortest and of the longest
 # picked wavelength.
 WATCHED = 5

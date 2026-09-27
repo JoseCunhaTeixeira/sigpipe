@@ -108,7 +108,7 @@ def test_the_parameters_are_checked_before_sampling(
 
 
 def test_runs_saved_before_read_as_their_fixed_layers() -> None:
-    # bayesbay's runs: no layering, their steps' trial runs.
+    # Runs saved before 2026-09-27: no layering, their steps' trial runs.
     saved = InversionParameters.model_validate(
         {"n_layers": 2, "vs_layers": [{}, {}], "thickness_layers": [{}], "tune_steps": True}
     )

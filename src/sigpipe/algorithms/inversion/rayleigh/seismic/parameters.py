@@ -19,7 +19,8 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 # Each chain keeps one model every SAVE_EVERY iterations after the burn-in: iteration i when
 # i > n_burnin and (i - n_burnin) is a multiple of SAVE_EVERY.
 SAVE_EVERY = 150
-# Keys of runs saved before, accepted and dropped: the trial runs that tuned bayesbay's steps.
+# Keys of runs saved before 2026-09-27, accepted and dropped: the trial runs that tuned the steps
+# of the sampler sigpipe used then.
 _RETIRED = ("tune_steps",)
 _FIXED_KEYS = ("n_layers", "vs_layers", "thickness_layers")
 

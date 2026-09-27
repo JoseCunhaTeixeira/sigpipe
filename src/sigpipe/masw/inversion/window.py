@@ -53,7 +53,8 @@ class WindowParameters(BaseModel):
     model_config = ConfigDict(frozen=True)
 
     parameters: InversionParameters  # as run
-    tuning: tuple[tuple[float, float], ...] = ()  # bayesbay's trial runs (factor, acceptance %)
+    # The trial runs (step factor, acceptance %) of the runs saved before 2026-09-27.
+    tuning: tuple[tuple[float, float], ...] = ()
     acceptance: tuple[float, ...]  # each chain's over the run (%), the burn-in included
     steps: dict[str, float] = {}  # each sampled parameter's typical move (vs1, ..., thick1, ...)
 

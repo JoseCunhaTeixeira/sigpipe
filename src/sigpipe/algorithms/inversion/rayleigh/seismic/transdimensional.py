@@ -22,6 +22,16 @@ a stretch of every depth together (the trade-offs of depth and velocity), and th
 factor's move; each move accepted with its exact ratio. Hotter copies of each chain, whose
 likelihood is flattened, cross between the posterior's modes and exchange models with it
 (parallel tempering). The steps adapt during the burn-in, then stay.
+
+References:
+- Green, P. J. (1995). Reversible jump Markov chain Monte Carlo computation and Bayesian model
+  determination. Biometrika, 82(4), 711-732. https://doi.org/10.1093/biomet/82.4.711
+- Bodin, T., Sambridge, M., Tkalcic, H., Arroucau, P., Gallagher, K., & Rawlinson, N. (2012).
+  Transdimensional inversion of receiver functions and surface wave dispersion. Journal of
+  Geophysical Research: Solid Earth, 117, B02301. https://doi.org/10.1029/2011JB008560
+- Earl, D. J., & Deem, M. W. (2005). Parallel tempering: Theory, applications, and new
+  perspectives. Physical Chemistry Chemical Physics, 7(23), 3910-3916.
+  https://doi.org/10.1039/B509983H
 """
 
 import math

@@ -16,6 +16,18 @@ slower (their travel time), a curved trade-off that turns nearly straight, along
 differences propose; the priors stay uniform in the values (a Jacobian term). Every value moves
 within its prior's bounds, reflected at them, so that the proposals stay symmetric. The data,
 the forward model, the noise factor and the Vs-drop limit are data.py's.
+
+References:
+- ter Braak, C. J. F., & Vrugt, J. A. (2008). Differential Evolution Markov Chain with snooker
+  updater and fewer chains. Statistics and Computing, 18(4), 435-446.
+  https://doi.org/10.1007/s11222-008-9104-9
+- Vrugt, J. A., ter Braak, C. J. F., Diks, C. G. H., Robinson, B. A., Hyman, J. M., & Higdon, D.
+  (2009). Accelerating Markov chain Monte Carlo simulation by differential evolution with
+  self-adaptive randomized subspace sampling. International Journal of Nonlinear Sciences and
+  Numerical Simulation, 10(3), 273-290. https://doi.org/10.1515/IJNSNS.2009.10.3.273
+- Vrugt, J. A. (2016). Markov chain Monte Carlo simulation using the DREAM software package:
+  Theory, concepts, and MATLAB implementation. Environmental Modelling & Software, 75, 273-316.
+  https://doi.org/10.1016/j.envsoft.2015.08.013
 """
 
 import math
