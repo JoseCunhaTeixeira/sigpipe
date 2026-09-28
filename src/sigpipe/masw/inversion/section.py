@@ -4,14 +4,15 @@ saves (MODEL_NAMES), and the curves each predicts; PAC's default view is the smo
 Functions take a run folder and window folders of it (`units`, named xmid_<x>)."""
 
 import logging
+import warnings
 from collections.abc import Sequence
 from dataclasses import dataclass
-from itertools import pairwise
 from pathlib import Path
 from typing import Literal
 
 import matplotlib.pyplot as plt
 import numpy as np
+from scipy.ndimage import gaussian_filter1d
 
 from sigpipe.base.dispersion_curve import DispersionCurve, DispersionCurvesSection, Mode
 from sigpipe.base.velocity_model import VelocityModel, VelocityModelsSection
@@ -25,7 +26,6 @@ from sigpipe.dataio.velocity_model.loading import load_velocity_models
 from sigpipe.dataio.velocity_model.section import (
     plot_velocity_and_std_section,
     save_velocity_models_sections,
-    smooth_laterally,
 )
 from sigpipe.masw.inversion.window import DZ, M0
 from sigpipe.masw.picks import CURVES_FILE
@@ -42,6 +42,10 @@ COMPARISON_FIGURE = "SeismicInversion_PseudoSectionComparison_0000_M0.png"
 # The depths of a section drawn on screen (PAC's canvas is 200 to 320 px high): at the
 # inversion's 1 cm, a modest line has about 4,000, 60 MB of JSON, for no visible difference.
 VIEW_NZ = 200
+# Smoothed along the line, a section's columns at most: it is spread over metres, not columns.
+VIEW_NX = 600
+# A window's length when not given: MASW windows are commonly about eight steps long.
+STEPS_PER_WINDOW = 8
 
 
 def model_path(folder: Path, model: ModelName) -> Path:
@@ -90,67 +94,111 @@ class VelocityGrid:
 
 
 def velocity_grid(
-    section: VelocityModelsSection, lateral_smoothing: bool = False, nz: int = VIEW_NZ
+    section: VelocityModelsSection,
+    lateral_smoothing: bool = False,
+    nz: int = VIEW_NZ,
+    window_m: float | None = None,
 ) -> VelocityGrid:
-    """`section` on a grid of about `nz` elevations.
+    """`section` on a grid of about `nz` elevations, its models sampled at them.
 
-    Unsmoothed: one column per inverted position, not to_grid's regular x-grid, whose
-    nearest-neighbour lookup breaks ties toward the lower-x position (numpy's argmin picks the
-    first match) and shifts every position's band off centre.
+    Unsmoothed: one column per window, at its middle, empty above its ground.
 
-    Smoothed: resampled first onto dx = half the smallest gap between adjacent positions (two
-    columns across the tightest gap), then smoothed laterally.
-
-    Either way the models are sampled every DZ (so that the thin layers of the smooth variants
-    are not skipped, as to_grid itself requires), and the grid thinned to `nz` elevations after.
+    Smoothed along the line (`smoothed`): each window's model describes the ground under its
+    whole spread, `window_m` long (by default STEPS_PER_WINDOW of the windows' median step), so
+    the section is spread over that length.
     """
     models = section.velocity_models
-    if lateral_smoothing:
-        xs_sorted = sorted(model.position.x for model in models)
-        dx = max(min(b - a for a, b in pairwise(xs_sorted)) / 2, 1e-6)
-        xs, zs_fine, vs, _vp, _rho, vs_std = section.to_grid(dz=DZ, dx=dx)
-    else:
-        tops = [model.position.z for model in models]
-        bottoms = [model.position.z - sum(model.thicknesses) for model in models]
-        n = int(np.floor((max(tops) - min(bottoms)) / DZ)) + 1
-        zs_fine = (max(tops) - np.arange(n, dtype=np.float32) * DZ).astype(np.float32)
-        xs = np.array([model.position.x for model in models], dtype=np.float32)
-        vs = np.array([model.sample_vs(zs_fine) for model in models], dtype=np.float32)
-        vs_std = np.array([model.sample_vs_std(zs_fine) for model in models], dtype=np.float32)
+    tops = np.array([model.position.z for model in models], dtype=float)
+    bottom = min(model.position.z - sum(model.thicknesses) for model in models)
+    n = int(np.floor((tops.max() - bottom) / DZ)) + 1
+    elevations = (tops.max() - np.arange(n, dtype=np.float32) * DZ)[:: max(n // nz, 1)]
+    xs = np.array([model.position.x for model in models], dtype=np.float32)
+    vs = np.array([model.sample_vs(elevations) for model in models], dtype=np.float32)
+    vs_std = np.array([model.sample_vs_std(elevations) for model in models], dtype=np.float32)
+    if not lateral_smoothing:
+        return VelocityGrid(positions=xs, elevations=elevations, vs=vs, vs_std=vs_std)
+    positions = smoothed_positions(xs)
+    ground = np.interp(positions, xs, tops)
+    above = elevations[None, :] > ground[:, None] + 1e-3
+    width = window_m or default_window(xs)
+    return VelocityGrid(
+        positions=positions,
+        elevations=elevations,
+        vs=smoothed(vs, xs, positions, width, above).astype(np.float32),
+        vs_std=smoothed(vs_std, xs, positions, width, above).astype(np.float32),
+    )
 
-    stride = max(len(zs_fine) // nz, 1)
-    vs, vs_std = vs[:, ::stride], vs_std[:, ::stride]
-    if lateral_smoothing:
-        # The median across positions skips the empty cells above a window's ground: kept
-        # empty after it, or a higher neighbour's Vs would rise above the ground where it steps.
-        above = np.isnan(vs)
-        vs, vs_std = smooth_laterally(vs), smooth_laterally(vs_std)
-        vs[above] = np.nan
-        vs_std[above] = np.nan
-    return VelocityGrid(positions=xs, elevations=zs_fine[::stride], vs=vs, vs_std=vs_std)
+
+def smoothed_positions(xs: np.ndarray) -> np.ndarray:
+    """The columns of a section smoothed along the line: every half of the windows' smallest step
+    (each window two columns at least), VIEW_NX at most."""
+    step = max(float(np.min(np.diff(xs))) / 2, 1e-6) if xs.size > 1 else 1.0
+    count = min(int(np.floor((xs[-1] - xs[0]) / step)) + 1, VIEW_NX)
+    return np.linspace(float(xs[0]), float(xs[-1]), max(count, 2), dtype=np.float32)
+
+
+def default_window(xs: np.ndarray) -> float:
+    """A window's length when not known: STEPS_PER_WINDOW of the windows' median step."""
+    return STEPS_PER_WINDOW * float(np.median(np.diff(xs))) if xs.size > 1 else 1.0
+
+
+def smoothed(
+    values: np.ndarray,
+    xs: np.ndarray,
+    positions: np.ndarray,
+    window_m: float,
+    empty: np.ndarray | None = None,
+) -> np.ndarray:
+    """`values` (a row per window at `xs`, NaN where it has none) along the line at `positions`:
+    each window's value the median of its and its two neighbours' (one odd model does not
+    spread); between windows, linear from those holding a value; then a Gaussian along the line
+    whose full width at half height is `window_m` (a window's spread, what it describes). The
+    cells `empty` (above the ground) left empty, and none of them weighed in."""
+    padded = np.pad(np.asarray(values, dtype=float), ((1, 1), (0, 0)), mode="edge")
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", category=RuntimeWarning)  # a row without a value
+        robust = np.nanmedian(np.stack([padded[:-2], padded[1:-1], padded[2:]]), axis=0)
+    out = np.full((positions.size, robust.shape[1]), np.nan)
+    for j in range(robust.shape[1]):
+        held = ~np.isnan(robust[:, j])
+        if held.any():
+            out[:, j] = np.interp(positions, xs[held], robust[held, j])
+    if empty is not None:
+        out[empty] = np.nan
+    step = float(positions[1] - positions[0]) if positions.size > 1 else 1.0
+    sigma = window_m / (2 * np.sqrt(2 * np.log(2))) / step
+    weights = (~np.isnan(out)).astype(float)
+    total = gaussian_filter1d(np.nan_to_num(out) * weights, sigma, axis=0, mode="nearest")
+    weight = gaussian_filter1d(weights, sigma, axis=0, mode="nearest")
+    with np.errstate(invalid="ignore", divide="ignore"):
+        result = total / weight
+    result[weights == 0] = np.nan
+    return result
 
 
 def informed_levels(
     grid: VelocityGrid,
     windows: Sequence[tuple[float, float, float | None]],
     lateral_smoothing: bool = False,
+    window_m: float | None = None,
 ) -> np.ndarray:
     """Per column of `grid` (`velocity_grid`'s, of the same windows): the elevation down to which
     the data inform the section, from each window's middle, ground elevation and depth informed
-    (m; None: not known), NaN where not known. Smoothed across positions as the grid's Vs when
-    `lateral_smoothing`: the depths, so that no level rises above its ground, and a column whose
-    window has none left without."""
+    (m; None: not known), NaN where not known. Smoothed along the line as the grid's Vs when
+    `lateral_smoothing`: the depths, so that no level rises above its ground; a column nearest a
+    window without one left without."""
     xs = np.array([x for x, _, _ in windows], dtype=np.float32)
-    # Each column's window, as to_grid picks it: the nearest (its own, unsmoothed).
-    nearest = np.abs(grid.positions[:, None] - xs[None, :]).argmin(axis=1)
-    grounds = np.array([ground for _, ground, _ in windows], dtype=float)[nearest]
-    known = [np.nan if depth is None else depth for _, _, depth in windows]
-    depths = np.array(known, dtype=float)[nearest]
-    if lateral_smoothing:
-        unknown = np.isnan(depths)
-        depths = smooth_laterally(depths[:, None])[:, 0]
-        depths[unknown] = np.nan
-    return grounds - depths
+    grounds = np.array([ground for _, ground, _ in windows], dtype=float)
+    depths = np.array([np.nan if depth is None else depth for _, _, depth in windows], dtype=float)
+    positions = grid.positions
+    # Each column's window: its own unsmoothed, the nearest smoothed.
+    nearest = np.abs(positions[:, None] - xs[None, :]).argmin(axis=1)
+    if not lateral_smoothing:
+        return (grounds - depths)[nearest]
+    width = window_m or default_window(xs)
+    along = smoothed(depths[:, None], xs, positions, width)[:, 0]
+    along[np.isnan(depths)[nearest]] = np.nan
+    return np.interp(positions, xs, grounds) - along
 
 
 def section_suffix(model: ModelName, lateral_smoothing: bool) -> str:
