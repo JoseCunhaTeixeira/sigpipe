@@ -1,5 +1,5 @@
 """The Vs section on a grid, as PAC shows it: each window's column from its own ground down,
-smoothed along the line over a window's length or not."""
+smoothed along the line over a share of a window's length or not."""
 
 import numpy as np
 
@@ -50,7 +50,7 @@ def _line(tops: np.ndarray) -> VelocityModelsSection:
     )
 
 
-def test_the_section_is_smoothed_over_a_windows_length() -> None:
+def test_an_alternation_from_window_to_window_evens_out() -> None:
     # Alternately 200 and 400 m/s from a window to the next.
     section = _line(np.where(np.arange(40) % 2, 400.0, 200.0))
 
@@ -58,7 +58,7 @@ def test_the_section_is_smoothed_over_a_windows_length() -> None:
     grid = velocity_grid(section, lateral_smoothing=True, window_m=12.0)
 
     assert np.ptp(plain.vs[:, 0]) == 200.0
-    # Over 12 m, the alternation evens out to its mean (away from the line's ends).
+    # Smoothed over a third of 12 m windows: their mean (away from the line's ends).
     inner = (grid.positions > 9.0) & (grid.positions < 49.5)
     np.testing.assert_allclose(grid.vs[inner, 0], 300.0, atol=10.0)
 

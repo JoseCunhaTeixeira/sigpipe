@@ -46,6 +46,9 @@ VIEW_NZ = 200
 VIEW_NX = 600
 # A window's length when not given: MASW windows are commonly about eight steps long.
 STEPS_PER_WINDOW = 8
+# The smoothing's full width at half height, of a window's length: over the whole of it (what a
+# window's model describes) the section blurred; a third keeps what is a few windows wide.
+SMOOTHED_SHARE = 1 / 3
 
 
 def model_path(folder: Path, model: ModelName) -> Path:
@@ -103,9 +106,8 @@ def velocity_grid(
 
     Unsmoothed: one column per window, at its middle, empty above its ground.
 
-    Smoothed along the line (`smoothed`): each window's model describes the ground under its
-    whole spread, `window_m` long (by default STEPS_PER_WINDOW of the windows' median step), so
-    the section is spread over that length.
+    Smoothed along the line (`smoothed`): over SMOOTHED_SHARE of a window's length, `window_m`
+    (by default STEPS_PER_WINDOW of the windows' median step).
     """
     models = section.velocity_models
     tops = np.array([model.position.z for model in models], dtype=float)
@@ -152,7 +154,7 @@ def smoothed(
     """`values` (a row per window at `xs`, NaN where it has none) along the line at `positions`:
     each window's value the median of its and its two neighbours' (one odd model does not
     spread); between windows, linear from those holding a value; then a Gaussian along the line
-    whose full width at half height is `window_m` (a window's spread, what it describes). The
+    whose full width at half height is SMOOTHED_SHARE of `window_m`, a window's length. The
     cells `empty` (above the ground) left empty, and none of them weighed in."""
     padded = np.pad(np.asarray(values, dtype=float), ((1, 1), (0, 0)), mode="edge")
     with warnings.catch_warnings():
@@ -166,7 +168,7 @@ def smoothed(
     if empty is not None:
         out[empty] = np.nan
     step = float(positions[1] - positions[0]) if positions.size > 1 else 1.0
-    sigma = window_m / (2 * np.sqrt(2 * np.log(2))) / step
+    sigma = SMOOTHED_SHARE * window_m / (2 * np.sqrt(2 * np.log(2))) / step
     weights = (~np.isnan(out)).astype(float)
     total = gaussian_filter1d(np.nan_to_num(out) * weights, sigma, axis=0, mode="nearest")
     weight = gaussian_filter1d(weights, sigma, axis=0, mode="nearest")
