@@ -194,7 +194,7 @@ def plot_density_curves(
         depths = np.insert(np.asarray(model.depths, dtype=np.float64), 0, 0.0)
         vs_step = np.append(model.vs_s, model.vs_s[-1])
         ax_vs.step(vs_step, depths, where="pre", color=color, label=label, linewidth=1)
-        if name == "smooth_median":
+        if name == "ensemble":  # the kept models' own spread at each depth
             std_step = np.append(model.vs_s_std, model.vs_s_std[-1])
             ax_vs.step(
                 vs_step - std_step,

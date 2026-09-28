@@ -15,6 +15,7 @@ from sigpipe.masw.inversion.measuring import (
     depth_bottom,
     effective_sample_size,
     fit_by_band,
+    interface_shares,
     lag1_autocorrelation,
     report_depths,
     split_rhat,
@@ -309,3 +310,17 @@ def test_values_fixed_are_left_out_of_the_measures() -> None:
     assert {share.parameter for share in bound_shares(samples, parameters, 0.02)} == {"vs1"}
     assert depth_bottom(parameters) == 4.0
     assert parameters.fixed() == {"vs2": 400.0, "thick1": 3.0}
+
+
+def test_the_interfaces_are_counted_once_a_model_by_depth() -> None:
+    # Four models: interfaces near 3 m in three, one at 8 m, two in one bin in the last.
+    depths = np.array(
+        [[3.1, np.nan], [3.2, 8.0], [2.9, np.nan], [6.1, 6.3]],
+    )
+    profiles = LayeredSamples(depths=depths, vs=np.full((4, 3), 300.0), n_chains=1)
+
+    shares = interface_shares(profiles, bottom=10.0, dz=0.5)
+
+    assert len(shares) == 20
+    assert (shares[5], shares[6], shares[12], shares[16]) == (0.25, 0.5, 0.25, 0.25)
+    assert sum(shares) == 1.25

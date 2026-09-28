@@ -5,7 +5,7 @@ import numpy as np
 
 from sigpipe.base.coordinate import Coordinate
 from sigpipe.base.velocity_model import VelocityModel, VelocityModelsSection
-from sigpipe.masw.inversion.section import informed_levels, velocity_grid
+from sigpipe.masw.inversion.section import informed_levels, interface_grid, velocity_grid
 
 XS = np.arange(6) * 1.5  # the windows' middles
 
@@ -89,3 +89,31 @@ def test_the_depth_informed_is_smoothed_as_the_section() -> None:
     informed = (grounds - smoothed)[~unknown]
     # The deep window softened along the line, as the section's Vs; never above the ground.
     assert informed.min() >= 5.0 and 5.5 < informed.max() < 12.0
+
+
+def test_the_interfaces_are_drawn_from_each_ground() -> None:
+    section = VelocityModelsSection(velocity_models=tuple(_model(x) for x in XS))
+    # Every model an interface 2 to 2.5 m deep; the fifth window's shares not known.
+    shares = tuple(1.0 if i == 4 else 0.0 for i in range(40))
+    windows = [(float(x), _ground(x), () if i == 4 else shares) for i, x in enumerate(XS)]
+
+    plain_grid = velocity_grid(section)
+    plain = interface_grid(plain_grid, windows)
+    grid = velocity_grid(section, lateral_smoothing=True, window_m=3.0)
+    smoothed = interface_grid(grid, windows, lateral_smoothing=True, window_m=3.0)
+
+    for column, x in zip(plain, XS, strict=True):
+        depth = _ground(float(x)) - plain_grid.elevations
+        if x == XS[4]:
+            assert np.isnan(column).all()
+            continue
+        assert (column[(depth >= 2.0) & (depth < 2.5)] == 1.0).all()
+        # Down to the shares' reach (40 of 0.5 m); nothing above the ground, nor below.
+        reached = (depth >= 0.0) & (depth < 20.0)
+        assert (column[reached & ((depth < 2.0) | (depth >= 2.5))] == 0.0).all()
+        assert np.isnan(column[(depth < 0.0) | (depth >= 20.0)]).all()
+    nearest = np.abs(grid.positions[:, None] - XS[None, :]).argmin(axis=1)
+    assert np.isnan(smoothed[nearest == 4]).all()
+    grounds = np.interp(grid.positions, XS, [_ground(float(x)) for x in XS])
+    above = grid.elevations[None, :] > grounds[:, None] + 1e-3
+    assert np.isnan(smoothed[above]).all() and np.nanmax(smoothed) <= 1.0

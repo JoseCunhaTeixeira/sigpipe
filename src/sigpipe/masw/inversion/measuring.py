@@ -1,10 +1,11 @@
-"""What a window's inversion files say about its models: the fit of the monitored smooth median
-and of the layered median it comes from, by band of wavelength; how the chains agree, how many
-independent samples they hold and how autocorrelated they are, on the models' Vs at depths the
-curve resolves (the one measure of both layerings: a layer's own values mean nothing when the
-data choose the layers); how much of the posterior sits on the prior's bounds; down to which
-depth the data inform the model; and the smooth median's Vs at given depths. Measurements only:
-PACo's QC (G5) judges them."""
+"""What a window's inversion files say about its models: the fit of the monitored model (the
+kept models' median at each depth, the ensemble) and of the layered median, by band of
+wavelength; how the chains agree, how many independent samples they hold and how autocorrelated
+they are, on the models' Vs at depths the curve resolves (the one measure of both layerings: a
+layer's own values mean nothing when the data choose the layers); how much of the posterior sits
+on the prior's bounds; down to which depth the data inform the model; where the kept models put
+interfaces; and the monitored model's Vs at given depths. Measurements only: PACo's QC (G5)
+judges them."""
 
 import re
 from collections.abc import Sequence
@@ -30,8 +31,11 @@ from sigpipe.masw.inversion.window import (
 )
 from sigpipe.masw.picks import CURVES_FILE
 
-# The monitored model first (PAC's default view), then the layered model it smooths.
-MODELS = ("smooth_median", "median")
+# The monitored model first (PAC's default view: at each depth, the kept models' median Vs), then
+# the layered median (the kept model nearest it).
+MODELS = ("ensemble", "median")
+# The depth bins the kept models' interfaces are counted in (m).
+INTERFACE_DZ = 0.5
 LOG_FILE = "SeismicInversion_Log_0000.log"
 # The acceptance rates in the log of runs saved before 2026-09-27, which their parameters lack.
 _RATE = re.compile(r"ACCEPTANCE RATE: \d+/\d+ \(([\d.]+) %\)")
@@ -108,9 +112,12 @@ class InversionMeasures(BaseModel):
     # empty in measures from before 2026-09-28, against the run's own prior.
     useful_reference: str = ""
     depth_max_m: float  # the bottom of the models sigpipe builds
-    vs_at_depths: tuple[tuple[float, float], ...]  # (depth m, smooth median Vs m/s)
+    vs_at_depths: tuple[tuple[float, float], ...]  # (depth m, the monitored model's Vs m/s)
     vs_layers: tuple[float, ...]  # the layered median, top down
     interfaces_m: tuple[float, ...]  # the layered median's interface depths
+    # Per INTERFACE_DZ from the surface down to the bottom, the share of the kept models with an
+    # interface there; empty in measures from before 2026-09-28.
+    interfaces: tuple[float, ...] = ()
 
     def fit(self, model: str) -> ModelFit:
         return next(fit for fit in self.fits if fit.model == model)
@@ -130,7 +137,8 @@ def measure_inversion(
     `parameters`: the fits over `n_bands` bands of the picked curve's wavelengths, the share of
     each parameter's samples within `bound_edge` of its prior's range from each bound, the
     useful depth where the posterior's spread of Vs reaches `std_ratio` of the spread of one
-    yardstick for every window (`yardstick`), and the smooth median's Vs at `depths`."""
+    yardstick for every window (`yardstick`), where the kept models put interfaces, and the
+    monitored model's Vs at `depths`."""
     picked = _picked_m0(folder)
     out = output_folder or folder
     fits = tuple(fit_by_band(model, picked, _forward(out, model), n_bands) for model in MODELS)
@@ -152,7 +160,7 @@ def measure_inversion(
         name: profiles.per_chain(np.asarray(values, dtype=float)) for name, values in series.items()
     }
     per_chain = profiles.vs.shape[0] // n_chains
-    smooth = load_velocity_models([out / "SeismicInversion_Model_0000_smooth_median.csv"])[0][0]
+    monitored = load_velocity_models([out / f"SeismicInversion_Model_0000_{MODELS[0]}.csv"])[0][0]
     median = load_velocity_models([out / "SeismicInversion_Model_0000_median.csv"])[0][0]
     acceptance = (
         window.acceptance
@@ -188,12 +196,28 @@ def measure_inversion(
         vs_at_depths=tuple(
             (float(depth), value)
             for depth, value in zip(
-                depths, vs_at(smooth.thicknesses, smooth.vs_s, depths), strict=True
+                depths, vs_at(monitored.thicknesses, monitored.vs_s, depths), strict=True
             )
         ),
         vs_layers=tuple(round(float(value), 1) for value in median.vs_s),
         interfaces_m=tuple(round(float(depth), 2) for depth in np.cumsum(median.thicknesses[:-1])),
+        interfaces=interface_shares(profiles, ran.bottom),
     )
+
+
+def interface_shares(
+    profiles: LayeredSamples, bottom: float, dz: float = INTERFACE_DZ
+) -> tuple[float, ...]:
+    """Per `dz` from the surface down to `bottom`: the share of the kept models with an interface
+    there (once a model), where the data put the layering."""
+    bins = int(np.ceil(bottom / dz))
+    depths = np.asarray(profiles.depths, dtype=float)
+    rows, columns = np.nonzero(~np.isnan(depths))
+    which = np.floor(depths[rows, columns] / dz).astype(int)
+    inside = (which >= 0) & (which < bins)
+    hit = np.zeros((depths.shape[0], bins), dtype=bool)
+    hit[rows[inside], which[inside]] = True
+    return tuple(round(float(share), 3) for share in hit.mean(axis=0))
 
 
 def _picked_m0(folder: Path) -> DispersionCurve:

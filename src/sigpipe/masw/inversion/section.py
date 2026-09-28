@@ -27,6 +27,7 @@ from sigpipe.dataio.velocity_model.section import (
     plot_velocity_and_std_section,
     save_velocity_models_sections,
 )
+from sigpipe.masw.inversion.measuring import INTERFACE_DZ
 from sigpipe.masw.inversion.window import DZ, M0
 from sigpipe.masw.picks import CURVES_FILE
 from sigpipe.transformers import Plot
@@ -35,6 +36,9 @@ logger = logging.getLogger(__name__)
 
 # sigpipe's MODEL_NAMES, spelled out so that an API can validate one.
 type ModelName = Literal["best", "smooth_best", "median", "smooth_median", "ensemble"]
+# The model shown unless another is asked for: at each depth, the kept models' median Vs, with
+# their spread (what the data support; the smooth models' curves are drawn, and fit worse).
+DEFAULT_MODEL: ModelName = "ensemble"
 
 SECTION_FIGURE = "SeismicInversion_VelocitySection_0000.png"
 SECTION_FILE = "SeismicInversion_VelocitySection_0000.hdf5"
@@ -66,14 +70,14 @@ def is_inverted(folder: Path) -> bool:
     return all(model_path(folder, model).exists() for model in MODEL_NAMES)
 
 
-def window_model(folder: Path, model: ModelName = "smooth_median") -> VelocityModel | None:
+def window_model(folder: Path, model: ModelName = DEFAULT_MODEL) -> VelocityModel | None:
     """The model `model` of window folder `folder`; None when it has none."""
     path = model_path(folder, model)
     return load_velocity_models([path])[0][0] if path.exists() else None
 
 
 def models_section(
-    run_folder: Path, units: Sequence[str], model: ModelName = "smooth_median"
+    run_folder: Path, units: Sequence[str], model: ModelName = DEFAULT_MODEL
 ) -> VelocityModelsSection | None:
     """The model `model` of each window folder of `units` that holds one, sorted by position;
     None with fewer than two, the least a section needs."""
@@ -203,11 +207,42 @@ def informed_levels(
     return np.interp(positions, xs, grounds) - along
 
 
+def interface_grid(
+    grid: VelocityGrid,
+    windows: Sequence[tuple[float, float, tuple[float, ...]]],
+    lateral_smoothing: bool = False,
+    window_m: float | None = None,
+) -> np.ndarray:
+    """On `grid` (`velocity_grid`'s, of the same windows): the share of the kept models with an
+    interface at each cell, from each window's middle, ground elevation and shares per
+    INTERFACE_DZ from its ground down (none: not known); NaN where not known or above the
+    ground. Smoothed along the line as the grid's Vs when `lateral_smoothing`; a column nearest a
+    window without shares left without."""
+    xs = np.array([x for x, _, _ in windows], dtype=np.float32)
+    grounds = np.array([ground for _, ground, _ in windows], dtype=float)
+    values = np.full((len(windows), grid.elevations.size), np.nan)
+    for i, (_, ground, shares) in enumerate(windows):
+        which = np.floor((ground - grid.elevations) / INTERFACE_DZ).astype(int)
+        inside = (which >= 0) & (which < len(shares))
+        values[i, inside] = np.asarray(shares, dtype=float)[which[inside]]
+    nearest = np.abs(grid.positions[:, None] - xs[None, :]).argmin(axis=1)
+    unknown = np.array([not shares for _, _, shares in windows])[nearest]
+    known = [i for i, (_, _, shares) in enumerate(windows) if shares]
+    if not lateral_smoothing or not known:
+        return values[nearest]
+    ground = np.interp(grid.positions, xs, grounds)
+    above = grid.elevations[None, :] > ground[:, None] + 1e-3
+    width = window_m or default_window(xs)
+    along = smoothed(values[known], xs[known], grid.positions, width, above)
+    along[unknown] = np.nan
+    return along
+
+
 def section_suffix(model: ModelName, lateral_smoothing: bool) -> str:
-    """The file name suffix of a view other than PAC's default (the smooth median, not
-    smoothed laterally), which has none."""
+    """The file name suffix of a view other than PAC's default (DEFAULT_MODEL, not smoothed
+    laterally), which has none."""
     parts: list[str] = []
-    if model != "smooth_median":
+    if model != DEFAULT_MODEL:
         parts.append(model)
     if lateral_smoothing:
         parts.append("lateralsmooth")
@@ -217,7 +252,7 @@ def section_suffix(model: ModelName, lateral_smoothing: bool) -> str:
 def save_section(
     run_folder: Path,
     units: Sequence[str],
-    model: ModelName = "smooth_median",
+    model: ModelName = DEFAULT_MODEL,
     lateral_smoothing: bool = False,
 ) -> Path | None:
     """The figure of the line's `model` and its spread, in `run_folder`; None with fewer than
@@ -261,7 +296,7 @@ def picked_curve(folder: Path, mode: Mode = M0) -> DispersionCurve | None:
 
 
 def predicted_curve(
-    folder: Path, observed: DispersionCurve, model: ModelName = "smooth_median"
+    folder: Path, observed: DispersionCurve, model: ModelName = DEFAULT_MODEL
 ) -> DispersionCurve | None:
     """The curve `model` predicts for `observed`'s mode, as the inversion saved it in window
     folder `folder`, at `observed`'s position (the forward model knows none); None when the
@@ -290,7 +325,7 @@ def comparison_sections(
     run_folder: Path,
     units: Sequence[str],
     mode: Mode = M0,
-    model: ModelName = "smooth_median",
+    model: ModelName = DEFAULT_MODEL,
 ) -> tuple[DispersionCurvesSection, DispersionCurvesSection] | None:
     """The picked curves of `mode` along the line, and the curves `model` predicts for them,
     over the window folders of `units` holding both; None with fewer than two."""
@@ -315,7 +350,7 @@ def save_comparison(
     run_folder: Path,
     units: Sequence[str],
     mode: Mode = M0,
-    model: ModelName = "smooth_median",
+    model: ModelName = DEFAULT_MODEL,
 ) -> Path | None:
     """The figure of the picked curves of `mode` against the curves `model` predicts, along the
     line, in `run_folder`; None with fewer than two windows holding both."""
@@ -373,7 +408,7 @@ def comparison_grids(
     run_folder: Path,
     units: Sequence[str],
     mode: Mode = M0,
-    model: ModelName = "smooth_median",
+    model: ModelName = DEFAULT_MODEL,
 ) -> ComparisonGrids | None:
     """The data behind save_comparison's figure; None with fewer than two windows."""
     sections = comparison_sections(run_folder, units, mode, model)
