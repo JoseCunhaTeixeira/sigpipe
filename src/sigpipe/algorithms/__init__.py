@@ -12,10 +12,12 @@ from .normalization.registry import NORMALIZATION_METHODS
 from .padding.registry import PADDING_METHODS
 from .picking.dispersion.curve import (
     clean_picks,
+    longest_reached_wavelength,
     lorentzian_uncertainty,
     max_resolvable_wavelength,
     min_resolvable_wavelength,
     receiver_spacings,
+    shortest_picked_wavelength,
 )
 from .picking.registry import DISPERSION_PICKING_METHODS, STREAM_PICKING_METHODS
 from .residual_phase.registry import RESIDUAL_PHASE_METHODS
@@ -51,8 +53,10 @@ __all__ = [
     "WHITENING_METHODS",
     "FlipAxis",
     "clean_picks",
+    "longest_reached_wavelength",
     "lorentzian_uncertainty",
     "max_resolvable_wavelength",
     "min_resolvable_wavelength",
     "receiver_spacings",
+    "shortest_picked_wavelength",
 ]

@@ -1,21 +1,26 @@
 """Picking the modes of one dispersion image: M0, then each higher mode above the previous one."""
 
 import math
-from dataclasses import replace
+from dataclasses import dataclass, replace
 
 import numpy as np
 
 from sigpipe.algorithms.picking.dispersion.curve import (
     lorentzian_uncertainty,
-    min_resolvable_wavelength,
     resample_wavelength,
+    shortest_picked_wavelength,
 )
 from sigpipe.algorithms.picking.dispersion.tracking.models import PickedMode, PickingParameters
 from sigpipe.algorithms.picking.dispersion.tracking.plane_waves import (
     plane_wave_columns,
     prominences,
 )
-from sigpipe.algorithms.picking.dispersion.tracking.ridges import corridor, lowest_ridge, track
+from sigpipe.algorithms.picking.dispersion.tracking.ridges import (
+    corridor,
+    followed_ridge,
+    lowest_ridge,
+    track,
+)
 from sigpipe.base.dispersion_curve import DispersionCurve, DispersionCurvesImage, Mode
 from sigpipe.base.dispersion_image import DispersionImage
 
@@ -42,9 +47,10 @@ def pick_modes(
 ) -> list[PickedMode]:
     """The modes of `image`, from M0 up; empty when not even M0 stands above the noise floor.
 
-    Each mode is searched above the corridor of the one below it. The search stops at the first
-    mode with fewer than `min_frequencies` kept points, or whose kept points have a median
-    coherence under `mode_min_ratio` times the noise floor.
+    Each mode is searched above the corridor of the one below it, then its pick goes on past
+    its run's ends as far as its ridge does. The search stops at the first mode with fewer than
+    `min_frequencies` kept points, or whose kept points have a median coherence under
+    `mode_min_ratio` times the noise floor.
     """
     parameters = parameters or PickingParameters()
     frequencies = image.fs.astype(float)
@@ -54,8 +60,9 @@ def pick_modes(
 
     # Phase-shift images are coherences: random phases sum to about 1/sqrt(N), not to 0.
     noise_floor = 1 / math.sqrt(len(image.acquisition.receivers))
-    # Below twice the receiver spacing, wavelengths are aliased: the search starts above.
-    shortest = min_resolvable_wavelength(image.acquisition) or 0.0
+    # The search starts at min_wavelength spacings: one by default, a ridge followed into the
+    # aliasing zone (under two spacings), where its points are flagged by the checks, not cut.
+    shortest = shortest_picked_wavelength(image.acquisition, parameters.min_wavelength) or 0.0
     start = np.searchsorted(velocities, shortest * frequencies, side="left")
     # Above the longest wavelength the window resolves, if limited, the search stops.
     stop = np.full(frequencies.size, n_v - 1)
@@ -78,64 +85,47 @@ def pick_modes(
         if span is None or span.stop - span.start < parameters.min_frequencies:
             break
 
-        if number == 0 and parameters.guide:
-            ridge = _guided_ridge(
-                parameters.guide, frequencies[span], velocities, start[span], stop[span]
-            )
+        guide = parameters.guide if number == 0 else None
+        if guide:
+            ridge = _guided_ridge(guide, frequencies[span], velocities, start[span], stop[span])
         else:
             ridge = lowest_ridge(values[span], start[span], stop[span], parameters.threshold)
-        low, high = corridor(velocities, ridge, start[span], stop[span], parameters.corridor)
-        path, on_edge = track(
-            values[span], velocities, frequencies[span], low, high, parameters.smoothness
-        )
-        # A ridge cut by a search bound stays pinned, wherever the smoothing moved the pick.
-        pinned = on_edge | (ridge == start[span]) | (ridge == stop[span])
-        coherence = values[span][np.arange(path.size), path]
-        ratio = coherence / noise_floor
-        # Judged on its kept points only: pinned points are where a bound, not the data, decided,
-        # and 0 Hz has no wavelength.
-        kept = ~pinned & (ratio >= parameters.point_min_ratio) & (frequencies[span] > 0)
-        # Points far below the mode's typical coherence are sidelobes or noise, not its ridge.
-        if kept.any():
-            kept &= coherence >= parameters.min_relative_coherence * np.median(coherence[kept])
-        # Where even a perfect plane wave barely varies over the grid, the window resolves no
-        # velocity: the pick there is the tracker's, not the data's.
-        if parameters.min_contrast is not None and kept.any():
-            kept &= _resolved(
-                image,
-                frequencies[span],
-                velocities[path],
-                kept,
-                noise_floor,
-                parameters.min_contrast,
+        tracked = _tracked(image, span, ridge, start, stop, parameters, noise_floor)
+        # The pick found, it goes on past its run's ends as far as its ridge does, where the
+        # lowest ridge drops under it onto a dimmer sidelobe or alias: further to the low and
+        # high frequencies, on the same ridge (the user, 2026-09-28).
+        if not guide and tracked.kept.any():
+            run = np.flatnonzero(tracked.kept)
+            followed = followed_ridge(
+                values[span],
+                velocities,
+                start[span],
+                stop[span],
+                parameters.threshold,
+                parameters.corridor,
+                (int(run[0]), int(run[-1])),
             )
-        # Where the ridge breaks, at either end, the pick stops: its longest continuous run.
-        if parameters.max_gap_hz is not None:
-            kept = _continuous_run(
-                frequencies[span],
-                velocities[path],
-                kept,
-                parameters.max_gap_hz,
-                parameters.break_slope,
-            )
-        if kept.sum() < parameters.min_frequencies:
+            if not np.array_equal(followed, ridge):
+                tracked = _tracked(image, span, followed, start, stop, parameters, noise_floor)
+        if tracked.kept.sum() < parameters.min_frequencies:
             break
-        if float(np.median(ratio[kept])) < parameters.mode_min_ratio:
+        if float(np.median(tracked.ratio[tracked.kept])) < parameters.mode_min_ratio:
             break
 
+        kept = tracked.kept
         modes.append(
             PickedMode(
                 number=number,
                 frequencies=frequencies[span],
-                velocities=velocities[path],
-                coherence=coherence,
-                pinned=pinned,
+                velocities=velocities[tracked.path],
+                coherence=tracked.coherence,
+                pinned=tracked.pinned,
                 kept=kept,
                 noise_floor=noise_floor,
                 curve=_curve(
                     image,
                     frequencies[span][kept],
-                    velocities[path][kept],
+                    velocities[tracked.path][kept],
                     number,
                     parameters.wavelength_step,
                 ),
@@ -144,10 +134,62 @@ def pick_modes(
 
         # The next mode lies above this one's corridor, where this one was tracked.
         next_start = np.full_like(start, n_v)
-        next_start[span] = high + 1
+        next_start[span] = tracked.high + 1
         start = next_start
 
     return modes
+
+
+@dataclass(frozen=True, slots=True)
+class _Tracked:
+    """A ridge tracked through its corridor, over the columns searched."""
+
+    high: np.ndarray  # the corridor's top: the next mode is searched above it
+    path: np.ndarray  # velocity index of the pick at each frequency
+    pinned: np.ndarray
+    coherence: np.ndarray
+    ratio: np.ndarray  # the coherence over the noise floor
+    kept: np.ndarray
+
+
+def _tracked(
+    image: DispersionImage,
+    span: slice,
+    ridge: np.ndarray,
+    start: np.ndarray,
+    stop: np.ndarray,
+    parameters: PickingParameters,
+    noise_floor: float,
+) -> _Tracked:
+    """`ridge` (over the columns of `span`) fenced in by its corridor and tracked, and the points
+    of the track kept."""
+    frequencies = image.fs.astype(float)[span]
+    velocities = image.vs.astype(float)
+    values = image.fv_map.astype(float)[span]
+    low, high = corridor(velocities, ridge, start[span], stop[span], parameters.corridor)
+    path, on_edge = track(values, velocities, frequencies, low, high, parameters.smoothness)
+    # A ridge cut by a search bound stays pinned, wherever the smoothing moved the pick.
+    pinned = on_edge | (ridge == start[span]) | (ridge == stop[span])
+    coherence = values[np.arange(path.size), path]
+    ratio = coherence / noise_floor
+    # Judged on its kept points only: pinned points are where a bound, not the data, decided,
+    # and 0 Hz has no wavelength.
+    kept = ~pinned & (ratio >= parameters.point_min_ratio) & (frequencies > 0)
+    # Points far below the mode's typical coherence are sidelobes or noise, not its ridge.
+    if kept.any():
+        kept &= coherence >= parameters.min_relative_coherence * np.median(coherence[kept])
+    # Where even a perfect plane wave barely varies over the grid, the window resolves no
+    # velocity: the pick there is the tracker's, not the data's.
+    if parameters.min_contrast is not None and kept.any():
+        kept &= _resolved(
+            image, frequencies, velocities[path], kept, noise_floor, parameters.min_contrast
+        )
+    # Where the ridge breaks, at either end, the pick stops: its longest continuous run.
+    if parameters.max_gap_hz is not None:
+        kept = _continuous_run(
+            frequencies, velocities[path], kept, parameters.max_gap_hz, parameters.break_slope
+        )
+    return _Tracked(high, path, pinned, coherence, ratio, kept)
 
 
 def _guided_ridge(

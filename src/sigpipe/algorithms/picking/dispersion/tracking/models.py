@@ -5,6 +5,7 @@ from dataclasses import dataclass
 import numpy as np
 from pydantic import BaseModel, ConfigDict, Field
 
+from sigpipe.algorithms.picking.dispersion.curve import PICKED_SPACINGS
 from sigpipe.base.dispersion_curve import DispersionCurve
 
 
@@ -25,7 +26,8 @@ class PickingParameters(BaseModel):
         default=0.2,
         gt=0,
         lt=1,
-        description="Half-width of the corridor around a ridge, as a fraction of its velocity.",
+        description="Half-width of the corridor around a ridge, as a fraction of its velocity: "
+        "also the largest step between neighbouring frequencies the ridge is followed across.",
     )
     smoothness: float = Field(
         default=1.0,
@@ -57,6 +59,13 @@ class PickingParameters(BaseModel):
         gt=0,
         description="Longest wavelength searched, as a multiple of the window length; null: no "
         "limit.",
+    )
+    min_wavelength: float = Field(
+        default=PICKED_SPACINGS,
+        gt=0,
+        description="Shortest wavelength searched, as a multiple of the receiver spacing: 1 "
+        "follows a ridge into the aliasing zone (under 2, where it may be its alias), 2 stops at "
+        "the spatial Nyquist limit.",
     )
     min_contrast: float | None = Field(
         default=0.01,

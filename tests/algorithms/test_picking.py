@@ -2,9 +2,11 @@ import numpy as np
 import pytest
 
 from sigpipe.algorithms.picking.dispersion.curve import (
+    longest_reached_wavelength,
     max_resolvable_wavelength,
     min_resolvable_wavelength,
     pick_curves,
+    shortest_picked_wavelength,
 )
 from sigpipe.base.acquisition import LinearAcquisition
 from sigpipe.base.coordinate import Coordinate
@@ -70,6 +72,9 @@ def test_resolvable_wavelengths_follow_the_ground() -> None:
     acquisition = LinearAcquisition(source=Coordinate(-1.0, 0.0, 0.0), receivers=receivers[::-1])
     assert min_resolvable_wavelength(acquisition) == pytest.approx(2.0)
     assert max_resolvable_wavelength(acquisition) == pytest.approx(3.0 + np.sqrt(2.0))
+    # The picker's floor, one spacing; the checks' reach, three window lengths.
+    assert shortest_picked_wavelength(acquisition) == pytest.approx(1.0)
+    assert longest_reached_wavelength(acquisition) == pytest.approx(3 * (3.0 + np.sqrt(2.0)))
 
 
 def test_mode_labels() -> None:

@@ -6,7 +6,12 @@ import pytest
 
 from sigpipe.algorithms.dispersion.phase_shift import phase_shift
 from sigpipe.algorithms.picking.dispersion.tracking import PickingParameters, pick_modes
-from sigpipe.algorithms.picking.dispersion.tracking.ridges import corridor, lowest_ridge, track
+from sigpipe.algorithms.picking.dispersion.tracking.ridges import (
+    corridor,
+    followed_ridge,
+    lowest_ridge,
+    track,
+)
 from sigpipe.base import Coordinate, DispersionImage, LinearAcquisition, Mode, VelocityType
 
 type Dispersion = Callable[[np.ndarray], np.ndarray]
@@ -106,6 +111,44 @@ def test_the_pick_stops_where_its_ridge_breaks() -> None:
     assert everything.frequencies[everything.kept].min() < 40
 
 
+def test_the_pick_goes_on_over_a_dimmer_ridge_under_it() -> None:
+    # Below 20 Hz, a slow wave under M0, dimmer but over 0.35 of its column's maximum: the lowest
+    # ridge there, where the pick used to end. Past its run the pick follows M0 on, as over a
+    # short window's sidelobes and aliases at its band's ends (the user's active_p2, 2026-09-28).
+    def slow(frequencies: np.ndarray) -> np.ndarray:
+        return np.full_like(frequencies, 60.0)
+
+    def below_20_hz(frequencies: np.ndarray) -> np.ndarray:
+        return np.where(frequencies < 20, 0.6, 0.0)
+
+    (mode,) = pick_modes(_shot([(m0, 1.0), (slow, below_20_hz)], noise=0.3))
+    band = (mode.frequencies >= 6) & (mode.frequencies < 20)
+
+    assert mode.kept[band].all()
+    assert mode.velocities[band] == pytest.approx(m0(mode.frequencies[band]), rel=0.05)
+
+
+def test_a_brighter_ridge_under_the_one_followed_ends_the_following() -> None:
+    # Above 40 Hz a branch 60 % faster than M0 alone, the pick (the widest run); below, M0
+    # appears under it, brighter than the branch going on: the fundamental mode, not a sidelobe.
+    def fast(frequencies: np.ndarray) -> np.ndarray:
+        return 1.6 * m0(frequencies)
+
+    def dimmer_below_40_hz(frequencies: np.ndarray) -> np.ndarray:
+        return np.where(frequencies < 40, 0.8, 1.0)
+
+    def below_40_hz(frequencies: np.ndarray) -> np.ndarray:
+        return np.where(frequencies < 40, 1.0, 0.0)
+
+    (mode,) = pick_modes(_shot([(fast, dimmer_below_40_hz), (m0, below_40_hz)], noise=0.3))
+    below = (mode.frequencies >= 6) & (mode.frequencies <= 35)
+
+    # The pick stays the branch's run; below it, M0 is tracked, not the dimmer branch.
+    assert mode.frequencies[mode.kept].min() >= 40
+    f, v = mode.frequencies[below], mode.velocities[below]
+    assert np.mean(np.abs(v - m0(f)) < np.abs(v - fast(f))) > 0.9
+
+
 def test_a_band_cut_keeps_the_pick_within() -> None:
     # G3's first fix for a mode jump: the frequencies searched stop where the jump starts.
     (mode,) = pick_modes(_shot([(m0, 1.0)], noise=0.3), PickingParameters(fmin=12.0, fmax=30.0))
@@ -132,12 +175,15 @@ def test_a_short_gap_in_the_ridge_is_bridged_a_wide_one_ends_it() -> None:
     assert kept.min() >= 36
 
 
-def test_the_search_stays_between_the_aliasing_floor_and_the_longest_wavelength() -> None:
-    (mode,) = pick_modes(_shot([(m0, 1.0)], noise=0.3), PickingParameters(max_wavelength=1.0))
+@pytest.mark.parametrize("spacings", [1.0, 2.0])
+def test_the_search_stays_between_its_shortest_and_longest_wavelengths(spacings: float) -> None:
+    parameters = PickingParameters(max_wavelength=1.0, min_wavelength=spacings)
+    (mode,) = pick_modes(_shot([(m0, 1.0)], noise=0.3), parameters)
     f, v = mode.frequencies, mode.velocities
 
-    # Wavelengths from twice the receiver spacing up to the window length.
-    assert (v >= 2 * SPACING * f).all()
+    # Wavelengths from `spacings` receiver spacings (one by default, two the spatial Nyquist
+    # limit) up to the window length.
+    assert (v >= spacings * SPACING * f).all()
     assert (v <= WINDOW_LENGTH * f).all()
     # Points pinned to a bound, or below the noise floor, are never kept.
     assert mode.pinned.any()
@@ -201,13 +247,24 @@ def test_a_ridge_cut_by_a_bound_is_not_kept() -> None:
     assert not mode.kept[mode.frequencies < 5].any()
 
 
-def test_nothing_is_kept_where_m0_is_below_the_aliasing_floor() -> None:
-    (mode,) = pick_modes(_shot([(m0, 1.0)], noise=0.3))
+def test_nothing_is_kept_where_m0_is_below_the_search_floor() -> None:
+    # Stopped at the spatial Nyquist limit (two spacings): above 76 Hz, M0 is slower than it
+    # allows. Above that floor, the first sidelobe of its ridge still beats the noise floor, but
+    # not half the mode's coherence.
+    (mode,) = pick_modes(_shot([(m0, 1.0)], noise=0.3), PickingParameters(min_wavelength=2.0))
     f = mode.frequencies
 
-    # Above 76 Hz, M0 is slower than twice the receiver spacing allows. Above that floor, the
-    # first sidelobe of its ridge still beats the noise floor, but not half the mode's coherence.
     assert not mode.kept[m0(f) < 2 * SPACING * f].any()
+
+
+def test_a_clear_ridge_is_followed_into_the_aliasing_zone_by_default() -> None:
+    # Down to one spacing (the user, 2026-09-28): M0 kept on to 100 Hz, its points under two
+    # spacings among them, for the checks to flag.
+    (mode,) = pick_modes(_shot([(m0, 1.0)], noise=0.3))
+    f, kept = mode.frequencies, mode.kept
+
+    assert f[kept].max() == 100.0
+    assert kept[m0(f) < 2 * SPACING * f].all()
 
 
 @pytest.mark.parametrize("zero_hz_row", ["flat", "ridge"])
@@ -325,6 +382,27 @@ def test_track_stays_in_its_corridor_and_flags_its_edges() -> None:
 
     assert path.tolist() == [3, 5, 7]
     assert on_edge.tolist() == [True, False, True]
+
+
+@pytest.mark.parametrize(
+    ("height", "expected"),
+    [
+        pytest.param(0.5, [6, 6, 6, 6, 6], id="dimmer-bump-under-it"),
+        pytest.param(1.5, [6, 6, 6, 2, 2], id="brighter-bump-under-it"),
+    ],
+)
+def test_followed_ridge(height: float, expected: list[int]) -> None:
+    # A pick on the first three of five frequencies, its ridge at 160 m/s; on the last two, a
+    # bump at 120 m/s, the lowest ridge there, 25 % under it: further than the 20 % a ridge is
+    # followed across.
+    image = np.full((5, 11), 0.05)
+    image[:, 6] = 1.0
+    image[3:, 2] = height
+    start, stop = np.zeros(5, dtype=int), np.full(5, 10)
+
+    ridge = followed_ridge(image, TRACK_VELOCITIES, start, stop, 0.35, jump=0.2, stretch=(0, 2))
+
+    assert ridge.tolist() == expected
 
 
 def test_a_guide_centres_the_corridor_on_the_curve_given() -> None:

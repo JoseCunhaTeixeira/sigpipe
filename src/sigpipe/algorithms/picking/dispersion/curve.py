@@ -75,12 +75,42 @@ def min_resolvable_wavelength(acquisition: Acquisition) -> float | None:
     return 2 * min(spacings) if spacings else None
 
 
+# The shortest wavelength the picker searches, in receiver spacings: one (the user, 2026-09-28),
+# a clear ridge followed into the aliasing zone under two (min_resolvable_wavelength), where its
+# points are flagged, not cut.
+PICKED_SPACINGS = 1.0
+
+
+def shortest_picked_wavelength(
+    acquisition: Acquisition, spacings: float = PICKED_SPACINGS
+) -> float | None:
+    """The shortest wavelength the picker searches: `spacings` of the line's smallest receiver
+    spacing (the picker's min_wavelength), or None when the array geometry isn't known."""
+    receivers = receiver_spacings(acquisition)
+    return spacings * min(receivers) if receivers else None
+
+
 def max_resolvable_wavelength(acquisition: Acquisition) -> float | None:
     """Longest wavelength a receiver line resolves: its length along the
     ground (the aperture), or None when the array geometry isn't known.
     """
     spacings = receiver_spacings(acquisition)
     return sum(spacings) if spacings else None
+
+
+# The longest wavelength the checks trust, in window lengths: three (the user, 2026-09-28). The
+# picker follows a ridge beyond it, where its points are flagged, not cut.
+REACHED_LENGTHS = 3.0
+
+
+def longest_reached_wavelength(
+    acquisition: Acquisition, lengths: float = REACHED_LENGTHS
+) -> float | None:
+    """The longest wavelength a window reaches: `lengths` of its length along the ground, or None
+    when the array geometry isn't known. Beyond it, a pick's points are flagged as beyond the
+    window's reach."""
+    aperture = max_resolvable_wavelength(acquisition)
+    return lengths * aperture if aperture else None
 
 
 def resample_wavelength(

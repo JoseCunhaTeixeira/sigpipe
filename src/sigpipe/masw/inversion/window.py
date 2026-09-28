@@ -19,7 +19,10 @@ from sigpipe.algorithms.inversion.rayleigh.seismic.parameters import (
     InversionParameters,
     SavedInversionParameters,
 )
-from sigpipe.algorithms.picking.dispersion.curve import min_resolvable_wavelength
+from sigpipe.algorithms.picking.dispersion.curve import (
+    longest_reached_wavelength,
+    min_resolvable_wavelength,
+)
 from sigpipe.base.dispersion_curve import DispersionCurves, Mode
 from sigpipe.base.inversion import InversionResult, LayeredSamples
 from sigpipe.base.pipeline import Pipeline
@@ -124,7 +127,10 @@ def invert_window(
         picked_curves=curves,
         modeled_curves=modeled_curves,
         full_modeled_curves=full_modeled_curves,
+        # Where the checks' flags start: under lbmin the aliasing zone, over lbmax beyond the
+        # window's reach.
         lbmin=min_resolvable_wavelength(image.acquisition),
+        lbmax=longest_reached_wavelength(image.acquisition),
         normalize=True,
         show_errorbars=True,
     )

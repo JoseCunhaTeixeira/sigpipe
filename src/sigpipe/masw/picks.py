@@ -9,7 +9,10 @@ from pathlib import Path
 import matplotlib.pyplot as plt
 import numpy as np
 
-from sigpipe.algorithms.picking.dispersion.curve import min_resolvable_wavelength
+from sigpipe.algorithms.picking.dispersion.curve import (
+    longest_reached_wavelength,
+    min_resolvable_wavelength,
+)
 from sigpipe.base.dispersion_curve import DispersionCurve, DispersionCurvesImage, Mode
 from sigpipe.base.dispersion_image import DispersionImage
 from sigpipe.dataio.dispersion.loading import load_dispersion_curves
@@ -42,7 +45,10 @@ def save_curves(folder: Path, image: DispersionImage, curves: DispersionCurvesIm
     figure = plot_dispersion_image(
         image,
         picked_curves=curves,
+        # Where the checks' flags start: under lbmin the aliasing zone, over lbmax beyond the
+        # window's reach.
         lbmin=min_resolvable_wavelength(image.acquisition),
+        lbmax=longest_reached_wavelength(image.acquisition),
         normalize=True,
         show_errorbars=True,
     )

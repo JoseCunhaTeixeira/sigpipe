@@ -2,12 +2,16 @@
 
 1. `lowest_ridge` finds which ridge to follow. malw-pipe scans down from a ceiling, because
    nothing lies above the A0 Lamb mode; for Rayleigh waves the fundamental mode is the slowest and
-   higher modes lie above it, so the scan goes up from a floor.
+   higher modes lie above it, so the scan goes up from a floor. Once a pick is found,
+   `followed_ridge` follows its ridge past the pick's ends, so that where the ridge dims a dimmer
+   sidelobe or alias under it does not end the pick.
 2. `corridor` fences the ridge in, so the tracking cannot wander onto another branch.
 3. `track` draws the best smooth curve inside the corridor, by dynamic programming.
 
 Images are [n_f, n_v] arrays; velocities and frequencies are regular grids.
 """
+
+import math
 
 import numpy as np
 
@@ -32,12 +36,61 @@ def lowest_ridge(
         ridge[i] = low + brightest
         if brightest in (0, column.size - 1):
             continue
-        level = threshold * column[brightest]
-        for j in range(1, column.size - 1):
-            if column[j] >= level and column[j] >= column[j - 1] and column[j] >= column[j + 1]:
-                ridge[i] = low + j
-                break
+        ridge[i] = low + int(_maxima(column, threshold)[0])
     return ridge
+
+
+def followed_ridge(
+    image: np.ndarray,
+    velocities: np.ndarray,
+    start: np.ndarray,
+    stop: np.ndarray,
+    threshold: float,
+    jump: float,
+    stretch: tuple[int, int],
+) -> np.ndarray:
+    """Per frequency, the velocity index of the ridge to track: `lowest_ridge`, followed past
+    `stretch` (its first and last column, a pick's) towards both ends of the band.
+
+    Where the lowest ridge drops further than `jump` (relative) below the ridge followed, a
+    maximum within `jump` of that ridge, and brighter than the lower one, continues it: a dimmer
+    maximum under a ridge that goes on is its sidelobe or its alias, not the fundamental mode.
+    Any other step beyond `jump` ends the following (the ridge broke, or rose onto another
+    branch, or a brighter one appeared under it): from there on, the lowest ridge.
+    """
+    lowest = lowest_ridge(image, start, stop, threshold)
+    log_v = np.log(velocities)
+    reach = math.log1p(jump)
+    ridge = lowest.copy()
+    for edge, step in ((stretch[1], 1), (stretch[0], -1)):
+        previous = int(lowest[edge])
+        i = edge + step
+        while 0 <= i < lowest.size:
+            here = int(lowest[i])
+            if log_v[here] - log_v[previous] > reach:
+                break
+            if log_v[previous] - log_v[here] > reach:
+                low = int(start[i])
+                maxima = low + _maxima(image[i, low : int(stop[i]) + 1], threshold)
+                distances = np.abs(log_v[maxima] - log_v[previous])
+                if not (distances <= reach).any():
+                    break
+                nearest = int(maxima[np.argmin(distances)])
+                if image[i, nearest] <= image[i, here]:
+                    break
+                here = nearest
+            ridge[i] = here
+            previous = here
+            i += step
+    return ridge
+
+
+def _maxima(column: np.ndarray, threshold: float) -> np.ndarray:
+    """The indices of `column`'s inner local maxima that reach `threshold` times its maximum,
+    from the slowest."""
+    inner = column[1:-1]
+    level = threshold * column.max()
+    return np.flatnonzero((inner >= level) & (inner >= column[:-2]) & (inner >= column[2:])) + 1
 
 
 def corridor(
