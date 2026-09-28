@@ -82,12 +82,18 @@ def staging(folder: Path) -> Path:
     return path
 
 
-def commit(folder: Path) -> None:
+def commit(folder: Path, replacing: Iterable[str] = ()) -> None:
     """A finished task's outputs moved from `folder`'s staging folder into `folder`, replacing
-    those of the same names."""
+    those of the same names, and first every file of `folder` matching `replacing` (glob
+    patterns: the task's kind of outputs, so that none an older task wrote and this one did
+    not is left beside its own)."""
     path = folder / STAGING
     if not path.exists():
         return
+    for pattern in replacing:
+        for old in folder.glob(pattern):
+            if old.is_file():
+                old.unlink()
     for entry in path.iterdir():
         target = folder / entry.name
         if target.is_dir() and not target.is_symlink():

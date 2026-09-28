@@ -20,6 +20,7 @@ from sigpipe.masw.petro.section import (
 )
 from sigpipe.masw.petro.window import QUANTITIES, invert_window_petro
 from sigpipe.masw.runs import start_worker
+from sigpipe.masw.runs.history import STAGE_FILES
 from sigpipe.masw.runs.stopping import Stopped, commit, finished, staging, undo
 
 logger = logging.getLogger(__name__)
@@ -71,7 +72,8 @@ def invert_line_petro(
                 unit = futures.pop(future)
                 try:
                     model, duration_s = future.result()
-                    commit(run_folder / unit)
+                    # Its new results replace all its old ones.
+                    commit(run_folder / unit, replacing=STAGE_FILES["petro_inversion"])
                     outcome = PetroOutcome(unit, model, duration_s)
                 except Exception as error:
                     undo(run_folder / unit, created=False)
