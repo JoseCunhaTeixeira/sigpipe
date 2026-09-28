@@ -58,6 +58,13 @@ def test_the_distance_from_the_shot_bounds_the_windows_it_serves() -> None:
 
     # The window middle 2 to 5 m from the shot, both bounds excluded: xmids 2 and 3 m.
     assert [window.xmid for window in windows] == [2.0, 3.0]
+    # A bound left out is none: the nearest from 0, the farthest at any distance.
+    nearest = build_windows(profile, MASWParameters(length=3, step=1, distance_max=5.0))
+    farthest = build_windows(profile, MASWParameters(length=3, step=1, distance_min=2.0))
+    every = build_windows(profile, MASWParameters(length=3, step=1))
+    assert [window.xmid for window in nearest] == [1.0, 2.0, 3.0]
+    assert [window.xmid for window in farthest][:2] == [2.0, 3.0]
+    assert every[0].xmid == 1.0 and len(every) == len(farthest) + 1
 
 
 def test_passive_records_serve_every_window_from_its_first_receiver() -> None:

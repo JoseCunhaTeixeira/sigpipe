@@ -2,6 +2,7 @@
 a stream for the windows to read."""
 
 from pathlib import Path
+from typing import Any
 
 from sigpipe.base import Pipeline
 from sigpipe.masw.pipelines.common import load_record, stage_kwargs
@@ -17,12 +18,16 @@ def build_preprocessing_pipeline(
     that uses the record, since each step works trace by trace. In the modes that process shots,
     the shot's time origin is corrected first: the trigger is part of the muting (the user,
     2026-09-28), so with the muting on only, by the trigger's t0 or, left to None, by the
-    record's own trigger from its file; off, the record is left as recorded (t0 = 0)."""
+    record's own trigger from its file; off, the record is left as recorded (t0 = 0). A passive
+    line has neither (stages.py)."""
     load = load_record(record, profile)
-    muting = stage_kwargs(preset, "muting")
+    fields = type(preset).model_fields
+    muting: dict[str, Any] = (
+        stage_kwargs(preset, "muting") if "muting" in fields else {"method": "none"}
+    )
     on = muting["method"] != "none"
     # The presets with a trigger stage: active and passive-active.
-    if "trigger" in type(preset).model_fields:
+    if "trigger" in fields:
         t0 = stage_kwargs(preset, "trigger")["t0"]
         shift = (t0 if t0 is not None else record.trigger_s or 0.0) if on else 0.0
         head = load >> Shift(t0=shift)

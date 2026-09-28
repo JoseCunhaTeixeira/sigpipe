@@ -201,9 +201,9 @@ class InversionParameters(BaseModel):
         description="First iterations of each chain, discarded. Left out: a quarter of "
         "n_iterations.",
     )
-    n_chains: int = Field(
-        default=5, ge=1, description="Chains per window, compared to judge them (2 at least)."
-    )
+    # Two at least (the user, 2026-09-28): one chain's halves agree even where two chains would
+    # settle on two solutions (an interface above or below, another count of layers).
+    n_chains: int = Field(default=5, ge=2, description="Chains per window, compared to judge them.")
 
     @model_validator(mode="before")
     @classmethod
@@ -281,3 +281,9 @@ class InversionParameters(BaseModel):
             for i, layer in enumerate(self.thickness_layers)
             if layer.thickness_fixed is not None
         }
+
+
+class SavedInversionParameters(InversionParameters):
+    """The parameters a run saved: one chain too, as the runs before 2026-09-28 could run."""
+
+    n_chains: int = Field(default=5, ge=1, description="Chains per window, compared to judge them.")

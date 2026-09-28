@@ -1,7 +1,8 @@
 """Measures of a record's signal (PACo's signal QC, G1, judges them): dead, clipped and NaN
 traces; amplitudes off the decay with offset; the SNR and the usable band, from a surface-wave
 window against a noise window; how far from the shot the traces carry the wave; lateral
-coherence; the first breaks and the trigger they point to."""
+coherence; the first breaks, the trigger they point to and the shot's pulse after them; each
+trace's spectrum against its neighbours' (a noise record's too)."""
 
 import math
 from collections.abc import Sequence
@@ -9,7 +10,7 @@ from dataclasses import dataclass
 
 import numpy as np
 from scipy.ndimage import uniform_filter1d
-from scipy.signal import correlate, hilbert
+from scipy.signal import correlate, hilbert, welch
 from scipy.stats import theilslopes
 
 from sigpipe.base.stream import Stream
@@ -178,18 +179,44 @@ def lateral_coherence(
     return np.abs(peaks), np.sign(peaks)
 
 
+def _envelope(xt: np.ndarray, ts: np.ndarray) -> np.ndarray:
+    """Each trace's envelope, smoothed over 5 ms."""
+    span = max(3, round(0.005 / max(float(ts[1] - ts[0]), 1e-9)))
+    return uniform_filter1d(np.abs(np.asarray(hilbert(xt, axis=1))), span, axis=1)
+
+
 def first_breaks(xt: np.ndarray, ts: np.ndarray, windows: Windows, ratio: float) -> np.ndarray:
     """Each trace's first break: where its envelope, smoothed over 5 ms, first rises above
     `ratio` times its noise RMS; NaN when it never does."""
     noise_rms = np.sqrt(energy_per_sample(xt, windows.noise))
-    span = max(3, round(0.005 / max(float(ts[1] - ts[0]), 1e-9)))
-    envelope = uniform_filter1d(np.abs(np.asarray(hilbert(xt, axis=1))), span, axis=1)
+    envelope = _envelope(xt, ts)
     breaks = np.full(xt.shape[0], np.nan)
     for i, trace in enumerate(envelope):
         above = np.flatnonzero(trace > ratio * noise_rms[i])
         if above.size:
             breaks[i] = ts[above[0]]
     return breaks
+
+
+def pulse_durations(
+    xt: np.ndarray, ts: np.ndarray, breaks: np.ndarray, ratio: float, longest_s: float
+) -> np.ndarray:
+    """Each trace's pulse, how long its energy lasts from its first break: to where its envelope,
+    smoothed over 5 ms, falls back below `ratio` times the peak it reaches within `longest_s` of
+    the break. NaN without a break, or when it has not fallen back by then."""
+    envelope = _envelope(xt, ts)
+    pulses = np.full(xt.shape[0], np.nan)
+    for i, (trace, start) in enumerate(zip(envelope, breaks, strict=True)):
+        if np.isnan(start):
+            continue
+        after = np.flatnonzero((ts >= start) & (ts <= start + longest_s))
+        if after.size < 2:
+            continue
+        peak = after[np.argmax(trace[after])]
+        fallen = after[(after > peak) & (trace[after] < ratio * trace[peak])]
+        if fallen.size:
+            pulses[i] = float(ts[fallen[0]] - start)
+    return pulses
 
 
 def trigger_shift(breaks: np.ndarray, offsets: np.ndarray) -> tuple[float, float, float] | None:
@@ -238,3 +265,46 @@ def mean_spectrum(
     if counted == 0:
         return None
     return np.fft.rfftfreq(n, d=1 / sampling_freq), power / counted
+
+
+def spectral_deviations(
+    xt: np.ndarray,
+    sampling_freq: float,
+    band: tuple[float, float],
+    neighbours: int,
+    drop_db: float,
+    usable: np.ndarray | None = None,
+    shape: bool = False,
+) -> tuple[np.ndarray, np.ndarray]:
+    """Each trace's power spectrum (Welch's, 1 s pieces) against the median of its `neighbours`
+    on each side that are `usable`, over `band` (Hz): how far it sits from theirs, the median of
+    |10 log10(its / theirs)| (dB: a gain or a response of its own), and the share of the band
+    where it falls more than `drop_db` below theirs (a dead band). With `shape`, each spectrum's
+    own level taken out first: a shot's traces, louder the nearer, compared by their shapes.
+    NaN for a trace not `usable`, with no usable neighbour, or no frequency in `band`."""
+    n_traces = xt.shape[0]
+    usable = np.ones(n_traces, dtype=bool) if usable is None else usable
+    nperseg = min(xt.shape[1], max(8, round(sampling_freq)))
+    fs, power = welch(xt, fs=sampling_freq, nperseg=nperseg, axis=1)
+    inside = (fs >= band[0]) & (fs <= band[1])
+    deviation = np.full(n_traces, np.nan)
+    dropped = np.full(n_traces, np.nan)
+    if not inside.any():
+        return deviation, dropped
+    level = 10 * np.log10(np.maximum(power[:, inside], 1e-30))
+    if shape:
+        level -= np.median(level, axis=1, keepdims=True)
+    for i in range(n_traces):
+        if not usable[i]:
+            continue
+        around = [
+            j
+            for j in range(max(0, i - neighbours), min(n_traces, i + neighbours + 1))
+            if j != i and usable[j]
+        ]
+        if not around:
+            continue
+        difference = level[i] - np.median(level[around], axis=0)
+        deviation[i] = float(np.median(np.abs(difference)))
+        dropped[i] = float(np.mean(difference < -drop_db))
+    return deviation, dropped

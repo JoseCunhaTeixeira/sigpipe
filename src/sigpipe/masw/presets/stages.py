@@ -61,10 +61,11 @@ def pac_methods(
 
 
 # The record's time origin moved to the shot, part of the muting (the user, 2026-09-28): applied
-# with the muting on only. Left to None, each record's own trigger, from its file's header.
+# with the muting on only. Left to None, each record's own trigger, from its file's header; given,
+# never negative (the user, 2026-09-28): a record starts at its shot or before it.
 TRIGGER = Stage(
     functions=pac_methods(SHIFTING_METHODS, "shift"),
-    parameters={"shift": {"t0": Parameter("s", null="each record's own, from its file")}},
+    parameters={"shift": {"t0": Parameter("s", null="each record's own, from its file", ge=0)}},
     default="shift",
     none=False,
     selectable=False,
@@ -74,14 +75,15 @@ MUTING = Stage(
     functions=pac_methods(MUTTING_METHODS, "mute"),
     parameters={
         "mute": {
-            # Each bound may be left out: no stand-in values (the user, 2026-09-28). The bounds
-            # are those older runs' manifests hold (0 m/s, 100,000 m/s stood for none).
+            # Each bound may be left out: no stand-in values (the user, 2026-09-28). The lower
+            # bounds are those older runs' manifests hold (0 m/s stood for none); an upper one at
+            # 0 would keep nothing.
             "tmin": Parameter("s", null="none", ge=0),
-            "tmax": Parameter("s", null="none", ge=0),
+            "tmax": Parameter("s", null="none", gt=0),
             "vmin": Parameter("m/s", null="none", ge=0),
-            "vmax": Parameter("m/s", null="none", ge=0),
-            # Kept after the slowest arrival: at the source, the shot's pulse. By default one
-            # sample (the user, 2026-09-28): the window never empty at the shot.
+            "vmax": Parameter("m/s", null="none", gt=0),
+            # Kept after the slowest arrival: at the source, the shot's pulse. One sample at least,
+            # and by default (the user, 2026-09-28): the window never empty at the shot.
             "width": Parameter("s", derived=True, ge=0),
             "taper": Parameter("samples", ge=0),
         }
@@ -196,8 +198,10 @@ PASSIVE_ACTIVE_STAGES = {
     "stacking": STACKING,
     "dispersion": DISPERSION,
 }
+# A passive line has no muting, nor the trigger that goes with it (the user, 2026-09-28): no shot
+# for a velocity to count from (sigpipe's stand-in, the first receiver, would keep a wedge of
+# each record's first second).
 PASSIVE_STAGES = {
-    "muting": MUTING,
     "filtering": FILTERING,
     "slicing": SLICING,
     "selection": SELECTION,

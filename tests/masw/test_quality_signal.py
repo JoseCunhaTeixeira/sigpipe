@@ -14,10 +14,12 @@ from sigpipe.masw.quality.signal import (
     dead_clipped_nan,
     first_breaks,
     lateral_coherence,
+    pulse_durations,
     rms_decay_outliers,
     signal_windows,
     snr_db,
     snr_reach,
+    spectral_deviations,
     trace_snrs,
     trigger_shift,
     usable_band,
@@ -167,6 +169,22 @@ def test_the_first_breaks_give_the_trigger_and_the_velocity() -> None:
         assert scatter < 0.005
 
 
+def test_the_pulse_lasts_from_the_first_break_to_its_energys_fall() -> None:
+    # The wavelet's envelope, t exp(-2 f t), peaks at 25 ms and falls to a tenth of its peak at
+    # about 120 ms: every trace's pulse, whatever its amplitude. A trace without a break has none.
+    stream = _shot()
+    xt, ts = stream.xt.astype(float), np.asarray(stream.ts, dtype=float)
+    breaks = first_breaks(xt, ts, _windows(stream), ratio=5.0)
+    breaks[3] = np.nan
+
+    pulses = pulse_durations(xt, ts, breaks, ratio=0.1, longest_s=0.5)
+
+    assert np.isnan(pulses[3])
+    assert np.nanmedian(pulses) == pytest.approx(0.12, abs=0.015)
+    # Cut short, the search finds no fall.
+    assert np.isnan(pulse_durations(xt, ts, breaks, ratio=0.1, longest_s=0.05)).all()
+
+
 def test_the_reach_is_where_the_traces_median_snr_falls_under_the_limit() -> None:
     # 60 dB at the shot, 0.7 dB less every metre: 6 dB at 77.1 m; bins of 10 m find 77.6.
     offsets = np.arange(0.0, 100.0, 1.0)
@@ -191,3 +209,22 @@ def test_each_traces_snr_falls_where_its_wave_ends() -> None:
     offsets, snrs = measured
     np.testing.assert_allclose(offsets, shot.acquisition.offsets)
     assert snrs[:8].min() > 10 > snrs[8:].max()
+
+
+def test_a_trace_with_a_dead_band_or_a_gain_of_its_own_stands_out_of_its_neighbours() -> None:
+    # White noise on every trace; trace 5 carries 10 dB more, trace 12 nothing between 20 and 40
+    # Hz (a notch), both against their neighbours on each side.
+    rng = np.random.default_rng(1)
+    xt = rng.standard_normal((N_TRACES, 20_000))
+    xt[5] *= 10 ** (10 / 20)
+    spectrum = np.fft.rfft(xt[12])
+    fs = np.fft.rfftfreq(xt.shape[1], d=1 / SAMPLING)
+    spectrum[(fs >= 20) & (fs <= 40)] = 0
+    xt[12] = np.fft.irfft(spectrum, n=xt.shape[1])
+
+    deviation, dropped = spectral_deviations(xt, SAMPLING, (5.0, 100.0), 2, drop_db=15.0)
+
+    assert deviation[5] == pytest.approx(10.0, abs=1.0)
+    assert dropped[12] == pytest.approx(20 / 95, abs=0.03)
+    others = np.delete(np.arange(N_TRACES), [5, 12])
+    assert np.nanmax(deviation[others]) < 3.0 and np.nanmax(dropped[others]) == 0.0

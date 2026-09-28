@@ -7,25 +7,10 @@ from sigpipe.algorithms.flipping.flipping import FlipAxis, flip
 from sigpipe.base.stream import Stream
 
 
-def selection_fk(
-    stream: Stream,
-    threshold: float,
-    vmin: float | None = None,
-    vmax: float | None = None,
-    flip_negatives: bool = False,
-) -> Stream | None:
-    """Keep `stream` only if its in-band f-k energy is asymmetric enough
-    between positive/negative wavenumbers (|fk_ratio| > threshold). The band
-    is between `vmin` and `vmax`, each when given.
-
-    If `flip_negatives` is set, the stream is space-flipped when
-    `fk_ratio > 0`, i.e. when positive-wavenumber energy dominates -- despite
-    the parameter name, a stream dominated by negative wavenumbers is
-    returned unflipped.
-    """
-
-    if not 0 <= threshold <= 1:
-        raise ValueError(f"requires 0 <= threshold <= 1, got {threshold}")
+def fk_ratio(stream: Stream, vmin: float | None = None, vmax: float | None = None) -> float:
+    """How lopsided `stream`'s f-k energy is between positive and negative wavenumbers, in the
+    velocity band between `vmin` and `vmax` (each when given): from -1 (all negative) to 1 (all
+    positive), 0 when balanced. What `selection_fk` keeps a segment by."""
     if stream.nx < 2:
         raise ValueError(
             f"At least 2 receivers are required to define a wavenumber axis, got {stream.nx}"
@@ -61,12 +46,35 @@ def selection_fk(
     energy_neg = kf_band[ks < 0].sum()
 
     eps = 1e-12
-    fk_ratio = (energy_pos - energy_neg) / (energy_pos + energy_neg + eps)
+    return float((energy_pos - energy_neg) / (energy_pos + energy_neg + eps))
 
-    if np.abs(fk_ratio) <= threshold:
+
+def selection_fk(
+    stream: Stream,
+    threshold: float,
+    vmin: float | None = None,
+    vmax: float | None = None,
+    flip_negatives: bool = False,
+) -> Stream | None:
+    """Keep `stream` only if its in-band f-k energy is asymmetric enough
+    between positive/negative wavenumbers (|fk_ratio| > threshold). The band
+    is between `vmin` and `vmax`, each when given.
+
+    If `flip_negatives` is set, the stream is space-flipped when
+    `fk_ratio > 0`, i.e. when positive-wavenumber energy dominates -- despite
+    the parameter name, a stream dominated by negative wavenumbers is
+    returned unflipped.
+    """
+
+    if not 0 <= threshold <= 1:
+        raise ValueError(f"requires 0 <= threshold <= 1, got {threshold}")
+
+    ratio = fk_ratio(stream, vmin, vmax)
+
+    if np.abs(ratio) <= threshold:
         return None
 
-    if flip_negatives and fk_ratio > 0:
+    if flip_negatives and ratio > 0:
         return flip(stream=stream, axis=FlipAxis.SPACE, flip_acquisition=False)
 
     return stream

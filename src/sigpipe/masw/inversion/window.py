@@ -17,6 +17,7 @@ from sigpipe.algorithms.inversion.rayleigh.seismic.forward import (
 )
 from sigpipe.algorithms.inversion.rayleigh.seismic.parameters import (
     InversionParameters,
+    SavedInversionParameters,
 )
 from sigpipe.algorithms.picking.dispersion.curve import min_resolvable_wavelength
 from sigpipe.base.dispersion_curve import DispersionCurves, Mode
@@ -52,7 +53,7 @@ class WindowParameters(BaseModel):
 
     model_config = ConfigDict(frozen=True)
 
-    parameters: InversionParameters  # as run
+    parameters: SavedInversionParameters  # as run
     # The trial runs (step factor, acceptance %) of the runs saved before 2026-09-27.
     tuning: tuple[tuple[float, float], ...] = ()
     acceptance: tuple[float, ...]  # each chain's over the run (%), the burn-in included
@@ -185,7 +186,7 @@ def save_parameters(parameters: InversionParameters, result: InversionResult, pa
     curves), each chain's acceptance and the sampled parameters' typical moves."""
     ran = InversionParameters.model_validate(result.parameters) if result.parameters else parameters
     window = WindowParameters(
-        parameters=ran,
+        parameters=SavedInversionParameters.model_validate(ran.model_dump()),
         tuning=result.tuning,
         acceptance=result.acceptance,
         steps={name: _significant(step) for name, step in result.steps.items()},

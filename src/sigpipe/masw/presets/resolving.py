@@ -76,8 +76,8 @@ def _derive_values(values: dict[str, Any], profile: Profile) -> list[str]:
     nyquist = profile.nyquist_hz
     problems: list[str] = []
 
-    muting = values["muting"]
-    if muting["method"] == "mute" and muting["width"] is None:
+    muting = values.get("muting")  # the modes of shots
+    if muting is not None and muting["method"] == "mute" and muting["width"] is None:
         muting["width"] = 1 / profile.sampling_rate_hz  # one sample
 
     filtering = values["filtering"]
@@ -115,55 +115,106 @@ def _derive(
 
 
 def _sigpipe_rules(values: dict[str, Any], profile: Profile) -> list[str]:
-    """The rules sigpipe checks in every window that depend on the profile, in pipeline order.
+    """The rules a run must meet, in pipeline order: those sigpipe checks in every window and
+    that depend on the profile, and those without which a stage would leave nothing (a window
+    past the records' data, an image outside the band kept). PAC's fields say the same before a
+    run is asked for. Each <x>max above its <x>min is the models' own check (generation.py).
 
     A dispersion fmax above Nyquist is not one: sigpipe lowers it to Nyquist, with a warning.
     """
     name, nyquist = profile.name, profile.nyquist_hz
-    problems: list[str] = _muting_rules(values, profile)
+    problems: list[str] = _masw_rules(values["masw"], profile) + _muting_rules(values, profile)
 
     filtering = values["filtering"]
-    if filtering["method"] == "iir" and filtering["fmax"] >= nyquist:
-        problems.append(
-            f"filtering.fmax ({filtering['fmax']:g} Hz) must be below the Nyquist frequency "
-            f"of profile '{name}' ({nyquist:g} Hz)."
-        )
+    kept: tuple[float, float] = (0.0, nyquist)  # the band the filter and the whitening keep
+    if filtering["method"] == "iir":
+        if filtering["fmax"] >= nyquist:
+            problems.append(
+                f"filtering.fmax ({filtering['fmax']:g} Hz) must be below the Nyquist frequency "
+                f"of profile '{name}' ({nyquist:g} Hz)."
+            )
+        kept = (filtering["fmin"], filtering["fmax"])
 
     if (slicing := values.get("slicing")) is not None:  # passive only
         problems += _slicing_rules(slicing, profile)
-        problems += _whitening_rules(values["whitening"], slicing, profile)
+        whitening = values["whitening"]
+        if whitening["method"] == "onebit_apod":
+            problems += _whitening_rules(whitening, slicing, profile)
+            kept = (max(kept[0], whitening["fmin"]), min(kept[1], whitening["fmax"]))
 
-    if values["dispersion"]["fmin"] >= nyquist:
+    dispersion = values["dispersion"]
+    if dispersion["fmin"] >= nyquist:
         problems.append(
-            f"dispersion.fmin ({values['dispersion']['fmin']:g} Hz) must be below the Nyquist "
+            f"dispersion.fmin ({dispersion['fmin']:g} Hz) must be below the Nyquist "
             f"frequency of profile '{name}' ({nyquist:g} Hz)."
+        )
+    # The image within the band the filter and the whitening keep: outside, noise alone.
+    elif kept != (0.0, nyquist) and not (
+        dispersion["fmin"] < kept[1] and dispersion["fmax"] > kept[0]
+    ):
+        problems.append(
+            f"dispersion's band ({dispersion['fmin']:g}-{dispersion['fmax']:g} Hz) is outside the "
+            f"{kept[0]:g}-{kept[1]:g} Hz the filtering and the whitening keep: the image would "
+            "hold noise alone."
         )
 
     return problems
 
 
+def _masw_rules(masw: dict[str, Any], profile: Profile) -> list[str]:
+    """The windows on the line: none longer than it, nor a step past it."""
+    receivers = len(profile.receivers)
+    return [
+        f"masw.{key} ({masw[key]} receivers) must not exceed the {receivers} receivers of "
+        f"profile '{profile.name}'."
+        for key in ("length", "step")
+        if masw[key] > receivers
+    ]
+
+
 def _muting_rules(values: dict[str, Any], profile: Profile) -> list[str]:
     """A muting that cuts something: a bound, or the trigger it applies (a shot's time origin,
-    given or from each record's file); and a start within the records."""
-    muting = values["muting"]
-    if muting["method"] != "mute":
+    given or from each record's file); what each record keeps once moved by its trigger, the
+    signal width at the shot at least and a window that starts within it."""
+    muting = values.get("muting")  # the modes of shots
+    if muting is None or muting["method"] != "mute":
         return []
     problems: list[str] = []
-    trigger = values.get("trigger")  # the modes of shots
-    shifts = trigger is not None and (
-        bool(trigger["t0"])
-        if trigger["t0"] is not None
-        else any(record.trigger_s for record in profile.records)
-    )
-    if all(muting[bound] is None for bound in ("tmin", "tmax", "vmin", "vmax")) and not shifts:
+    trigger = values.get("trigger")
+    t0 = trigger["t0"] if trigger is not None else None
+    # Each record's shift: the t0 given, else its file's trigger (0 when it says none).
+    shifts = {
+        record.path.name: t0 if t0 is not None else record.trigger_s or 0.0
+        for record in profile.records
+    }
+    if all(muting[bound] is None for bound in ("tmin", "tmax", "vmin", "vmax")) and not any(
+        shifts.values()
+    ):
         problems.append(
             "muting is on but keeps everything: give it a time or a velocity, or switch it off."
         )
-    longest = max(record.duration_s for record in profile.records)
-    if muting["tmin"] is not None and muting["tmin"] >= longest:
+    # At least one sample kept after the slowest arrival: the trace at the shot never emptied.
+    sample = 1 / profile.sampling_rate_hz
+    width = muting["width"]
+    if width is not None and width < sample * (1 - 1e-9):
         problems.append(
-            f"muting.tmin ({muting['tmin']:g} s) is past the end of profile '{profile.name}''s "
-            f"records ({longest:.2f} s): nothing would be kept."
+            f"muting.width ({width:g} s) must be at least one sample of profile "
+            f"'{profile.name}' ({sample:g} s): the trace at the shot would keep nothing."
+        )
+    # The record whose data, once moved by its trigger, ends first: every record keeps its part.
+    record = min(profile.records, key=lambda one: one.duration_s - shifts[one.path.name])
+    shift = shifts[record.path.name]
+    end = record.duration_s - shift
+    if width is not None and width > end * (1 + 1e-9):
+        problems.append(
+            f"The trigger ({shift:g} s) and muting.width ({width:g} s) exceed record "
+            f"{record.path.name} ({record.duration_s:.2f} s): the pulse at the shot would not fit. "
+            "Lower the trigger or the width."
+        )
+    if muting["tmin"] is not None and muting["tmin"] >= end:
+        problems.append(
+            f"muting.tmin ({muting['tmin']:g} s) is past the end of record {record.path.name}'s "
+            f"data once moved by its trigger ({end:.2f} s): nothing would be kept."
         )
     return problems
 

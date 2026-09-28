@@ -176,10 +176,8 @@ PACS_METHODS = {
     ("name", "stages"),
     [
         ("active", ["muting", "filtering"]),
-        (
-            "passive",
-            ["muting", "filtering", "selection", "whitening", "normalization", "stacking"],
-        ),
+        # No muting on a passive line: no shot for a velocity to count from.
+        ("passive", ["filtering", "selection", "whitening", "normalization", "stacking"]),
     ],
 )
 def test_the_agent_sees_only_pacs_methods(name: str, stages: list[str]) -> None:

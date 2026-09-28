@@ -2,6 +2,7 @@
 runs in each mode, picks, and the inversion of two windows."""
 
 import json
+import shutil
 import threading
 from pathlib import Path
 
@@ -10,6 +11,7 @@ import pytest
 from obspy import Stream as ObspyStream
 from obspy import Trace
 from obspy.core.util import AttribDict
+from pydantic import ValidationError
 from synthetic import N_RECEIVERS, SAMPLING, SOURCES
 
 from sigpipe.algorithms.picking.dispersion.tracking import pick_modes
@@ -17,6 +19,7 @@ from sigpipe.dataio.stream import loading as stream_loading
 from sigpipe.masw.inversion import (
     PARAMETERS_FILE,
     InversionParameters,
+    WindowParameters,
     invert_window,
     load_parameters,
 )
@@ -55,6 +58,34 @@ def test_profiles_are_read_from_their_folders(workspace: Folders) -> None:
         load_profile("nope", workspace)
 
 
+def test_a_profile_whose_records_differ_is_refused(input_dir: Path, tmp_path: Path) -> None:
+    # A line's records share their sampling rate and its receivers: one at another rate, or with
+    # a trace fewer than the receivers, and the profile is refused, saying which.
+    def record(path: Path, n_traces: int, sampling: float) -> None:
+        traces = [
+            Trace(
+                np.zeros(100, dtype=np.float32),
+                header={"sampling_rate": sampling, "station": f"R{i:02d}"},
+            )
+            for i in range(n_traces)
+        ]
+        ObspyStream(traces).write(str(path), format="MSEED")
+
+    root = tmp_path / "input"
+    for name, (n_traces, sampling) in {
+        "rates": (N_RECEIVERS, SAMPLING / 2),
+        "traces": (N_RECEIVERS - 1, SAMPLING),
+    }.items():
+        shutil.copytree(input_dir / "shots", root / name)
+        record(root / name / "2.mseed", n_traces, sampling)
+    workspace = Folders(input_dir=root, output_dir=tmp_path / "output", workers=1)
+
+    with pytest.raises(ProfileError, match="share one sampling rate, found 500 Hz, 1000 Hz"):
+        load_profile("rates", workspace)
+    with pytest.raises(ProfileError, match=f"2.mseed \\(it has {N_RECEIVERS - 1} traces\\)"):
+        load_profile("traces", workspace)
+
+
 def test_a_preset_is_fitted_to_its_profile(workspace: Folders) -> None:
     shots = load_profile("shots", workspace)
 
@@ -78,8 +109,112 @@ def test_a_preset_is_fitted_to_its_profile(workspace: Folders) -> None:
     # On, with no bound and no trigger (the synthetic files have none), it would cut nothing.
     with pytest.raises(PresetError, match="keeps everything"):
         resolve_preset(make_preset("passive-active", {"muting": {"method": "mute"}}), shots)
+    # A width under one sample would empty the trace at the shot.
+    narrow = {"muting": {"method": "mute", "vmax": 1500.0, "width": 0.0}}
+    with pytest.raises(PresetError, match=r"muting\.width \(0 s\) must be at least one sample"):
+        resolve_preset(make_preset("passive-active", narrow), shots)
     with pytest.raises(PresetError, match="does not fit passive profile"):
         resolve_preset(make_preset("active"), load_profile("noise", workspace))
+
+
+# Settings that would stop a run midway, or leave a stage nothing: refused before it starts, each
+# with what to change (the synthetic records: 12 receivers, 1 s at 1 kHz, no trigger in files).
+REFUSED = [
+    pytest.param(
+        "shots",
+        "active",
+        {"trigger": {"t0": -0.01}},
+        r"trigger\.t0: must be >= 0",
+        id="a trigger before the record",
+    ),
+    pytest.param(
+        "shots",
+        "active",
+        {"muting": {"method": "mute", "vmax": 0.0}},
+        r"muting\.vmax: must be > 0",
+        id="a fastest velocity of 0",
+    ),
+    pytest.param(
+        "shots",
+        "active",
+        {"muting": {"method": "mute", "tmin": 0.5, "tmax": 0.2}},
+        r"muting: tmax \(0\.2\) must be greater than tmin \(0\.5\)",
+        id="a time window upside down",
+    ),
+    pytest.param(
+        "shots",
+        "active",
+        {"muting": {"method": "mute", "vmin": 300.0, "vmax": 200.0}},
+        r"muting: vmax \(200\) must be greater than vmin \(300\)",
+        id="velocities upside down",
+    ),
+    pytest.param(
+        "shots",
+        "active",
+        {"muting": {"method": "mute", "vmax": 1500.0, "width": 0.6}, "trigger": {"t0": 0.5}},
+        r"The trigger \(0\.5 s\) and muting\.width \(0\.6 s\) exceed record 1\.mseed",
+        id="the trigger and the width past the record",
+    ),
+    pytest.param(
+        "shots",
+        "passive-active",
+        {"muting": {"method": "mute", "tmin": 0.9}, "trigger": {"t0": 0.2}},
+        r"muting\.tmin \(0\.9 s\) is past the end of record 1\.mseed's data once moved by its "
+        r"trigger \(0\.80 s\)",
+        id="a window starting after the data",
+    ),
+    pytest.param(
+        "shots",
+        "active",
+        {"masw": {"length": 13}},
+        r"masw\.length \(13 receivers\) must not exceed the 12 receivers of profile 'shots'",
+        id="a window longer than the line",
+    ),
+    pytest.param(
+        "shots",
+        "active",
+        {"dispersion": {"fmin": 60.0, "fmax": 30.0}},
+        r"dispersion: fmax \(30\) must be greater than fmin \(60\)",
+        id="an image's band upside down",
+    ),
+    pytest.param(
+        "shots",
+        "active",
+        {"filtering": {"method": "iir", "fmin": 5.0, "fmax": 20.0}, "dispersion": {"fmin": 30.0}},
+        r"dispersion's band \(30-100 Hz\) is outside the 5-20 Hz the filtering and the whitening "
+        r"keep",
+        id="an image outside the filter's band",
+    ),
+    pytest.param(
+        "noise",
+        "passive",
+        {"muting": {"method": "mute", "tmin": 1.0}},
+        r"muting: not a stage of preset 'passive'",
+        id="a passive line muted",
+    ),
+    pytest.param(
+        "noise",
+        "passive",
+        {"selection": {"method": "fk", "vmin": 500.0, "vmax": 100.0}},
+        r"selection: vmax \(100\) must be greater than vmin \(500\)",
+        id="a selection's velocities upside down",
+    ),
+    pytest.param(
+        "noise",
+        "passive",
+        {"whitening": {"method": "onebit_apod", "fmin": 50.0, "fmax": 20.0}},
+        r"whitening: fmax \(20\) must be greater than fmin \(50\)",
+        id="a whitening's band upside down",
+    ),
+]
+
+
+@pytest.mark.parametrize(("profile", "mode", "overrides", "said"), REFUSED)
+def test_settings_that_would_leave_nothing_are_refused(
+    workspace: Folders, profile: str, mode: str, overrides: dict[str, object], said: str
+) -> None:
+    with pytest.raises(PresetError, match=said):
+        resolve_preset(make_preset(mode, overrides), load_profile(profile, workspace))
 
 
 @pytest.mark.parametrize(
@@ -141,20 +276,43 @@ def test_the_trigger_moves_a_shots_origin_with_the_muting_only(
     assert stage_kwargs(preset, "muting")["tmin"] is None
 
 
-def test_a_run_made_with_a_removed_stage_still_loads(workspace: Folders) -> None:
-    manifest = run_processing("shots", "passive-active", WINDOWS, workspace, packages=())
+@pytest.mark.parametrize(
+    ("profile", "mode", "removed"),
+    [
+        # As an earlier sigpipe wrote a passive-active run: its surface-wave mute before
+        # correlating.
+        (
+            "shots",
+            "passive-active",
+            {"correlation_window": {"method": "mute", "vmin": 80.0, "vmax": 1500.0, "taper": 50}},
+        ),
+        # And a passive run: its muting and its trigger.
+        (
+            "noise",
+            "passive",
+            {"muting": {"method": "mute", "tmin": 1.0, "width": 0.001}, "trigger": {"t0": None}},
+        ),
+    ],
+)
+def test_a_run_made_with_a_removed_stage_still_loads(
+    workspace: Folders, profile: str, mode: str, removed: dict[str, object]
+) -> None:
+    manifest = run_processing(profile, mode, WINDOWS, workspace, packages=())
     path = find_run(manifest.run_id, workspace) / "run.json"
-    # As an earlier sigpipe wrote a passive-active run: its surface-wave mute before correlating.
     older = json.loads(path.read_text())
-    older["preset"]["correlation_window"] = {
-        "method": "mute",
-        "vmin": 80.0,
-        "vmax": 1500.0,
-        "taper": 50,
-    }
+    older["preset"] |= removed
     path.write_text(json.dumps(older))
 
     assert load_manifest(manifest.run_id, workspace) == manifest
+
+
+def test_one_chain_is_refused_and_a_window_inverted_with_one_still_reads() -> None:
+    # Two chains at least: one chain's halves agree even where two would settle apart.
+    with pytest.raises(ValidationError, match="n_chains"):
+        InversionParameters(n_chains=1)
+    # A window inverted with one chain before 2026-09-28: its parameters read as they were.
+    saved = WindowParameters.model_validate({"parameters": {"n_chains": 1}, "acceptance": [30.0]})
+    assert saved.parameters.n_chains == 1
 
 
 def test_a_stopped_run_keeps_the_windows_that_finished_and_nothing_half_written(

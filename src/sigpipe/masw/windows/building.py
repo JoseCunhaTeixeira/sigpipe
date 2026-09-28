@@ -48,9 +48,11 @@ def build_windows(profile: Profile, params: MASWParameters) -> list[MASWWindow]:
                 if xmin < source.x < xmax:
                     continue
 
-                # ...and at a usable distance from its middle.
+                # ...and at a usable distance from its middle, each bound when given.
                 distance = abs(source.x - xmid)
-                if distance <= params.distance_min or distance >= params.distance_max:
+                if params.distance_min is not None and distance <= params.distance_min:
+                    continue
+                if params.distance_max is not None and distance >= params.distance_max:
                     continue
 
             selected_files.append(record.path)

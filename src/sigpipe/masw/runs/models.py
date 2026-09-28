@@ -12,8 +12,10 @@ from sigpipe.masw.windows import Exclusions
 # Stages sigpipe no longer has, which an older run.json may record: dropped when it is read, so
 # that the run still loads (its file keeps them). correlation_window: passive-active's own
 # surface-wave mute before correlating, removed on 2026-09-28 (the muting's velocities cut the
-# same).
+# same). A passive line's muting and trigger, removed on 2026-09-28 (no shot for a velocity to
+# count from).
 REMOVED_STAGES = frozenset({"correlation_window"})
+REMOVED_PASSIVE_STAGES = frozenset({"muting", "trigger"})
 
 
 class RunError(ValueError):
@@ -67,7 +69,12 @@ class RunManifest(BaseModel):
     @classmethod
     def _without_removed_stages(cls, data: Any) -> Any:  # noqa: ANN401
         preset = data.get("preset") if isinstance(data, dict) else None
-        if isinstance(preset, dict) and REMOVED_STAGES & preset.keys():
-            kept = {name: value for name, value in preset.items() if name not in REMOVED_STAGES}
+        if not isinstance(preset, dict):
+            return data
+        removed = REMOVED_STAGES | (
+            REMOVED_PASSIVE_STAGES if preset.get("mode") == "passive" else frozenset()
+        )
+        if removed & preset.keys():
+            kept = {name: value for name, value in preset.items() if name not in removed}
             return {**data, "preset": kept}
         return data
