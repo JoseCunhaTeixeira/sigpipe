@@ -12,8 +12,6 @@ from sigpipe.masw.profiles import MODES, ProcessingMode, Profile
 # A switched-on IIR filter without fmax stops just below the Nyquist frequency: sigpipe's filter
 # requires fmax < Nyquist.
 IIR_FMAX_NYQUIST_FRACTION = 0.95
-# The ramps of the passive-active correlation window, as the signal QC pads its own window.
-CORRELATION_TAPER_S = 0.05
 
 
 def resolve_preset[P: ActivePreset | PassivePreset](preset: P, profile: Profile) -> P:
@@ -51,7 +49,8 @@ def method_defaults(mode: str, profile: Profile) -> dict[str, dict[str, dict[str
     """For each stage of preset `mode` with a choice of methods, each method's values for
     `profile` (those the profile derives filled in): what a form offers when its method
     changes. A method whose derived values clash with the profile keeps its own defaults; one
-    the preset cannot start without more values is left out."""
+    the preset cannot start without more values is left out. The rules a run must meet (a
+    muting that cuts something) are not a form's: its values are filled in all the same."""
     methods: dict[str, dict[str, dict[str, Any]]] = {}
     for name, stage in STAGES[ProcessingMode(mode)].items():
         if not stage.selectable:
@@ -62,8 +61,10 @@ def method_defaults(mode: str, profile: Profile) -> dict[str, dict[str, dict[str
                 preset = make_preset(mode, {name: {"method": method}})
             except PresetError:
                 continue
-            with contextlib.suppress(PresetError):
-                preset = resolve_preset(preset, profile)
+            derived = preset.model_dump()
+            if not _derive_values(derived, profile):
+                with contextlib.suppress(ValueError):
+                    preset = type(preset).model_validate(derived)
             values = dict(preset.model_dump(mode="json")[name])
             values.pop("method")
             methods[name][method] = values
@@ -75,19 +76,14 @@ def _derive_values(values: dict[str, Any], profile: Profile) -> list[str]:
     nyquist = profile.nyquist_hz
     problems: list[str] = []
 
-    if values["muting"]["method"] == "mute" and values["muting"]["tmax"] is None:
-        # The longest record, rounded to 10 ms.
-        record_length = round(max(record.duration_s for record in profile.records), 2)
-        problems += _derive(values, "muting", "tmin", "tmax", record_length, "s", profile)
+    muting = values["muting"]
+    if muting["method"] == "mute" and muting["width"] is None:
+        muting["width"] = 1 / profile.sampling_rate_hz  # one sample
 
     filtering = values["filtering"]
     if filtering["method"] == "iir" and filtering["fmax"] is None:
         fmax = IIR_FMAX_NYQUIST_FRACTION * nyquist
         problems += _derive(values, "filtering", "fmin", "fmax", fmax, "Hz", profile)
-
-    window = values.get("correlation_window")  # passive-active only
-    if window is not None and window["method"] == "mute" and window["taper"] is None:
-        window["taper"] = round(CORRELATION_TAPER_S * profile.sampling_rate_hz)
 
     whitening = values.get("whitening")  # passive only
     if whitening is not None and whitening["method"] == "onebit_apod" and whitening["fmax"] is None:
@@ -124,7 +120,7 @@ def _sigpipe_rules(values: dict[str, Any], profile: Profile) -> list[str]:
     A dispersion fmax above Nyquist is not one: sigpipe lowers it to Nyquist, with a warning.
     """
     name, nyquist = profile.name, profile.nyquist_hz
-    problems: list[str] = []
+    problems: list[str] = _muting_rules(values, profile)
 
     filtering = values["filtering"]
     if filtering["method"] == "iir" and filtering["fmax"] >= nyquist:
@@ -143,6 +139,32 @@ def _sigpipe_rules(values: dict[str, Any], profile: Profile) -> list[str]:
             f"frequency of profile '{name}' ({nyquist:g} Hz)."
         )
 
+    return problems
+
+
+def _muting_rules(values: dict[str, Any], profile: Profile) -> list[str]:
+    """A muting that cuts something: a bound, or the trigger it applies (a shot's time origin,
+    given or from each record's file); and a start within the records."""
+    muting = values["muting"]
+    if muting["method"] != "mute":
+        return []
+    problems: list[str] = []
+    trigger = values.get("trigger")  # the modes of shots
+    shifts = trigger is not None and (
+        bool(trigger["t0"])
+        if trigger["t0"] is not None
+        else any(record.trigger_s for record in profile.records)
+    )
+    if all(muting[bound] is None for bound in ("tmin", "tmax", "vmin", "vmax")) and not shifts:
+        problems.append(
+            "muting is on but keeps everything: give it a time or a velocity, or switch it off."
+        )
+    longest = max(record.duration_s for record in profile.records)
+    if muting["tmin"] is not None and muting["tmin"] >= longest:
+        problems.append(
+            f"muting.tmin ({muting['tmin']:g} s) is past the end of profile '{profile.name}''s "
+            f"records ({longest:.2f} s): nothing would be kept."
+        )
     return problems
 
 

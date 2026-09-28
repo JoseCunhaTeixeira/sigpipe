@@ -29,6 +29,8 @@ class Parameter:
     unit: str = ""
     default: float | None = None  # None keeps sigpipe's own default
     derived: bool = False  # left to None, then filled from the profile by resolve_preset
+    # Left to None, what None means (no bound; each record's own): the value may stay None.
+    null: str = ""
     ge: float | None = None
     gt: float | None = None
     le: float | None = None
@@ -58,10 +60,11 @@ def pac_methods(
     return {method: registry[method] for method in methods}
 
 
-# The correction of a trigger delay G1 measures; 0 leaves the record as it is.
+# The record's time origin moved to the shot, part of the muting (the user, 2026-09-28): applied
+# with the muting on only. Left to None, each record's own trigger, from its file's header.
 TRIGGER = Stage(
     functions=pac_methods(SHIFTING_METHODS, "shift"),
-    parameters={"shift": {"t0": Parameter("s", default=0.0)}},
+    parameters={"shift": {"t0": Parameter("s", null="each record's own, from its file")}},
     default="shift",
     none=False,
     selectable=False,
@@ -71,10 +74,15 @@ MUTING = Stage(
     functions=pac_methods(MUTTING_METHODS, "mute"),
     parameters={
         "mute": {
-            "tmin": Parameter("s", default=0.0, ge=0),
-            "tmax": Parameter("s", derived=True, ge=0),
-            "vmin": Parameter("m/s", default=0.0, ge=0),
-            "vmax": Parameter("m/s", default=100_000.0, ge=0),
+            # Each bound may be left out: no stand-in values (the user, 2026-09-28). The bounds
+            # are those older runs' manifests hold (0 m/s, 100,000 m/s stood for none).
+            "tmin": Parameter("s", null="none", ge=0),
+            "tmax": Parameter("s", null="none", ge=0),
+            "vmin": Parameter("m/s", null="none", ge=0),
+            "vmax": Parameter("m/s", null="none", ge=0),
+            # Kept after the slowest arrival: at the source, the shot's pulse. By default one
+            # sample (the user, 2026-09-28): the window never empty at the shot.
+            "width": Parameter("s", derived=True, ge=0),
             "taper": Parameter("samples", ge=0),
         }
     },
@@ -111,8 +119,8 @@ SELECTION = Stage(
     parameters={
         "fk": {
             "threshold": Parameter(default=0.1, ge=0, le=1),
-            "vmin": Parameter("m/s", default=0.0, ge=0),
-            "vmax": Parameter("m/s", default=100_000.0, gt=0),
+            "vmin": Parameter("m/s", null="none", ge=0),
+            "vmax": Parameter("m/s", null="none", gt=0),
         }
     },
     fixed=frozenset({"flip_negatives"}),
@@ -179,31 +187,12 @@ ACTIVE_STAGES = {
     "dispersion": DISPERSION,
     "image_stacking": IMAGE_STACKING,
 }
-# Before a shot is correlated (passive-active), its surface-wave window only, the window of
-# PACo's signal QC: correlated whole, a record's noise common to every trace makes the image peak
-# at the grid's top velocity; the mute of `muting` would also blank the QC's noise window. The
-# window follows the velocities alone, with no tmin or tmax.
-CORRELATION_WINDOW = Stage(
-    functions=pac_methods(MUTTING_METHODS, "mute"),
-    parameters={
-        "mute": {
-            "vmin": Parameter("m/s", default=80.0, gt=0),
-            "vmax": Parameter("m/s", default=1_500.0, gt=0),
-            # Ramps of CORRELATION_TAPER_S (resolving.py), in the profile's samples.
-            "taper": Parameter("samples", derived=True, ge=0),
-        }
-    },
-    default="mute",
-    fixed=frozenset({"tmin", "tmax"}),
-)
-
 # The passive-active mode: an active profile's shots, each gather cross-correlated with the
 # receiver nearest its shot, the correlations stacked.
 PASSIVE_ACTIVE_STAGES = {
     "trigger": TRIGGER,
     "muting": MUTING,
     "filtering": FILTERING,
-    "correlation_window": CORRELATION_WINDOW,
     "stacking": STACKING,
     "dispersion": DISPERSION,
 }

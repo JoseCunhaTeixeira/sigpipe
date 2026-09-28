@@ -1,5 +1,6 @@
 import warnings
 from collections.abc import Sequence
+from dataclasses import dataclass
 from pathlib import Path
 from typing import TypeGuard
 
@@ -93,6 +94,40 @@ def load_stream(
         )
 
     return streams_out
+
+
+@dataclass(frozen=True, slots=True)
+class SeismicHeader:
+    """What a seismic record's file says of itself."""
+
+    n_traces: int
+    sampling_freq: float
+    n_samples: int
+    # The shot's time after the record's first sample, in s: SEG-2's DELAY (the first sample's
+    # time after the trigger) negated; Geometrics' recorders start 20 ms before the shot. None
+    # when the file does not say, or its traces disagree.
+    trigger_s: float | None
+
+
+def read_seismic_header(path: Path) -> SeismicHeader:
+    """The header of the record at `path`, as load_seismic reads it (obspy); the samples are
+    left unread where the format allows (SEG-2 reads them anyway)."""
+    with warnings.catch_warnings():
+        warnings.filterwarnings("ignore", module=r"obspy\.io\.seg2\.seg2")
+        ob_stream = read_obspy(path, headonly=True)
+    delays = {getattr(trace.stats, "seg2", {}).get("DELAY") for trace in ob_stream}
+    trigger: float | None = None
+    if len(delays) == 1 and (delay := delays.pop()) is not None:
+        try:
+            trigger = -float(delay)
+        except ValueError:
+            trigger = None
+    return SeismicHeader(
+        n_traces=len(ob_stream),
+        sampling_freq=float(ob_stream[0].stats.sampling_rate),
+        n_samples=int(ob_stream[0].stats.npts),
+        trigger_s=trigger,
+    )
 
 
 def load_seismic(

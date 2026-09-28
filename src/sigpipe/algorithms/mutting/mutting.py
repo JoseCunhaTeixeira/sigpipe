@@ -75,10 +75,13 @@ def mute(
     tmax: float | None = None,
     vmin: float | None = None,
     vmax: float | None = None,
+    width: float = 0.0,
     taper: int = 0,
 ) -> Stream:
     """
-    Squared-window mute with optional cosine taper.
+    Squared-window mute with optional cosine taper: each bound given keeps what lies inside it
+    (a time window; the arrivals between `vmax` and `vmin`, `width` seconds kept after the
+    slowest, so that the window at the source keeps the shot's pulse).
     """
     if tmin is None and tmax is None and vmin is None and vmax is None:
         raise ValueError("At least one of tmin, tmax, vmin and vmax must be provided")
@@ -88,6 +91,9 @@ def mute(
 
     if vmin is not None and vmax is not None and vmin >= vmax:
         raise ValueError(f"Expected vmin < vmax, got vmin={vmin} and vmax={vmax}")
+
+    if width < 0:
+        raise ValueError(f"Expected width >= 0, got width={width}")
 
     xt = stream.xt.copy()
     ts = stream.ts
@@ -105,7 +111,7 @@ def mute(
             _apply_upper_mute(trace, idx, taper)
 
     if vmin is not None:
-        tlims = stream.acquisition.offsets / (vmin + 1e-12)
+        tlims = stream.acquisition.offsets / (vmin + 1e-12) + width
 
         for i_trace, tlim in enumerate(tlims):
             idx = np.searchsorted(ts, tlim)

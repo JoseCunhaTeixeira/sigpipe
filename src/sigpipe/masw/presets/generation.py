@@ -74,7 +74,7 @@ def _method_model(
 
 def _field(annotation: Any, sigpipe_default: Any, parameter: Parameter | None) -> tuple[Any, Any]:  # noqa: ANN401
     parameter = parameter or Parameter()
-    if parameter.derived:
+    if parameter.derived or parameter.null:
         annotation, default = annotation | None, None
     elif parameter.default is not None:
         default = parameter.default
@@ -84,7 +84,8 @@ def _field(annotation: Any, sigpipe_default: Any, parameter: Parameter | None) -
         default = ...  # required: neither sigpipe nor the stage gives a default
     # The description is what a form or an agent shows of a value: its unit, and why it may be
     # null.
-    notes = [parameter.unit, "null: from the profile" if parameter.derived else ""]
+    null = "from the profile" if parameter.derived else parameter.null
+    notes = [parameter.unit, f"null: {null}" if null else ""]
     return annotation, Field(
         default,
         ge=parameter.ge,

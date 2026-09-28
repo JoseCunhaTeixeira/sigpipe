@@ -1,13 +1,19 @@
 """What a run records on disk: its manifest, run.json."""
 
 from datetime import datetime
-from typing import Literal
+from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, model_validator
 
 from sigpipe.masw.presets import Preset
 from sigpipe.masw.profiles import ProfileSummary
 from sigpipe.masw.windows import Exclusions
+
+# Stages sigpipe no longer has, which an older run.json may record: dropped when it is read, so
+# that the run still loads (its file keeps them). correlation_window: passive-active's own
+# surface-wave mute before correlating, removed on 2026-09-28 (the muting's velocities cut the
+# same).
+REMOVED_STAGES = frozenset({"correlation_window"})
 
 
 class RunError(ValueError):
@@ -56,3 +62,12 @@ class RunManifest(BaseModel):
     exclusions: Exclusions = Exclusions()
     # Stopped on request: its windows are those that had finished.
     stopped: bool = False
+
+    @model_validator(mode="before")
+    @classmethod
+    def _without_removed_stages(cls, data: Any) -> Any:  # noqa: ANN401
+        preset = data.get("preset") if isinstance(data, dict) else None
+        if isinstance(preset, dict) and REMOVED_STAGES & preset.keys():
+            kept = {name: value for name, value in preset.items() if name not in REMOVED_STAGES}
+            return {**data, "preset": kept}
+        return data

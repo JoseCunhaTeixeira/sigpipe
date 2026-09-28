@@ -6,12 +6,10 @@ from typing import Any
 
 import yaml
 
-from sigpipe.base.acquisition import LinearAcquisition
 from sigpipe.base.coordinate import Coordinate
-from sigpipe.base.stream import Stream
+from sigpipe.dataio.stream.loading import read_seismic_header
 from sigpipe.masw.profiles.models import Profile, ProfileKind, Record
 from sigpipe.masw.workspace import Workspace
-from sigpipe.transformers import Load
 
 RECEIVER_POSITIONS_FILE = "receiver_positions.yaml"
 SOURCE_POSITIONS_FILE = "source_positions.yaml"
@@ -87,29 +85,28 @@ def _read_record(
     receivers: tuple[Coordinate, ...],
     profile: str,
 ) -> Record:
-    # Passive records have no source; the first receiver stands in for it. It only serves to
-    # read the record and is not kept.
-    acquisition = LinearAcquisition(source=source or receivers[0], receivers=receivers)
+    # Its header, as sigpipe's loader reads the record (one read of the file), with its trigger.
     try:
-        streams = Load(
-            file_paths=[path], data_type="seismic", acquisitions=[acquisition]
-        ).transform()
+        header = read_seismic_header(path)
     except Exception as exc:
         raise ProfileError(
             f"Profile '{profile}': sigpipe cannot load record {path.name} ({exc}). "
             f"{RECEIVER_POSITIONS_FILE} lists {len(receivers)} receivers."
         ) from exc
-
-    stream = streams[0]
-    if not isinstance(stream, Stream):
-        raise ProfileError(f"Profile '{profile}': {path.name} did not load as a seismic record.")
+    if header.n_traces != len(receivers):
+        raise ProfileError(
+            f"Profile '{profile}': sigpipe cannot load record {path.name} (it has "
+            f"{header.n_traces} traces). {RECEIVER_POSITIONS_FILE} lists {len(receivers)} "
+            "receivers."
+        )
 
     return Record(
         path=path,
-        n_traces=stream.nx,
-        sampling_rate_hz=stream.sampling_freq,
-        duration_s=float(stream.ts[-1]),
+        n_traces=header.n_traces,
+        sampling_rate_hz=header.sampling_freq,
+        duration_s=(header.n_samples - 1) / header.sampling_freq,
         source=source,
+        trigger_s=header.trigger_s,
     )
 
 

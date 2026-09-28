@@ -80,12 +80,15 @@ def rms_decay_outliers(
 
 
 def trace_snrs(
-    stream: Stream, vmin: float, vmax: float, pad: float
+    stream: Stream, vmin: float, vmax: float, pad: float, shot_s: float = 0.0
 ) -> tuple[np.ndarray, np.ndarray] | None:
     """Each trace's distance from the shot and its SNR in dB (surface-wave window against noise
-    window, see signal_windows); None when the record leaves no room for a noise window."""
+    window, see signal_windows), its times from the shot at `shot_s` (a record whose time
+    origin was left where its file puts the trigger); None when the record leaves no room for a
+    noise window."""
     offsets = np.asarray(stream.acquisition.offsets, dtype=float)
-    windows = signal_windows(offsets, np.asarray(stream.ts, dtype=float), vmin, vmax, pad)
+    ts = np.asarray(stream.ts, dtype=float) - shot_s
+    windows = signal_windows(offsets, ts, vmin, vmax, pad)
     if windows is None:
         return None
     return offsets, snr_db(np.nan_to_num(stream.xt), windows)

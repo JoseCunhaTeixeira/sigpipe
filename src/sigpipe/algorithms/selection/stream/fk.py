@@ -10,12 +10,13 @@ from sigpipe.base.stream import Stream
 def selection_fk(
     stream: Stream,
     threshold: float,
-    vmin: float,
-    vmax: float,
+    vmin: float | None = None,
+    vmax: float | None = None,
     flip_negatives: bool = False,
 ) -> Stream | None:
     """Keep `stream` only if its in-band f-k energy is asymmetric enough
-    between positive/negative wavenumbers (|fk_ratio| > threshold).
+    between positive/negative wavenumbers (|fk_ratio| > threshold). The band
+    is between `vmin` and `vmax`, each when given.
 
     If `flip_negatives` is set, the stream is space-flipped when
     `fk_ratio > 0`, i.e. when positive-wavenumber energy dominates -- despite
@@ -43,12 +44,16 @@ def selection_fk(
     ks = fftfreq(nk_fft, d=dx[0]).astype(np.float32)
     kf = np.abs(fft(xf, n=nk_fft, axis=0)).astype(np.float32)
 
-    # Keep, per wavenumber row, only frequencies inside the velocity band:
+    # Keep, per wavenumber row, only frequencies inside the velocity band, each bound when given:
     #   vmin * |k| <= f <= vmax * |k|
     # band_mask has shape (nk_fft, n_freq); True = inside the band (kept).
     abs_k = np.abs(ks)[:, None]  # (nk_fft, 1)
     f_row = fs[None, :]  # (1, n_freq)
-    band_mask = (f_row >= vmin * abs_k) & (f_row <= vmax * abs_k)
+    band_mask = np.ones((abs_k.shape[0], f_row.shape[1]), dtype=bool)
+    if vmin is not None:
+        band_mask &= f_row >= vmin * abs_k
+    if vmax is not None:
+        band_mask &= f_row <= vmax * abs_k
     kf_band = kf * band_mask  # zeros everything out of band
 
     # Split into positive / negative wavenumbers

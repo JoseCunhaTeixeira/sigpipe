@@ -39,6 +39,10 @@ class Record(BaseModel):
     sampling_rate_hz: float
     duration_s: float
     source: Coordinate | None
+    # The shot's time after the first sample, in s, from the file's header (SEG-2's DELAY); None
+    # when the file does not say. The muting moves each record's time origin by it (presets'
+    # trigger), unless a t0 is given.
+    trigger_s: float | None = None
 
 
 class Profile(BaseModel):
