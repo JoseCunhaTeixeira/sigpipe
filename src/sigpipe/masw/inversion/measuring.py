@@ -76,6 +76,10 @@ class BoundShare(BaseModel):
     share: float  # of the samples within the watched edge of the prior's range
 
 
+# What a useful depth read against `yardstick` says it was read against.
+USEFUL_REFERENCE = "curve"
+
+
 class InversionMeasures(BaseModel):
     """Everything G5 judges, and job_status reports, of one window's inversion."""
 
@@ -97,6 +101,9 @@ class InversionMeasures(BaseModel):
     samples_per_chain: int
     at_bounds: tuple[BoundShare, ...]  # the most piled first
     useful_depth_m: float | None  # where the posterior's spread reaches the prior's; None: nowhere
+    # What the useful depth was read against: USEFUL_REFERENCE (one yardstick for every window);
+    # empty in measures from before 2026-09-28, against the run's own prior.
+    useful_reference: str = ""
     depth_max_m: float  # the bottom of the models sigpipe builds
     vs_at_depths: tuple[tuple[float, float], ...]  # (depth m, smooth median Vs m/s)
     vs_layers: tuple[float, ...]  # the layered median, top down
@@ -113,21 +120,15 @@ def measure_inversion(
     n_bands: int = 3,
     bound_edge: float = 0.02,
     std_ratio: float = 0.5,
-    reference: InversionParameters | None = None,
     output_folder: Path | None = None,
 ) -> InversionMeasures:
     """The measures of the inversion saved in window folder `folder` (or in `output_folder`, a
     staging folder, beside the curves `folder` keeps), inverted with
     `parameters`: the fits over `n_bands` bands of the picked curve's wavelengths, the share of
     each parameter's samples within `bound_edge` of its prior's range from each bound, the
-    useful depth where the posterior's spread of Vs reaches `std_ratio` of the spread of the
-    `reference` prior (the first, wide one, when the loop narrowed the ranges since; by default
-    `parameters`' own), and the smooth median's Vs at `depths`."""
-    picked = next(
-        curve
-        for curve in load_dispersion_curves([folder / CURVES_FILE])[0]
-        if curve.mode.number == 0
-    )
+    useful depth where the posterior's spread of Vs reaches `std_ratio` of the spread of one
+    yardstick for every window (`yardstick`), and the smooth median's Vs at `depths`."""
+    picked = _picked_m0(folder)
     out = output_folder or folder
     fits = tuple(fit_by_band(model, picked, _forward(out, model), n_bands) for model in MODELS)
     ran_file = out / PARAMETERS_FILE
@@ -150,7 +151,6 @@ def measure_inversion(
     per_chain = profiles.vs.shape[0] // n_chains
     smooth = load_velocity_models([out / "SeismicInversion_Model_0000_smooth_median.csv"])[0][0]
     median = load_velocity_models([out / "SeismicInversion_Model_0000_median.csv"])[0][0]
-    prior = reference.resolved(fs, vs) if reference is not None else None
     acceptance = (
         window.acceptance
         if window is not None and window.acceptance
@@ -172,7 +172,8 @@ def measure_inversion(
             if ran.layering == "fixed"
             else free_bound_shares(profiles, ran, bound_edge)
         ),
-        useful_depth_m=useful_depth(profiles, ran, std_ratio, reference=prior),
+        useful_depth_m=useful_depth(profiles, ran, std_ratio, reference=yardstick(fs, vs)),
+        useful_reference=USEFUL_REFERENCE,
         quantiles={
             name: (
                 round(float(np.percentile(values, 5)), 3),
@@ -189,6 +190,41 @@ def measure_inversion(
         ),
         vs_layers=tuple(round(float(value), 1) for value in median.vs_s),
         interfaces_m=tuple(round(float(depth), 2) for depth in np.cumsum(median.thicknesses[:-1])),
+    )
+
+
+def against_yardstick(
+    measures: InversionMeasures,
+    folder: Path,
+    parameters: InversionParameters,
+    std_ratio: float = 0.5,
+) -> InversionMeasures:
+    """`measures`, of the inversion saved in window folder `folder` with `parameters` (resolved,
+    as its chains ran), their useful depth read against `yardstick` as measure_inversion reads
+    it: measures saved before read it against the run's own prior. As they are when they already
+    were."""
+    if measures.useful_reference == USEFUL_REFERENCE:
+        return measures
+    picked = _picked_m0(folder)
+    fs, vs = np.asarray(picked.fs, dtype=float), np.asarray(picked.vs, dtype=float)
+    profiles = load_profiles(folder / SAMPLES_FILE)
+    return measures.model_copy(
+        update={
+            "useful_depth_m": useful_depth(
+                profiles, parameters, std_ratio, reference=yardstick(fs, vs)
+            ),
+            "useful_reference": USEFUL_REFERENCE,
+        }
+    )
+
+
+def _picked_m0(folder: Path) -> DispersionCurve:
+    """The fundamental mode among window folder `folder`'s picked curves; StopIteration when
+    none is."""
+    return next(
+        curve
+        for curve in load_dispersion_curves([folder / CURVES_FILE])[0]
+        if curve.mode.number == 0
     )
 
 
@@ -398,6 +434,16 @@ def _ends(low: float, high: float) -> tuple[tuple[Literal["min", "max"], float],
     return (("min", low), ("max", high))
 
 
+def yardstick(fs: np.ndarray, vs: np.ndarray) -> InversionParameters:
+    """What a window's useful depth is read against, the same for every window whatever
+    layering or bounds it ran with: the prior of the layers chosen by the data, its bounds found
+    from the fundamental mode's picks (frequencies Hz, phase velocities m/s): Vs from half the
+    slowest pick to three times the fastest, interfaces from a third of the shortest wavelength
+    to half the longest. Against a run's own prior, a narrow one made every model look
+    uninformed and a wide one every model informed: two windows could not be compared."""
+    return InversionParameters().resolved(fs, vs)
+
+
 def useful_depth(
     profiles: LayeredSamples,
     parameters: InversionParameters,
@@ -408,12 +454,12 @@ def useful_depth(
 ) -> float | None:
     """The depth below which the spread of the sampled Vs stays at least `ratio` of the prior's
     spread there (the prior drawn `n_prior` times, with a fixed seed): below it, the data say
-    little. The prior is `reference`'s when given (the first, wide one: against a range the loop
-    narrowed to the samples, every model would look uninformed), else `parameters`' (both
-    resolved). The spread is the interquartile range, which a minority of samples in another
-    mode does not widen as it does the standard deviation. Read from the bottom up, so that a
-    thin top layer the data cannot resolve does not end it at the surface. 0 when the data
-    inform no depth, None when they inform the models down to their bottom."""
+    little. The prior is `reference`'s when given (`yardstick`'s, for measure_inversion), else
+    `parameters`' (both resolved); the depths read, `parameters`' models'. The spread is the
+    interquartile range, which a minority of samples in another mode does not widen as it does
+    the standard deviation. Read from the bottom up, so that a thin top layer the data cannot
+    resolve does not end it at the surface. 0 when the data inform no depth, None when they
+    inform the models down to their bottom."""
     depth_max = parameters.bottom
     grid = (np.arange(int(np.ceil(depth_max / dz))) + 0.5) * dz
     posterior = profiles.at(grid)

@@ -1,6 +1,8 @@
 """What G5 measures of an inversion, each measure on inputs with a known answer: chains that agree
-or not, samples piled at a bound, a half-space the data do not inform, fits by band, the
-sampler's log."""
+or not, samples piled at a bound, a half-space the data do not inform, one yardstick for every
+window, fits by band, the sampler's log."""
+
+from pathlib import Path
 
 import numpy as np
 import pytest
@@ -8,9 +10,13 @@ import pytest
 from sigpipe.base import DispersionCurve, Mode, VelocityType
 from sigpipe.base.acquisition import UNKNOWN_ACQUISITION
 from sigpipe.base.inversion import LayeredSamples
+from sigpipe.dataio.dispersion.saving import save_dispersion_curves
 from sigpipe.masw.inversion import InversionParameters, ThicknessLayer, VsLayer
 from sigpipe.masw.inversion.measuring import (
+    USEFUL_REFERENCE,
+    InversionMeasures,
     acceptance_rates,
+    against_yardstick,
     bound_shares,
     depth_bottom,
     effective_sample_size,
@@ -20,7 +26,10 @@ from sigpipe.masw.inversion.measuring import (
     split_rhat,
     useful_depth,
     vs_at,
+    yardstick,
 )
+from sigpipe.masw.inversion.window import SAMPLES_FILE
+from sigpipe.masw.picks import CURVES_FILE
 
 RNG = np.random.default_rng(7)
 PARAMETERS = InversionParameters.model_validate(
@@ -158,6 +167,95 @@ def test_a_model_informed_to_its_bottom_has_no_useful_depth() -> None:
     }
 
     assert useful_depth(_profiles(samples), PARAMETERS, 0.5) is None
+
+
+# Picks from 400 m/s at 5 Hz to 200 m/s at 40 Hz: wavelengths from 5 to 80 m.
+PICKED_FS = np.array([5.0, 10.0, 20.0, 40.0])
+PICKED_VS = np.array([400.0, 300.0, 250.0, 200.0])
+# Run with the half-space's Vs between 300 and 700 m/s, or far wider.
+NARROW = PARAMETERS.model_copy(
+    update={"vs_layers": (VsLayer(vs_min=100.0, vs_max=500.0), VsLayer(vs_min=300.0, vs_max=700.0))}
+)
+WIDE = PARAMETERS.model_copy(
+    update={
+        "vs_layers": (VsLayer(vs_min=100.0, vs_max=500.0), VsLayer(vs_min=100.0, vs_max=1_500.0))
+    }
+)
+
+
+def _resolved_over(half_space: np.ndarray) -> LayeredSamples:
+    """A layer resolved to 3 m over a half-space whose Vs spreads as `half_space`."""
+    return _profiles(
+        {
+            "vs1": RNG.normal(250.0, 5.0, half_space.size),
+            "thick1": RNG.normal(3.0, 0.05, half_space.size),
+            "vs2": half_space,
+        }
+    )
+
+
+def test_the_yardstick_is_the_prior_the_curve_alone_gives() -> None:
+    stick = yardstick(PICKED_FS, PICKED_VS)
+
+    # The layers chosen by the data: Vs from half the slowest pick to three times the fastest,
+    # interfaces from a third of the shortest wavelength to half the longest.
+    assert stick.layering == "free"
+    assert (stick.free.vs_min, stick.free.vs_max) == (100.0, 1_200.0)
+    assert (stick.free.depth_min, stick.free.depth_max) == (1.67, 40.0)
+
+
+def test_one_yardstick_reads_a_posterior_alike_whatever_its_prior() -> None:
+    # The half-space spreads over its narrow prior: against each run's own prior, the narrow
+    # run looks informed to 3 m only, the wide one to its bottom.
+    profiles = _resolved_over(RNG.uniform(300.0, 700.0, 3_000))
+    own = [useful_depth(profiles, run, 0.5) for run in (NARROW, WIDE)]
+    assert own[0] is not None and 2.8 <= own[0] <= 3.1 and own[1] is None
+
+    # Against the yardstick, one reading: a spread under half of what the curve alone allows.
+    stick = yardstick(PICKED_FS, PICKED_VS)
+    assert [useful_depth(profiles, run, 0.5, reference=stick) for run in (NARROW, WIDE)] == [
+        None,
+        None,
+    ]
+    # A half-space as open as the curve alone leaves it: informed to 3 m, whatever the run.
+    open_below = _resolved_over(np.exp(RNG.uniform(np.log(100.0), np.log(1_200.0), 3_000)))
+    read = [useful_depth(open_below, run, 0.5, reference=stick) for run in (NARROW, WIDE)]
+    assert read[0] == read[1] and read[0] is not None and 2.8 <= read[0] <= 3.1
+
+
+def test_measures_saved_before_are_read_again_against_the_yardstick(tmp_path: Path) -> None:
+    save_dispersion_curves((_curve(PICKED_VS, PICKED_FS),), tmp_path / CURVES_FILE)
+    profiles = _resolved_over(RNG.uniform(300.0, 700.0, 3_000))
+    np.savez(
+        tmp_path / SAMPLES_FILE,
+        n_chains=np.array(1),
+        misfits=np.zeros(profiles.vs.shape[0]),
+        profile_depths=profiles.depths,
+        profile_vs=profiles.vs,
+    )
+    # As measured before 2026-09-28: against the narrow run's own prior.
+    before = InversionMeasures(
+        fits=(),
+        rhat={},
+        acceptance=(),
+        samples_per_chain=3_000,
+        at_bounds=(),
+        useful_depth_m=useful_depth(profiles, NARROW, 0.5),
+        depth_max_m=NARROW.bottom,
+        vs_at_depths=((2.0, 250.0),),
+        vs_layers=(250.0, 500.0),
+        interfaces_m=(3.0,),
+    )
+
+    read = against_yardstick(before, tmp_path, NARROW, 0.5)
+
+    assert read.useful_reference == USEFUL_REFERENCE
+    assert read.useful_depth_m is None  # informed to the bottom, as any run of these samples
+    assert read.model_dump(exclude={"useful_depth_m", "useful_reference"}) == before.model_dump(
+        exclude={"useful_depth_m", "useful_reference"}
+    )
+    # Read once: as they are after.
+    assert against_yardstick(read, tmp_path, NARROW, 0.5) is read
 
 
 def test_the_fit_is_judged_by_band_of_wavelength() -> None:
