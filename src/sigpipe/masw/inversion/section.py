@@ -92,12 +92,21 @@ def models_section(
 
 @dataclass(frozen=True, slots=True)
 class VelocityGrid:
-    """A section on a grid: Vs and its spread by position and elevation."""
+    """A section on a grid: Vs and its spread by position and elevation, and each column's
+    ground and floor (the elevation its models end at): empty above the one and below the
+    other."""
 
     positions: np.ndarray
     elevations: np.ndarray
     vs: np.ndarray  # (positions, elevations)
     vs_std: np.ndarray
+    ground: np.ndarray  # per column
+    floor: np.ndarray  # per column
+
+    def outside(self) -> np.ndarray:
+        """The cells above a column's ground or below its floor."""
+        z = self.elevations[None, :]
+        return (z > self.ground[:, None] + 1e-3) | (z < self.floor[:, None] - 1e-3)
 
 
 def velocity_grid(
@@ -105,33 +114,46 @@ def velocity_grid(
     lateral_smoothing: bool = False,
     nz: int = VIEW_NZ,
     window_m: float | None = None,
+    depths: Sequence[float] | None = None,
 ) -> VelocityGrid:
-    """`section` on a grid of about `nz` elevations, its models sampled at them.
+    """`section` on a grid of about `nz` elevations, its models sampled at them, each column
+    from its ground down to the depth its model was built to (`depths`, one a model; by default
+    each model's own), its half-space carried no deeper.
 
-    Unsmoothed: one column per window, at its middle, empty above its ground.
+    Unsmoothed: one column per window, at its middle.
 
     Smoothed along the line (`smoothed`): over SMOOTHED_SHARE of a window's length, `window_m`
-    (by default STEPS_PER_WINDOW of the windows' median step).
+    (by default STEPS_PER_WINDOW of the windows' median step), the depths the models reach too;
+    the ground straight from a window's middle to the next.
     """
     models = section.velocity_models
     tops = np.array([model.position.z for model in models], dtype=float)
-    bottom = min(model.position.z - sum(model.thicknesses) for model in models)
-    n = int(np.floor((tops.max() - bottom) / DZ)) + 1
+    reach = [sum(model.thicknesses) for model in models] if depths is None else depths
+    bottoms = tops - np.asarray(reach, dtype=float)
+    n = int(np.floor((tops.max() - bottoms.min()) / DZ)) + 1
     elevations = (tops.max() - np.arange(n, dtype=np.float32) * DZ)[:: max(n // nz, 1)]
     xs = np.array([model.position.x for model in models], dtype=np.float32)
     vs = np.array([model.sample_vs(elevations) for model in models], dtype=np.float32)
     vs_std = np.array([model.sample_vs_std(elevations) for model in models], dtype=np.float32)
+    plain = VelocityGrid(xs, elevations, vs, vs_std, tops, bottoms)
+    vs[plain.outside()] = np.nan
+    vs_std[plain.outside()] = np.nan
     if not lateral_smoothing:
-        return VelocityGrid(positions=xs, elevations=elevations, vs=vs, vs_std=vs_std)
+        return plain
     positions = smoothed_positions(xs)
-    ground = np.interp(positions, xs, tops)
-    above = elevations[None, :] > ground[:, None] + 1e-3
     width = window_m or default_window(xs)
+    ground = np.interp(positions, xs, tops)
+    # The depths the models reach smoothed as their Vs: the section's bottom a smooth line.
+    reached = smoothed((tops - bottoms)[:, None], xs, positions, width)[:, 0]
+    grid = VelocityGrid(positions, elevations, vs, vs_std, ground, ground - reached)
+    empty = grid.outside()
     return VelocityGrid(
         positions=positions,
         elevations=elevations,
-        vs=smoothed(vs, xs, positions, width, above).astype(np.float32),
-        vs_std=smoothed(vs_std, xs, positions, width, above).astype(np.float32),
+        vs=smoothed(vs, xs, positions, width, empty).astype(np.float32),
+        vs_std=smoothed(vs_std, xs, positions, width, empty).astype(np.float32),
+        ground=grid.ground,
+        floor=grid.floor,
     )
 
 
@@ -194,17 +216,16 @@ def informed_levels(
     `lateral_smoothing`: the depths, so that no level rises above its ground; a column nearest a
     window without one left without."""
     xs = np.array([x for x, _, _ in windows], dtype=np.float32)
-    grounds = np.array([ground for _, ground, _ in windows], dtype=float)
     depths = np.array([np.nan if depth is None else depth for _, _, depth in windows], dtype=float)
     positions = grid.positions
     # Each column's window: its own unsmoothed, the nearest smoothed.
     nearest = np.abs(positions[:, None] - xs[None, :]).argmin(axis=1)
     if not lateral_smoothing:
-        return (grounds - depths)[nearest]
+        return grid.ground - depths[nearest]
     width = window_m or default_window(xs)
     along = smoothed(depths[:, None], xs, positions, width)[:, 0]
     along[np.isnan(depths)[nearest]] = np.nan
-    return np.interp(positions, xs, grounds) - along
+    return grid.ground - along
 
 
 def interface_grid(
@@ -215,11 +236,11 @@ def interface_grid(
 ) -> np.ndarray:
     """On `grid` (`velocity_grid`'s, of the same windows): the share of the kept models with an
     interface at each cell, from each window's middle, ground elevation and shares per
-    INTERFACE_DZ from its ground down (none: not known); NaN where not known or above the
-    ground. Smoothed along the line as the grid's Vs when `lateral_smoothing`; a column nearest a
-    window without shares left without."""
+    INTERFACE_DZ from its ground down (none: not known); NaN where not known, and outside the
+    grid's columns (above their ground, below their floor). Smoothed along the line as the
+    grid's Vs when `lateral_smoothing`; a column nearest a window without shares left
+    without."""
     xs = np.array([x for x, _, _ in windows], dtype=np.float32)
-    grounds = np.array([ground for _, ground, _ in windows], dtype=float)
     values = np.full((len(windows), grid.elevations.size), np.nan)
     for i, (_, ground, shares) in enumerate(windows):
         which = np.floor((ground - grid.elevations) / INTERFACE_DZ).astype(int)
@@ -229,12 +250,12 @@ def interface_grid(
     unknown = np.array([not shares for _, _, shares in windows])[nearest]
     known = [i for i, (_, _, shares) in enumerate(windows) if shares]
     if not lateral_smoothing or not known:
-        return values[nearest]
-    ground = np.interp(grid.positions, xs, grounds)
-    above = grid.elevations[None, :] > ground[:, None] + 1e-3
-    width = window_m or default_window(xs)
-    along = smoothed(values[known], xs[known], grid.positions, width, above)
-    along[unknown] = np.nan
+        along = values[nearest]
+    else:
+        width = window_m or default_window(xs)
+        along = smoothed(values[known], xs[known], grid.positions, width, grid.outside())
+        along[unknown] = np.nan
+    along[grid.outside()] = np.nan
     return along
 
 

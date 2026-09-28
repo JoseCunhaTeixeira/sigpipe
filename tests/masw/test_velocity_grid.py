@@ -28,18 +28,28 @@ def _model(x: float, vs: float | None = None, ground: float | None = None) -> Ve
     )
 
 
-def test_each_window_starts_at_its_ground_smoothed_or_not() -> None:
+def test_each_column_runs_from_its_ground_to_its_models_depth_smoothed_or_not() -> None:
     section = VelocityModelsSection(velocity_models=tuple(_model(x) for x in XS))
     grounds = [_ground(float(x)) for x in XS]
+    # The models built to 12 to 22 m: each column ends there, the half-space carried no deeper
+    # (smoothed, where the depths smoothed as the Vs put it).
+    depths = [12.0, 22.0, 15.0, 20.0, 12.0, 18.0]
     for smoothing in (False, True):
-        grid = velocity_grid(section, smoothing, window_m=3.0)
-        for x, vs, std in zip(grid.positions, grid.vs, grid.vs_std, strict=True):
+        grid = velocity_grid(section, smoothing, window_m=3.0, depths=depths)
+        for x, vs, std, floor in zip(grid.positions, grid.vs, grid.vs_std, grid.floor, strict=True):
             # Smoothed, the ground runs straight from a window's middle to the next.
             ground = float(np.interp(x, XS, grounds))
             above = grid.elevations > ground + 0.2
-            below = grid.elevations < ground - 0.2
-            assert np.isnan(vs[above]).all() and np.isnan(std[above]).all(), (smoothing, x)
-            assert not np.isnan(vs[below]).any(), (smoothing, x)
+            under = grid.elevations < floor - 0.2
+            inside = (grid.elevations < ground - 0.2) & (grid.elevations > floor + 0.2)
+            assert np.isnan(vs[above | under]).all() and np.isnan(std[above | under]).all()
+            assert not np.isnan(vs[inside]).any(), (smoothing, x)
+        plain_floor = [_ground(float(x)) - depth for x, depth in zip(XS, depths, strict=True)]
+        if not smoothing:
+            np.testing.assert_allclose(grid.floor, plain_floor)
+        else:  # within the windows' own floors
+            assert grid.floor.min() >= min(plain_floor) - 0.01
+            assert grid.floor.max() <= max(plain_floor) + 0.01
 
 
 def _line(tops: np.ndarray) -> VelocityModelsSection:
