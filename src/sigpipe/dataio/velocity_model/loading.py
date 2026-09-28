@@ -2,6 +2,8 @@ import json
 from collections.abc import Sequence
 from pathlib import Path
 
+import numpy as np
+
 from sigpipe.base.coordinate import UNKNOWN_COORDINATE, Coordinate
 from sigpipe.base.velocity_model import VelocityModel, VelocityModels
 
@@ -49,24 +51,16 @@ def _parse_velocity_model(block: str) -> VelocityModel:
     if data_start is None:
         raise ValueError(f"Could not find data table in block:\n{block}")
 
-    thicknesses = []
-    vs_p = []
-    vs_s = []
-    rhos = []
-    vs_s_std = []
-    for line in lines[data_start:]:
-        parts = line.split(",")
-        thicknesses.append(float(parts[0]))
-        vs_p.append(float(parts[1]))
-        vs_s.append(float(parts[2]))
-        rhos.append(float(parts[3]))
-        vs_s_std.append(float(parts[4]))
+    # Parsed in C: a smooth model holds a row every centimetre, thousands of them.
+    data = lines[data_start:]
+    rows = np.loadtxt(data, delimiter=",", ndmin=2) if data else np.empty((0, 5))
+    thicknesses, vs_p, vs_s, rhos, vs_s_std = (tuple(column.tolist()) for column in rows.T)
 
     return VelocityModel(
-        vs_s=tuple(vs_s),
-        vs_p=tuple(vs_p),
-        rhos=tuple(rhos),
-        vs_s_std=tuple(vs_s_std),
-        thicknesses=tuple(thicknesses),
+        vs_s=vs_s,
+        vs_p=vs_p,
+        rhos=rhos,
+        vs_s_std=vs_s_std,
+        thicknesses=thicknesses,
         position=position,
     )

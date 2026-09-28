@@ -121,7 +121,12 @@ def velocity_grid(
     stride = max(len(zs_fine) // nz, 1)
     vs, vs_std = vs[:, ::stride], vs_std[:, ::stride]
     if lateral_smoothing:
+        # The median across positions skips the empty cells above a window's ground: kept
+        # empty after it, or a higher neighbour's Vs would rise above the ground where it steps.
+        above = np.isnan(vs)
         vs, vs_std = smooth_laterally(vs), smooth_laterally(vs_std)
+        vs[above] = np.nan
+        vs_std[above] = np.nan
     return VelocityGrid(positions=xs, elevations=zs_fine[::stride], vs=vs, vs_std=vs_std)
 
 

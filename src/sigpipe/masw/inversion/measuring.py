@@ -38,6 +38,8 @@ _RATE = re.compile(r"ACCEPTANCE RATE: \d+/\d+ \(([\d.]+) %\)")
 # Depths the chains' agreement is measured at, between a third of the shortest and of the longest
 # picked wavelength.
 WATCHED = 5
+# The draws of a prior model at most, until one keeps the Vs drop allowed.
+DRAWS = 200
 
 
 class BandFit(BaseModel):
@@ -76,7 +78,8 @@ class BoundShare(BaseModel):
     share: float  # of the samples within the watched edge of the prior's range
 
 
-# What a useful depth read against `yardstick` says it was read against.
+# What a useful depth read against `yardstick` says it was read against: the measures saved
+# before it hold none, and their useful depth compares with no other window's.
 USEFUL_REFERENCE = "curve"
 
 
@@ -190,31 +193,6 @@ def measure_inversion(
         ),
         vs_layers=tuple(round(float(value), 1) for value in median.vs_s),
         interfaces_m=tuple(round(float(depth), 2) for depth in np.cumsum(median.thicknesses[:-1])),
-    )
-
-
-def against_yardstick(
-    measures: InversionMeasures,
-    folder: Path,
-    parameters: InversionParameters,
-    std_ratio: float = 0.5,
-) -> InversionMeasures:
-    """`measures`, of the inversion saved in window folder `folder` with `parameters` (resolved,
-    as its chains ran), their useful depth read against `yardstick` as measure_inversion reads
-    it: measures saved before read it against the run's own prior. As they are when they already
-    were."""
-    if measures.useful_reference == USEFUL_REFERENCE:
-        return measures
-    picked = _picked_m0(folder)
-    fs, vs = np.asarray(picked.fs, dtype=float), np.asarray(picked.vs, dtype=float)
-    profiles = load_profiles(folder / SAMPLES_FILE)
-    return measures.model_copy(
-        update={
-            "useful_depth_m": useful_depth(
-                profiles, parameters, std_ratio, reference=yardstick(fs, vs)
-            ),
-            "useful_reference": USEFUL_REFERENCE,
-        }
     )
 
 
@@ -474,53 +452,74 @@ def useful_depth(
 
 def prior_draws(parameters: InversionParameters, count: int, seed: int = 0) -> LayeredSamples:
     """`count` models of the priors (resolved), as the chains' priors hold them: the layers given
-    or chosen, the Vs drop allowed (a draw breaking it drawn again, then its Vs sorted after a
-    while: close enough to the prior for its spread)."""
+    or chosen, the Vs drop allowed (a draw breaking it drawn again, then its Vs sorted after
+    DRAWS draws: close enough to the prior for its spread). Drawn all at once, those breaking the
+    drop again together: a window's yardstick is drawn whenever its measures are read again."""
     rng = np.random.default_rng(seed)
-    fixed = parameters.layering == "fixed"
-    most = parameters.n_layers if fixed else parameters.free.max_layers
-    depths = np.full((count, most - 1), np.nan)
-    vs = np.full((count, most), np.nan)
-    draw = _fixed_draw if fixed else _free_draw
-    for row in range(count):
-        model_depths, model_vs = draw(parameters, rng)
-        attempts = 1
-        while np.any(model_vs[1:] < parameters.least_ratio * model_vs[:-1]):
-            if attempts == 200:
-                model_vs = np.sort(model_vs)
-                break
-            model_depths, model_vs = draw(parameters, rng)
-            attempts += 1
-        depths[row, : model_depths.size] = model_depths
-        vs[row, : model_vs.size] = model_vs
+    draw = _fixed_draws if parameters.layering == "fixed" else _free_draws
+    depths, vs = draw(parameters, count, rng)
+    pending = np.flatnonzero(_drops(vs, parameters.least_ratio))
+    for _ in range(DRAWS - 1):
+        if not pending.size:
+            break
+        depths[pending], vs[pending] = draw(parameters, pending.size, rng)
+        pending = pending[_drops(vs[pending], parameters.least_ratio)]
+    vs[pending] = np.sort(vs[pending], axis=1)  # the padding (NaN) stays last
     return LayeredSamples(depths=depths, vs=vs, n_chains=1)
 
 
-def _fixed_draw(
-    parameters: InversionParameters, rng: np.random.Generator
+def _drops(vs: np.ndarray, least_ratio: float) -> np.ndarray:
+    """Whether each model (a row, NaN past its layers) has a layer whose Vs is under
+    `least_ratio` of the one above it."""
+    return np.any(vs[:, 1:] < least_ratio * vs[:, :-1], axis=1)
+
+
+def _fixed_draws(
+    parameters: InversionParameters, count: int, rng: np.random.Generator
 ) -> tuple[np.ndarray, np.ndarray]:
-    thickness = np.array([rng.uniform(*layer.bounds) for layer in parameters.thickness_layers])
-    return np.cumsum(thickness), np.array(
-        [rng.uniform(*layer.bounds) for layer in parameters.vs_layers]
+    """`count` models of the layers given: each thickness and Vs uniform within its bounds."""
+    thickness = np.column_stack(
+        [rng.uniform(*layer.bounds, count) for layer in parameters.thickness_layers]
     )
+    vs = np.column_stack([rng.uniform(*layer.bounds, count) for layer in parameters.vs_layers])
+    return np.cumsum(thickness, axis=1), vs
 
 
-def _free_draw(
-    parameters: InversionParameters, rng: np.random.Generator
+def _free_draws(
+    parameters: InversionParameters, count: int, rng: np.random.Generator
 ) -> tuple[np.ndarray, np.ndarray]:
+    """`count` models of layers chosen by the data (NaN past each one's layers): 1 to max_layers
+    layers, their interfaces log-uniform within the depths' bounds, a layer at least THINNEST
+    of its top's depth thick (the interfaces drawn again, up to 100 times, when they break it),
+    each Vs log-uniform within its bounds."""
     free = parameters.free
     assert free.vs_min is not None and free.vs_max is not None
     assert free.depth_min is not None and free.depth_max is not None
-    k = int(rng.integers(1, free.max_layers + 1))
+    most = free.max_layers
+    layers = rng.integers(1, most + 1, count)
+    # Past a model's interfaces: +inf, sorted last and never too close to the one before.
+    unused = np.arange(most - 1)[None, :] >= (layers - 1)[:, None]
     low, high = np.log(free.depth_min), np.log(free.depth_max)
     gap = np.log(1 + THINNEST)
-    log_depths = np.sort(rng.uniform(low, high, k - 1))
+
+    def interfaces(rows: np.ndarray) -> np.ndarray:
+        drawn = rng.uniform(low, high, (rows.size, most - 1))
+        drawn[unused[rows]] = np.inf
+        return np.sort(drawn, axis=1)
+
+    log_depths = interfaces(np.arange(count))
     for _ in range(100):
-        if k < 3 or np.all(np.diff(log_depths) >= gap):
+        # inf - inf, past the interfaces, is NaN: never under the gap.
+        with np.errstate(invalid="ignore"):
+            close = np.flatnonzero(np.any(np.diff(log_depths, axis=1) < gap, axis=1))
+        if not close.size:
             break
-        log_depths = np.sort(rng.uniform(low, high, k - 1))
-    log_vs = rng.uniform(np.log(free.vs_min), np.log(free.vs_max), k)
-    return np.exp(log_depths), np.exp(log_vs)
+        log_depths[close] = interfaces(close)
+    log_vs = rng.uniform(np.log(free.vs_min), np.log(free.vs_max), (count, most))
+    log_vs[np.arange(most)[None, :] >= layers[:, None]] = np.nan
+    depths = np.exp(log_depths)
+    depths[unused] = np.nan
+    return depths, np.exp(log_vs)
 
 
 def _steps(parameters: InversionParameters) -> dict[str, float]:
