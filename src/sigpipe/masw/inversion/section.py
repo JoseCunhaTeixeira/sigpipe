@@ -130,6 +130,29 @@ def velocity_grid(
     return VelocityGrid(positions=xs, elevations=zs_fine[::stride], vs=vs, vs_std=vs_std)
 
 
+def informed_levels(
+    grid: VelocityGrid,
+    windows: Sequence[tuple[float, float, float | None]],
+    lateral_smoothing: bool = False,
+) -> np.ndarray:
+    """Per column of `grid` (`velocity_grid`'s, of the same windows): the elevation down to which
+    the data inform the section, from each window's middle, ground elevation and depth informed
+    (m; None: not known), NaN where not known. Smoothed across positions as the grid's Vs when
+    `lateral_smoothing`: the depths, so that no level rises above its ground, and a column whose
+    window has none left without."""
+    xs = np.array([x for x, _, _ in windows], dtype=np.float32)
+    # Each column's window, as to_grid picks it: the nearest (its own, unsmoothed).
+    nearest = np.abs(grid.positions[:, None] - xs[None, :]).argmin(axis=1)
+    grounds = np.array([ground for _, ground, _ in windows], dtype=float)[nearest]
+    known = [np.nan if depth is None else depth for _, _, depth in windows]
+    depths = np.array(known, dtype=float)[nearest]
+    if lateral_smoothing:
+        unknown = np.isnan(depths)
+        depths = smooth_laterally(depths[:, None])[:, 0]
+        depths[unknown] = np.nan
+    return grounds - depths
+
+
 def section_suffix(model: ModelName, lateral_smoothing: bool) -> str:
     """The file name suffix of a view other than PAC's default (the smooth median, not
     smoothed laterally), which has none."""

@@ -5,7 +5,7 @@ import numpy as np
 
 from sigpipe.base.coordinate import Coordinate
 from sigpipe.base.velocity_model import VelocityModel, VelocityModelsSection
-from sigpipe.masw.inversion.section import velocity_grid
+from sigpipe.masw.inversion.section import informed_levels, velocity_grid
 
 XS = np.arange(6) * 1.5  # the windows' middles
 
@@ -39,3 +39,23 @@ def test_each_window_starts_at_its_ground_smoothed_or_not() -> None:
             below = grid.elevations < ground - 0.2
             assert np.isnan(vs[above]).all() and np.isnan(std[above]).all(), (smoothing, x)
             assert not np.isnan(vs[below]).any(), (smoothing, x)
+
+
+def test_the_depth_informed_is_smoothed_as_the_section() -> None:
+    section = VelocityModelsSection(velocity_models=tuple(_model(x) for x in XS))
+    # Informed 5 m deep, but 12 m at the third window; the fifth's depth not known.
+    depths = (5.0, 5.0, 12.0, 5.0, None, 5.0)
+    windows = [(float(x), _ground(x), depth) for x, depth in zip(XS, depths, strict=True)]
+
+    plain = informed_levels(velocity_grid(section), windows)
+    grid = velocity_grid(section, lateral_smoothing=True)
+    smoothed = informed_levels(grid, windows, lateral_smoothing=True)
+
+    np.testing.assert_allclose(plain, [5.0, 5.0, -6.0, 1.0, np.nan, 1.0])
+    nearest = np.abs(grid.positions[:, None] - XS[None, :]).argmin(axis=1)
+    grounds = np.array([_ground(float(XS[i])) for i in nearest])
+    unknown = nearest == 4
+    assert np.isnan(smoothed[unknown]).all() and not np.isnan(smoothed[~unknown]).any()
+    informed = grounds[~unknown] - smoothed[~unknown]
+    # The deep window softened across its neighbours, as the section's Vs; never above ground.
+    assert 5.0 < informed.max() < 12.0 and informed.min() == 5.0
