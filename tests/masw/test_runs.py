@@ -22,6 +22,7 @@ from sigpipe.masw.inversion import (
     WindowParameters,
     invert_window,
     load_parameters,
+    load_spread,
 )
 from sigpipe.masw.inversion.measuring import measure_inversion
 from sigpipe.masw.inversion.section import SECTION_FIGURE, save_comparison, save_section
@@ -409,6 +410,13 @@ def test_the_shots_wave_is_picked_and_inverted_into_a_section(
         ran = load_parameters(folder / unit / PARAMETERS_FILE)
         assert ran.steps == pytest.approx(result.steps, rel=0.01)
         assert (ran.parameters.layering, len(ran.acceptance)) == ("fixed", 2)
+        # The kept models' curves at the picked frequencies, as the density figure's band: their
+        # 10th, 50th and 90th percentiles, for PAC's plot.
+        (spread,) = load_spread(folder / unit).values()
+        predicted = result.dpred[0]
+        assert spread.fs.size == predicted.shape[1]
+        assert spread.middle == pytest.approx(np.nanpercentile(predicted, 50, axis=0), rel=1e-5)
+        assert (spread.low <= spread.middle).all() and (spread.middle <= spread.high).all()
         # The chains' agreement measured on Vs at the depths the curve resolves.
         measures = measure_inversion(folder / unit, parameters)
         assert measures.watched and set(measures.watched) <= set(measures.rhat)
@@ -417,8 +425,12 @@ def test_the_shots_wave_is_picked_and_inverted_into_a_section(
     # The data choosing the layers: the bounds left out found from the curve, saved as run.
     free = InversionParameters(n_iterations=1_500, n_chains=2)
     invert_window(folder / units[0], free)
-    ran = load_parameters(folder / units[0] / PARAMETERS_FILE).parameters
+    window = load_parameters(folder / units[0] / PARAMETERS_FILE)
+    ran = window.parameters
     assert ran.layering == "free" and ran.free.depth_max is not None
+    # How its chains moved, saved with it: each move's step and acceptance, the exchanges.
+    assert {"vs", "noise"} <= set(window.steps) and {"birth", "death"} <= set(window.moves)
+    assert window.exchanges is not None
     measures = measure_inversion(folder / units[0], free)
     assert {"layers", "top_vs", "half_space_vs", "deepest_interface"} <= {
         share.parameter for share in measures.at_bounds
@@ -428,3 +440,5 @@ def test_the_shots_wave_is_picked_and_inverted_into_a_section(
 
     assert save_section(folder, units) == folder / SECTION_FIGURE
     assert save_comparison(folder, units) is not None
+    # A window inverted before the spread was saved has none.
+    assert load_spread(tmp_path) == {}

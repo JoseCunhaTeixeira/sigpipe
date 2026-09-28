@@ -5,7 +5,10 @@ The picks' uncertainties are scaled by a noise factor sampled with the model (hi
 Bayes, Bodin et al. 2012). An array's resolving power, which sets them, is the width of the
 image's peak, not the error of its maximum: taken as they are, they weigh the data well below
 what they tell. The factor's prior is uniform in its logarithm within NOISE_BOUNDS: the picks'
-own uncertainties at most.
+own uncertainties at most, a third of them at least. Down to a hundredth (until 2026-09-29), the
+factor went to 0.02-0.08 on a real line: the models' curves hugged the picks, their 10th to 90th
+percentiles 3 % as wide as the uncertainties, and the chains crawled on so sharp a posterior. A
+third widens that band to about 13 % of the uncertainties, still inside them.
 """
 
 import math
@@ -18,7 +21,7 @@ from disba._cps import surf96  # pyright: ignore[reportPrivateUsage, reportUnkno
 
 from sigpipe.base.dispersion_curve import DispersionCurve
 
-NOISE_BOUNDS = (0.01, 1.0)
+NOISE_BOUNDS = (1 / 3, 1.0)
 # A curve is inverted on at most this many points, evenly spaced in the logarithm of wavelength.
 # Neighbouring picks of an image are not independent measurements (the image's resolution
 # spreads each over its neighbours): a dense curve, taken point by point, would weigh far more

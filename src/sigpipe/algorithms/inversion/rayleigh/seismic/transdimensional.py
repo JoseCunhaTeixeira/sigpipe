@@ -95,6 +95,7 @@ class Chain:
     acceptance: dict[str, float]  # each move's, %, of the first copy
     accepted: float  # every move's, %, of the first copy
     swaps: float  # the exchanges accepted, %
+    steps: dict[str, float]  # each move's step after the burn-in, of the first copy (log units)
     best_depths: np.ndarray  # the best model visited (least misfit), at any temperature
     best_vs: np.ndarray
     best_misfit: float
@@ -291,6 +292,7 @@ def run_chain(space: Space, settings: Settings, seed: int) -> Chain:
         },
         accepted=round(100 * sum(accepted.values()) / max(sum(proposed.values()), 1), 2),
         swaps=round(100 * swaps[0] / max(swaps[1], 1), 1),
+        steps=dict(copies[0].steps),
         best_depths=best_depths,
         best_vs=best_vs,
         best_misfit=best_misfit,

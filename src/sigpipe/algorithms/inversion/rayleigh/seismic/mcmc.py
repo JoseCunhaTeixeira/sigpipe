@@ -13,7 +13,7 @@ Both samplers keep models as layers (sigpipe.base.inversion.LayeredSamples). Fro
 import math
 from collections.abc import Sequence
 from concurrent.futures import ProcessPoolExecutor
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 import numpy as np
 
@@ -21,6 +21,7 @@ from sigpipe.base.coordinate import Coordinate
 from sigpipe.base.dispersion_curve import DispersionCurve, DispersionCurvesImage
 from sigpipe.base.inversion import InversionResult, LayeredSamples
 from sigpipe.base.velocity_model import VelocityModel
+from sigpipe.workers import one_thread_each
 
 from . import dream, transdimensional
 from .data import Curve, curves_of, phase_velocities
@@ -45,6 +46,10 @@ class _Run:
     acceptance: tuple[float, ...]
     steps: dict[str, float]
     log: str
+    # The layers chosen by the data: each move's acceptance and the exchanges between tempered
+    # copies, %, the medians of the chains.
+    moves: dict[str, float] = field(default_factory=dict)
+    exchanges: float | None = None
 
 
 def inversion_mcmc(
@@ -187,6 +192,7 @@ def _free(
     )
     jobs = min(chain_jobs, settings.n_chains)
     if jobs > 1:
+        one_thread_each()  # each chain's process a core
         with ProcessPoolExecutor(jobs) as executor:
             futures = [
                 executor.submit(transdimensional.run_chain, space, run_settings, seed)
@@ -226,8 +232,17 @@ def _free(
         rms=np.concatenate([chain.rms for chain in chains]),
         best=(best.best_depths, best.best_vs),
         acceptance=tuple(chain.accepted for chain in chains),
-        steps={},
+        # Each move's step as it ran after the burn-in (in the logarithm of the values moved).
+        steps={
+            move: round(float(np.median([chain.steps[move] for chain in chains])), 4)
+            for move in chains[0].steps
+        },
         log="\n".join(lines) + "\n",
+        moves={
+            move: round(float(np.median([chain.acceptance[move] for chain in chains])), 1)
+            for move in chains[0].acceptance
+        },
+        exchanges=round(float(np.median([chain.swaps for chain in chains])), 1),
     )
 
 
@@ -286,6 +301,8 @@ def _result(
         profiles=run.profiles,
         steps=run.steps,
         acceptance=run.acceptance,
+        moves=run.moves,
+        exchanges=run.exchanges,
         parameters=settings.model_dump(mode="json"),
     )
 

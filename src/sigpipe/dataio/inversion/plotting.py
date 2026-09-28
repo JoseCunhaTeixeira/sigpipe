@@ -112,7 +112,7 @@ def plot_density_curves(
         mode_number = observed_curve.mode.number
         d_pred = result.dpred.get(mode_number)
         if d_pred is not None:
-            p10, p50, p90 = np.percentile(d_pred, (10, 50, 90), axis=0)
+            p10, p50, p90 = np.nanpercentile(d_pred, (10, 50, 90), axis=0)
             ax_fit.fill_between(
                 observed_curve.fs,
                 p10,

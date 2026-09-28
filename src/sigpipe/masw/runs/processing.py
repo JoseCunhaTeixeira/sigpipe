@@ -30,6 +30,7 @@ from sigpipe.masw.windows import (
     build_windows,
 )
 from sigpipe.masw.workspace import Workspace
+from sigpipe.workers import one_thread_each
 
 # Called with (windows done, windows in the run).
 type ProgressCallback = Callable[[int, int], None]
@@ -181,6 +182,7 @@ def preprocess_records(
     `stop`, once set, stops them at once: the records not finished undone, Stopped raised with
     those that finished."""
     outcomes: dict[int, RecordOutcome] = {}
+    one_thread_each()  # the workers are the cores the run takes
     with ProcessPoolExecutor(
         max_workers=workers, initializer=start_worker, initargs=(run_folder,)
     ) as executor:
@@ -237,6 +239,7 @@ def process_windows(
     exclusions = exclusions or Exclusions()
     failed = {record.name: record.error for record in records if record.status == "failed"}
     outcomes: list[WindowOutcome] = []
+    one_thread_each()  # the workers are the cores the run takes
     with ProcessPoolExecutor(
         max_workers=workers, initializer=start_worker, initargs=(run_folder,)
     ) as executor:

@@ -2,7 +2,9 @@
 curves, and PAC's files beside them."""
 
 import logging
+import warnings
 from collections.abc import Collection
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
@@ -42,6 +44,10 @@ DZ = 0.01  # m
 VP_VS_RATIO = 1.77
 SAMPLES_FILE = "SeismicInversion_Samples_0000.npz"  # PACo's own, next to PAC's files
 PARAMETERS_FILE = "SeismicInversion_Parameters_0000.json"
+# The kept models' curves at the picked frequencies, as the density figure's band: their 10th,
+# 50th and 90th percentiles.
+SPREAD_FILE = "SeismicInversion_DispersionSpread_0000.csv"
+SPREAD_PERCENTILES = (10.0, 50.0, 90.0)
 # The samples file's arrays that are no named value: the layers, and what describes the file.
 _DEPTHS = "profile_depths"
 _VS = "profile_vs"
@@ -60,7 +66,13 @@ class WindowParameters(BaseModel):
     # The trial runs (step factor, acceptance %) of the runs saved before 2026-09-27.
     tuning: tuple[tuple[float, float], ...] = ()
     acceptance: tuple[float, ...]  # each chain's over the run (%), the burn-in included
-    steps: dict[str, float] = {}  # each sampled parameter's typical move (vs1, ..., thick1, ...)
+    # Each sampled parameter's typical move (vs1, ..., thick1, ...); when the data chose the
+    # layers, each move's step (vs, interface, noise, shift, stretch: in the logarithm of the
+    # values moved), with each move's acceptance and the exchanges between tempered copies (%,
+    # the chains' medians; saved since 2026-09-29).
+    steps: dict[str, float] = {}
+    moves: dict[str, float] = {}
+    exchanges: float | None = None
 
 
 def build_inversion_pipeline(
@@ -94,6 +106,7 @@ def invert_window(
     (out / "SeismicInversion_Log_0000.log").write_text(result.log)
     save_parameters(parameters, result, out / PARAMETERS_FILE)
     save_samples(result, out / SAMPLES_FILE)
+    save_spread(result, curves, out / SPREAD_FILE)
 
     # The median model's M0 at the picked frequencies, and every mode it supports across the
     # image, drawn over the image.
@@ -189,13 +202,16 @@ def marginals(result: InversionResult) -> dict[str, np.ndarray]:
 
 def save_parameters(parameters: InversionParameters, result: InversionResult, path: Path) -> None:
     """The parameters `result`'s chains ran with (the free layering's bounds found from the
-    curves), each chain's acceptance and the sampled parameters' typical moves."""
+    curves), each chain's acceptance and the sampled parameters' typical moves; when the data
+    chose the layers, each move's step and acceptance, and the exchanges."""
     ran = InversionParameters.model_validate(result.parameters) if result.parameters else parameters
     window = WindowParameters(
         parameters=SavedInversionParameters.model_validate(ran.model_dump()),
         tuning=result.tuning,
         acceptance=result.acceptance,
         steps={name: _significant(step) for name, step in result.steps.items()},
+        moves=result.moves,
+        exchanges=result.exchanges,
     )
     path.write_text(window.model_dump_json(indent=2))
 
@@ -227,6 +243,50 @@ def load_samples(path: Path) -> tuple[dict[str, np.ndarray], int]:
         n_chains = int(saved["n_chains"])
         samples = {name: saved[name] for name in saved.files if name not in _NOT_NAMED}
     return samples, n_chains
+
+
+@dataclass(frozen=True, slots=True)
+class Spread:
+    """The kept models' curves at one mode's picked frequencies: their SPREAD_PERCENTILES."""
+
+    fs: np.ndarray  # Hz, in the picked order
+    low: np.ndarray  # m/s, the 10th percentile
+    middle: np.ndarray  # the 50th
+    high: np.ndarray  # the 90th
+
+
+def save_spread(result: InversionResult, curves: DispersionCurves, path: Path) -> None:
+    """The kept models' curves at each mode's picked frequencies, as their SPREAD_PERCENTILES (the
+    band the density figure draws): a row per mode and frequency. A model with no such mode at a
+    frequency counts for none there."""
+    lines = ["mode,frequency_Hz,p10_m/s,p50_m/s,p90_m/s"]
+    for curve in curves:
+        predicted = result.dpred.get(curve.mode.number)
+        if predicted is None or not np.isfinite(predicted).any():
+            continue
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", RuntimeWarning)  # a frequency no model reaches
+            low, middle, high = np.nanpercentile(predicted, SPREAD_PERCENTILES, axis=0)
+        for row in zip(np.asarray(curve.fs, dtype=float), low, middle, high, strict=True):
+            lines.append(",".join([curve.mode.label, *(f"{value:.6g}" for value in row)]))
+    path.write_text("\n".join(lines) + "\n")
+
+
+def load_spread(folder: Path) -> dict[str, Spread]:
+    """Per mode label, the spread `save_spread` wrote in window folder `folder`; empty without
+    its file (the inversions saved before 2026-09-29)."""
+    path = folder / SPREAD_FILE
+    if not path.exists():
+        return {}
+    rows: dict[str, list[tuple[float, float, float, float]]] = {}
+    for line in path.read_text().splitlines()[1:]:
+        label, *values = line.split(",")
+        f, low, middle, high = (float(value) for value in values)
+        rows.setdefault(label, []).append((f, low, middle, high))
+    return {
+        label: Spread(*(np.array(column) for column in zip(*values, strict=True)))
+        for label, values in rows.items()
+    }
 
 
 def load_profiles(path: Path) -> LayeredSamples:

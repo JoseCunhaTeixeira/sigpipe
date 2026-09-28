@@ -22,6 +22,7 @@ from sigpipe.masw.petro.window import QUANTITIES, invert_window_petro
 from sigpipe.masw.runs import start_worker
 from sigpipe.masw.runs.history import STAGE_FILES
 from sigpipe.masw.runs.stopping import Stopped, commit, finished, staging, undo
+from sigpipe.workers import one_thread_each
 
 logger = logging.getLogger(__name__)
 
@@ -56,6 +57,7 @@ def invert_line_petro(
     `stop`, once set, stops them at once: the windows not finished keep what they had, and
     Stopped is raised with the outcomes of those that finished."""
     outcomes: dict[str, PetroOutcome] = {}
+    one_thread_each()  # the workers are the cores the line takes (TensorFlow's pools among them)
     with ProcessPoolExecutor(
         max_workers=max(1, min(workers, len(units))),
         initializer=start_worker,

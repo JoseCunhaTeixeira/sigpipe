@@ -66,11 +66,18 @@ class InversionResult:
     profiles: LayeredSamples | None = None
     """Every kept model as layers, chain after chain."""
     steps: dict[str, float] = field(default_factory=dict)
-    """Each sampled parameter's typical move (vs1, ..., thick1, ...), in the fixed layering."""
+    """Each sampled parameter's typical move (vs1, ..., thick1, ...), in the fixed layering; each
+    move's step after the burn-in (vs, interface, noise, shift, stretch, in the logarithm of the
+    values moved) when the data chose the layers."""
     tuning: tuple[tuple[float, float], ...] = ()
     """Each trial run's step factor and acceptance rate (%): runs saved before 2026-09-27."""
     acceptance: tuple[float, ...] = ()
     """Each chain's acceptance rate over the run (%), the burn-in included."""
+    moves: dict[str, float] = field(default_factory=dict)
+    """When the data chose the layers: each move's acceptance rate (%), the chains' median."""
+    exchanges: float | None = None
+    """When the data chose the layers: the exchanges between tempered copies accepted (%), the
+    chains' median."""
     parameters: dict[str, Any] = field(default_factory=dict)
     """The parameters as the chains ran them: the free layering's bounds found from the curves."""
 

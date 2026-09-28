@@ -10,6 +10,7 @@ import pytest
 
 from sigpipe.algorithms.inversion.rayleigh.seismic.data import (
     MAX_POINTS,
+    NOISE_BOUNDS,
     Curve,
     allowed,
     curves_of,
@@ -127,9 +128,10 @@ def test_the_layers_given_are_found(linear_acquisition: LinearAcquisition) -> No
     at = np.array([1.5, 3.0, 6.0])
     median = np.median(result.profiles.at(at), axis=0)
     assert np.all(np.abs(np.log(median / _truth(at))) < 0.15)
-    # The named values; the noise factor far under the picks' 25 %, for 2 % of noise.
+    # The named values; the noise factor at its floor, a third of the picks' 25 %, for 2 % of
+    # noise: no further, the models' curves stay spread within the uncertainties.
     assert set(result.samples) == {"vs1", "vs2", "thick1", "noise"}
-    assert float(np.median(result.samples["noise"])) < 0.3
+    assert NOISE_BOUNDS[0] <= float(np.median(result.samples["noise"])) < 0.4
     assert len(result.acceptance) == 3 and set(result.steps) == {"vs1", "vs2", "thick1"}
     # As many kept from each chain; every kept model's curve at the picked frequencies.
     kept = (8_000 - 2_000) // SAVE_EVERY
@@ -154,6 +156,13 @@ def test_the_data_choose_the_layers(linear_acquisition: LinearAcquisition) -> No
     assert 0 < free["vs_min"] < free["vs_max"]
     assert result.n_layers == len(result.median.vs_s)
     assert len(result.acceptance) == 2
+    # How the chains moved: each move's step after the burn-in and its acceptance, and the
+    # exchanges between tempered copies (the chains' medians).
+    assert set(result.steps) == {"interface", "vs", "noise", "shift", "stretch"}
+    assert all(step > 0 for step in result.steps.values())
+    assert {"birth", "death", "vs", "noise"} <= set(result.moves)
+    assert all(0 <= rate <= 100 for rate in result.moves.values())
+    assert result.exchanges is not None and 0 < result.exchanges <= 100
     # Two chains of their own, as many kept each.
     first, second = np.split(result.profiles.vs[:, 0], 2)
     assert first.size == second.size > 1 and not np.array_equal(first, second)
