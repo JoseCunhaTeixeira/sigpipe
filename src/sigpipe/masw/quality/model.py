@@ -26,7 +26,7 @@ class ModelLimits(BaseModel):
     """How an inverted model is measured, and its limits (PACo's G5 judges against them, PAC
     measures its own runs' alike): provisional, measured on the demo profiles."""
 
-    # The limits of runs saved before are read too.
+    # The limits older runs saved are read too.
     model_config = ConfigDict(frozen=True, extra="ignore")
 
     max_misfit: float = Field(
@@ -288,7 +288,7 @@ def model_depth(parameters: InversionParameters) -> float:
 
 def judged_series(measures: InversionMeasures) -> set[str]:
     """The series the chains are judged on: the models' Vs at the depths watched; every one for
-    windows measured before."""
+    windows measured by older versions."""
     return set(measures.watched) or set(measures.rhat)
 
 
@@ -324,7 +324,7 @@ def _acceptance(
     value: float | None, band: tuple[float, float] | None, chains: int
 ) -> tuple[Measure, ...]:
     """The chains' median acceptance (%): with a band, a floor and a ceiling (one row of two, a
-    warning outside it, the user 2026-09-29), else reported."""
+    warning outside it), else reported."""
     over = f"the {chains} chains' moves accepted, median"
     if band is None:
         return (

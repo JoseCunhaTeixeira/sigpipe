@@ -63,8 +63,7 @@ def plot_trace_spectra(
 ) -> Figure:
     """Each trace's amplitude spectrum (`amplitude`, traces x `freqs`, each scaled to its own
     largest) at its receiver's position, bone reversed (white: nothing, black: the trace's
-    largest): the whole of it, 0 to Nyquist; `band` (Hz) dashed. No title (the user,
-    2026-09-29)."""
+    largest): the whole of it, 0 to Nyquist; `band` (Hz) dashed. No title."""
     fig, ax = plt.subplots(
         figsize=(DOUBLE_COLUMN_CM * CM, 9.0 * CM), dpi=DISP_DPI, layout="constrained"
     )

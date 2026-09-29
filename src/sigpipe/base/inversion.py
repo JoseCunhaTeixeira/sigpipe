@@ -70,7 +70,7 @@ class InversionResult:
     move's step after the burn-in (vs, interface, noise, shift, stretch, in the logarithm of the
     values moved) when the data chose the layers."""
     tuning: tuple[tuple[float, float], ...] = ()
-    """Each trial run's step factor and acceptance rate (%): runs saved before 2026-09-27."""
+    """Each trial run's step factor and acceptance rate (%): runs saved by older versions."""
     acceptance: tuple[float, ...] = ()
     """Each chain's acceptance rate over the run (%), the burn-in included."""
     moves: dict[str, float] = field(default_factory=dict)

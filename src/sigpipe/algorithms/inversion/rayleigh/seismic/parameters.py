@@ -5,7 +5,7 @@ InversionParameters, and PAC's form and PACo's agent send the same JSON.
 Two layerings:
 - "free" (the default): the data choose the number of layers (transdimensional.py), within a Vs
   range, down to a depth and up to a number of layers, each left out uses the curves' own;
-- "fixed": the layers given, each with its Vs and thickness ranges or values (sampler.py).
+- "fixed": the layers given, each with its Vs and thickness ranges or values (dream.py).
 In both, a layer's Vs may fall below the one above it by `max_vs_drop` at most.
 """
 
@@ -19,8 +19,7 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 # Each chain keeps one model every SAVE_EVERY iterations after the burn-in: iteration i when
 # i > n_burnin and (i - n_burnin) is a multiple of SAVE_EVERY.
 SAVE_EVERY = 150
-# Keys of runs saved before 2026-09-27, accepted and dropped: the trial runs that tuned the steps
-# of the sampler sigpipe used then.
+# Keys of older runs, accepted and dropped: the trial runs that tuned an older sampler's steps.
 _RETIRED = ("tune_steps",)
 _FIXED_KEYS = ("n_layers", "vs_layers", "thickness_layers")
 
@@ -35,8 +34,7 @@ class VsLayer(BaseModel):
     vs_perturb_std: float = Field(
         default=20.0,
         gt=0,
-        description="m/s, not used: the chains' moves follow the posterior (kept for the runs "
-        "saved before)",
+        description="m/s, not used: the chains' moves follow the posterior (kept for older runs)",
     )
     vs_fixed: float | None = Field(
         default=None,
@@ -66,8 +64,7 @@ class ThicknessLayer(BaseModel):
     thickness_perturb_std: float = Field(
         default=1.0,
         gt=0,
-        description="m, not used: the chains' moves follow the posterior (kept for the runs "
-        "saved before)",
+        description="m, not used: the chains' moves follow the posterior (kept for older runs)",
     )
     thickness_fixed: float | None = Field(
         default=None,
@@ -201,16 +198,16 @@ class InversionParameters(BaseModel):
         description="First iterations of each chain, discarded. Left out: a quarter of "
         "n_iterations.",
     )
-    # Two at least (the user, 2026-09-28): one chain's halves agree even where two chains would
-    # settle on two solutions (an interface above or below, another count of layers).
+    # Two at least: one chain's halves agree even where two chains would settle on two solutions
+    # (an interface above or below, another count of layers).
     n_chains: int = Field(default=5, ge=2, description="Chains per window, compared to judge them.")
 
     @model_validator(mode="before")
     @classmethod
     def _as_given(cls, data: Any) -> Any:  # noqa: ANN401
-        """The keys of runs saved before dropped; the fixed layering when layers are given
-        without a layering (runs saved before, and requests naming their layers); a quarter of
-        n_iterations for the burn-in when only the iterations are given."""
+        """The keys of older runs dropped; the fixed layering when layers are given without a
+        layering (older runs, and requests naming their layers); a quarter of n_iterations for
+        the burn-in when only the iterations are given."""
         if not isinstance(data, dict):
             return data
         values = {
@@ -284,6 +281,6 @@ class InversionParameters(BaseModel):
 
 
 class SavedInversionParameters(InversionParameters):
-    """The parameters a run saved: one chain too, as the runs before 2026-09-28 could run."""
+    """The parameters a run saved: one chain too, as older runs could run."""
 
     n_chains: int = Field(default=5, ge=1, description="Chains per window, compared to judge them.")

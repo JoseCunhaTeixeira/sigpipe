@@ -19,10 +19,10 @@ THREAD_VARIABLES = (
 
 def one_thread_each() -> None:
     """The processes started from now on run one thread each, unless the environment says
-    otherwise. Measured on 2026-09-29 (12 cores): 2 inversion workers took 8 to 12 of them (the
-    chains' processes, then numpy's BLAS threads), 2 petrophysical ones 7 (TensorFlow's pools);
-    2 each, with one thread each. A process reads it when it starts, and a library when it
-    loads: call it before the first process pool (the processes of a forkserver started before
-    keep its environment), and before numpy loads for this process to keep to one as well."""
+    otherwise. Measured on 12 cores: 2 inversion workers take 8 to 12 of them (the chains'
+    processes, then numpy's BLAS threads), 2 petrophysical ones 7 (TensorFlow's pools); 2 each,
+    with one thread each. A process reads it when it starts, and a library when it loads: call it
+    before the first process pool (the processes of a forkserver started before keep its
+    environment), and before numpy loads for this process to keep to one as well."""
     for name in THREAD_VARIABLES:
         os.environ.setdefault(name, "1")

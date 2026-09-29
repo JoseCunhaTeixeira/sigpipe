@@ -49,7 +49,7 @@ def plot_posterior_marginals(
     """
     names = list(samples.keys())
     n = len(names)
-    # A name's unit under it: long names side by side no longer run into each other.
+    # A name's unit under it: long names side by side do not run into each other.
     labels = {name: name.replace(" [", "\n[") for name in names}
 
     fig, axs = plt.subplots(n, n, figsize=(3.2 * CM * n, 3.0 * CM * n), dpi=DISP_DPI, squeeze=False)
@@ -288,8 +288,7 @@ def plot_inversion_window(
     models place interfaces (`interfaces`: the share of them per `interface_dz` m from the
     surface down). Below the depth informed (`informed`, m; None: all of it), veiled.
     Every kept model (`explored`: the models and their misfits) under the profile, thin, grey,
-    darker the better it fits, the best on top, as the figure drew them before; the Vs axis
-    framed on their 10-90 %.
+    darker the better it fits, the best on top; the Vs axis framed on their 10-90 %.
     """
     depths, low, high, uncertainty = spread
     bottom = float(depths[-1] + (depths[1] - depths[0]) / 2) if depths.size > 1 else 1.0

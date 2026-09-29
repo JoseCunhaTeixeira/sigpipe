@@ -75,9 +75,9 @@ def min_resolvable_wavelength(acquisition: Acquisition) -> float | None:
     return 2 * min(spacings) if spacings else None
 
 
-# The shortest wavelength the picker searches, in receiver spacings: one (the user, 2026-09-28),
-# a clear ridge followed into the aliasing zone under two (min_resolvable_wavelength), where its
-# points are flagged, not cut.
+# The shortest wavelength the picker searches, in receiver spacings: one, a clear ridge
+# followed into the aliasing zone under two (min_resolvable_wavelength), where its points are
+# flagged, not cut.
 PICKED_SPACINGS = 1.0
 
 
@@ -98,8 +98,8 @@ def max_resolvable_wavelength(acquisition: Acquisition) -> float | None:
     return sum(spacings) if spacings else None
 
 
-# The longest wavelength the checks trust, in window lengths: three (the user, 2026-09-28). The
-# picker follows a ridge beyond it, where its points are flagged, not cut.
+# The longest wavelength the checks trust, in window lengths: three. The picker follows a ridge
+# beyond it, where its points are flagged, not cut.
 REACHED_LENGTHS = 3.0
 
 

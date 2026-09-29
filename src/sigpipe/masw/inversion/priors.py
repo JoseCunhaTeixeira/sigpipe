@@ -29,8 +29,7 @@ from sigpipe.algorithms.inversion.rayleigh.seismic.parameters import InversionPa
 from sigpipe.base.dispersion_curve import DispersionCurve
 
 # The default steps against the default ranges: 20 m/s for Vs over 100-1,000 m/s, 1 m for
-# thicknesses over 1-10 m. Derived bounds keep the same proportions; the sampler's trial runs
-# then scale every step together.
+# thicknesses over 1-10 m. Derived bounds keep the same proportions.
 VS_STEP_SHARE = 20 / 900
 THICKNESS_STEP_SHARE = 1 / 9
 # Vs over Vr for a homogeneous half-space at Vp/Vs 1.77: the least a bound must allow above the

@@ -113,8 +113,8 @@ def test_the_pick_stops_where_its_ridge_breaks() -> None:
 
 def test_the_pick_goes_on_over_a_dimmer_ridge_under_it() -> None:
     # Below 20 Hz, a slow wave under M0, dimmer but over 0.35 of its column's maximum: the lowest
-    # ridge there, where the pick used to end. Past its run the pick follows M0 on, as over a
-    # short window's sidelobes and aliases at its band's ends (the user's active_p2, 2026-09-28).
+    # ridge there. Past its run the pick follows M0 on, as over a short window's sidelobes and
+    # aliases at its band's ends (on active_p2).
     def slow(frequencies: np.ndarray) -> np.ndarray:
         return np.full_like(frequencies, 60.0)
 
@@ -258,8 +258,8 @@ def test_nothing_is_kept_where_m0_is_below_the_search_floor() -> None:
 
 
 def test_a_clear_ridge_is_followed_into_the_aliasing_zone_by_default() -> None:
-    # Down to one spacing (the user, 2026-09-28): M0 kept on to 100 Hz, its points under two
-    # spacings among them, for the checks to flag.
+    # Down to one spacing: M0 kept on to 100 Hz, its points under two spacings among them, for
+    # the checks to flag.
     (mode,) = pick_modes(_shot([(m0, 1.0)], noise=0.3))
     f, kept = mode.frequencies, mode.kept
 

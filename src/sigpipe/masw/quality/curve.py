@@ -227,11 +227,11 @@ def measure_curve(
     fs, vs, lengths = fs[order], vs[order], lengths[order]
     n_points = int(vs.size)
     points = f"the curve's {n_points} points"
-    # The picker follows its ridge as far as it holds, at either end (the user, 2026-09-28): its
-    # points under twice the spacing (the aliasing zone, where the ridge may be its alias) and
-    # over three window lengths (beyond the window's reach, where it resolves no velocity). A
-    # point on a limit is within it: resampled every metre, a curve can hold one at exactly twice
-    # a 1.5 m spacing, which its float32 values put a hair under.
+    # The picker follows its ridge as far as it holds, at either end: its points under twice the
+    # spacing (the aliasing zone, where the ridge may be its alias) and over three window lengths
+    # (beyond the window's reach, where it resolves no velocity). A point on a limit is within it:
+    # resampled every metre, a curve can hold one at exactly twice a 1.5 m spacing, which its
+    # float32 values put a hair under.
     shortest = min_resolvable_wavelength(image.acquisition)
     aliased = float(np.mean(_past(lengths, shortest, below=True))) if shortest else 0.0
     longest = longest_reached_wavelength(image.acquisition)
@@ -321,9 +321,8 @@ def measure_curve(
             of="curve",
             over=f"{points}: velocity against wavelength, rank correlation",
         ),
-        # Reported (the user, 2026-09-29): the picker caps each point's at 0.4 of its velocity,
-        # so no limit over it could fail, and G5's depth informed judges what a loose curve does
-        # to the model.
+        # Reported: the picker caps each point's at 0.4 of its velocity, so no limit over it could
+        # fail, and G5's depth informed judges what a loose curve does to the model.
         Measure(
             name="uncertainty",
             value=None if uncertainty is None else round(uncertainty, 3),

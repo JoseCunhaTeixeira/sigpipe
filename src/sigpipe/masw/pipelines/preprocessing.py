@@ -22,8 +22,8 @@ def build_preprocessing_pipeline(
     """The preprocessing of one record, written to `output_folder` (None: in memory): the same
     for every window that uses the record, since each step works trace by trace. In the modes
     that process shots, the shot's time origin is corrected first (trigger_shift_s): the trigger
-    is part of the muting (the user, 2026-09-28). Not `muted`, the record before its muting:
-    neither its trigger shifted nor muted. A passive line has neither (stages.py)."""
+    is part of the muting. Not `muted`, the record before its muting: neither its trigger shifted
+    nor muted. A passive line has neither (stages.py)."""
     load = load_record(record, profile)
     fields = type(preset).model_fields
     muting = _muting(preset)

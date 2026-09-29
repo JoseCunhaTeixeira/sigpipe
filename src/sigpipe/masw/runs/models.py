@@ -9,11 +9,10 @@ from sigpipe.masw.presets import Preset
 from sigpipe.masw.profiles import ProfileSummary
 from sigpipe.masw.windows import Exclusions
 
-# Stages sigpipe no longer has, which an older run.json may record: dropped when it is read, so
+# Stages an older run.json may record and sigpipe does not have: dropped when it is read, so
 # that the run still loads (its file keeps them). correlation_window: passive-active's own
-# surface-wave mute before correlating, removed on 2026-09-28 (the muting's velocities cut the
-# same). A passive line's muting and trigger, removed on 2026-09-28 (no shot for a velocity to
-# count from).
+# surface-wave mute before correlating (the muting's velocities cut the same). A passive line's
+# muting and trigger (no shot for a velocity to count from).
 REMOVED_STAGES = frozenset({"correlation_window"})
 REMOVED_PASSIVE_STAGES = frozenset({"muting", "trigger"})
 

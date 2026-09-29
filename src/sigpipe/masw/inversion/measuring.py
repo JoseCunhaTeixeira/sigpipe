@@ -41,7 +41,7 @@ INTERFACE_DZ = 0.5
 LOG_FILE = "SeismicInversion_Log_0000.log"
 # Where PAC's job and the assistant save a window's measures, beside its inversion.
 MEASURES_FILE = "SeismicInversion_Measures_0000.json"
-# The acceptance rates in the log of runs saved before 2026-09-27, which their parameters lack.
+# The acceptance rates in the log of runs saved by older versions, which their parameters lack.
 _RATE = re.compile(r"ACCEPTANCE RATE: \d+/\d+ \(([\d.]+) %\)")
 # Depths the chains' agreement is measured at, between a third of the shortest and of the longest
 # picked wavelength.
@@ -90,10 +90,10 @@ class BoundShare(BaseModel):
 
 
 # How the useful depth was read: from the kept models' relative uncertainty U(z), past the
-# interfaces they place at depths a little apart (useful_depth). The measures saved before say
-# "band" (to 2026-09-29: a stretch of it too high ended it once a fifth of its depth thick, an
-# interface's too), "curve" (against one prior for every window, drawn from the picked curve) or
-# nothing (against the run's own prior).
+# interfaces they place at depths a little apart (useful_depth). Older measures say "band" (a
+# stretch of it too high ended it once a fifth of its depth thick, an interface's too), "curve"
+# (against one prior for every window, drawn from the picked curve) or nothing (against the run's
+# own prior).
 USEFUL_REFERENCE = "band past interfaces"
 
 
@@ -119,15 +119,15 @@ class InversionMeasures(BaseModel):
     at_bounds: tuple[BoundShare, ...]  # the most piled first
     # Where the kept models' uncertainty of Vs gets too high (useful_depth); None: nowhere.
     useful_depth_m: float | None
-    # How the useful depth was read: USEFUL_REFERENCE; "curve" or empty in measures from before
-    # (see USEFUL_REFERENCE).
+    # How the useful depth was read: USEFUL_REFERENCE; "curve" or empty in older measures (see
+    # USEFUL_REFERENCE).
     useful_reference: str = ""
     depth_max_m: float  # the bottom of the models sigpipe builds
     vs_at_depths: tuple[tuple[float, float], ...]  # (depth m, the monitored model's Vs m/s)
     vs_layers: tuple[float, ...]  # the layered median, top down
     interfaces_m: tuple[float, ...]  # the layered median's interface depths
     # Per INTERFACE_DZ from the surface down to the bottom, the share of the kept models with an
-    # interface there; empty in measures from before 2026-09-28.
+    # interface there; empty in older measures.
     interfaces: tuple[float, ...] = ()
 
     def fit(self, model: str) -> ModelFit:
@@ -510,7 +510,7 @@ def useful_depth(
 
 def _steps(parameters: InversionParameters) -> dict[str, float]:
     """Each sampled parameter's step in `parameters`, by name (vs1, ..., thick1, ...): the
-    steps runs saved before give in their parameters; none when the data chose the layers."""
+    steps older runs give in their parameters; none when the data chose the layers."""
     if parameters.layering != "fixed":
         return {}
     steps = {f"vs{i + 1}": layer.vs_perturb_std for i, layer in enumerate(parameters.vs_layers)}

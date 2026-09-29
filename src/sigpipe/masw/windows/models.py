@@ -19,8 +19,8 @@ class MASWParameters(BaseModel):
     length: int = Field(default=5, ge=3, description="receivers, not metres")
     step: int = Field(default=1, gt=0, description="receivers between starts")
     # m from the source to the window's middle, both bounds exclusive; each may be left out, none
-    # (the nearest from 0, the farthest at any distance): no stand-in value (the user,
-    # 2026-09-28; older runs recorded 0 and 1,000 m).
+    # (the nearest from 0, the farthest at any distance): no stand-in value (older runs recorded
+    # 0 and 1,000 m).
     distance_min: float | None = Field(default=None, ge=0, description="m; null: none")
     distance_max: float | None = Field(default=None, gt=0, description="m; null: none")
 

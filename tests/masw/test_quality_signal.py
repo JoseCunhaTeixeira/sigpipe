@@ -242,8 +242,8 @@ def test_one_definition_measures_a_shot_and_says_what_each_measure_covers() -> N
     assert snr.of == "signal" and snr.passed and snr.threshold == 6.0
     # Within the reach: the receivers 2 to 12 m from the shot, 11 of the 24; in its band.
     assert snr.over.startswith("11 of 24 traces, within 12 m of the source; in its usable band, ")
-    # The record long enough for every trace: its noise after the farthest one's slowest wave,
-    # as before the reach (only a record too short for them all takes the reach's).
+    # The record long enough for every trace: its noise after the farthest one's slowest wave
+    # (only a record too short for them all takes the reach's).
     assert snr.over.endswith("; noise after the slowest arrival, 0.36 s on")
     assert measures["usable_band_hz"].of == "spectrum"
     assert report.band is not None and report.band[0] < FREQUENCY < report.band[1]

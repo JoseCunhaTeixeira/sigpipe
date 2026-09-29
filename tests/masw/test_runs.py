@@ -123,7 +123,7 @@ def test_a_preset_is_fitted_to_its_profile(workspace: Folders) -> None:
     assert values["muting"]["tmin"] is None and values["muting"]["tmax"] is None
     assert values["muting"]["width"] == pytest.approx(1 / SAMPLING)
     assert values["filtering"]["fmax"] == pytest.approx(0.95 * SAMPLING / 2)
-    assert "correlation_window" not in values  # removed: the muting's velocities cut the same
+    assert "correlation_window" not in values  # no such stage: the muting's velocities cut the same
     # On, with no bound and no trigger (the synthetic files have none), it would cut nothing.
     with pytest.raises(PresetError, match="keeps everything"):
         resolve_preset(make_preset("passive-active", {"muting": {"method": "mute"}}), shots)
@@ -386,7 +386,7 @@ def test_one_chain_is_refused_and_a_window_inverted_with_one_still_reads() -> No
     # Two chains at least: one chain's halves agree even where two would settle apart.
     with pytest.raises(ValidationError, match="n_chains"):
         InversionParameters(n_chains=1)
-    # A window inverted with one chain before 2026-09-28: its parameters read as they were.
+    # A window inverted with one chain by an older version: its parameters read as they were.
     saved = WindowParameters.model_validate({"parameters": {"n_chains": 1}, "acceptance": [30.0]})
     assert saved.parameters.n_chains == 1
 

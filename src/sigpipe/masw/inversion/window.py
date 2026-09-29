@@ -75,13 +75,13 @@ class WindowParameters(BaseModel):
     model_config = ConfigDict(frozen=True)
 
     parameters: SavedInversionParameters  # as run
-    # The trial runs (step factor, acceptance %) of the runs saved before 2026-09-27.
+    # The trial runs (step factor, acceptance %) of runs saved by older versions.
     tuning: tuple[tuple[float, float], ...] = ()
     acceptance: tuple[float, ...]  # each chain's over the run (%), the burn-in included
     # Each sampled parameter's typical move (vs1, ..., thick1, ...); when the data chose the
     # layers, each move's step (vs, interface, noise, shift, stretch: in the logarithm of the
     # values moved), with each move's acceptance and the exchanges between tempered copies (%,
-    # the chains' medians; saved since 2026-09-29).
+    # the chains' medians; empty in older runs).
     steps: dict[str, float] = {}
     moves: dict[str, float] = {}
     exchanges: float | None = None
@@ -435,7 +435,7 @@ def save_spread(result: InversionResult, curves: DispersionCurves, path: Path) -
 
 def load_spread(folder: Path) -> dict[str, Spread]:
     """Per mode label, the spread `save_spread` wrote in window folder `folder`; empty without
-    its file (the inversions saved before 2026-09-29)."""
+    its file (inversions saved by older versions)."""
     path = folder / SPREAD_FILE
     if not path.exists():
         return {}
@@ -485,8 +485,8 @@ def save_vs_spread(spread: VsSpread, path: Path) -> None:
 
 def load_vs_spread(folder: Path) -> VsSpread | None:
     """The kept models' Vs spread `save_vs_spread` wrote in window folder `folder`; None without
-    its file, or with one of an earlier version (its header another: the inversions saved before
-    2026-09-29, vs_spread makes it from their samples)."""
+    its file, or with one of an earlier version (its header another: vs_spread makes it from the
+    inversion's samples)."""
     path = folder / VS_SPREAD_FILE
     if not path.exists():
         return None

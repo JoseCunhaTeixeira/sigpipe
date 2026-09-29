@@ -93,7 +93,7 @@ def pick_modes(
         tracked = _tracked(image, span, ridge, start, stop, parameters, noise_floor)
         # The pick found, it goes on past its run's ends as far as its ridge does, where the
         # lowest ridge drops under it onto a dimmer sidelobe or alias: further to the low and
-        # high frequencies, on the same ridge (the user, 2026-09-28).
+        # high frequencies, on the same ridge.
         if not guide and tracked.kept.any():
             run = np.flatnonzero(tracked.kept)
             followed = followed_ridge(

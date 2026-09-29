@@ -4,11 +4,11 @@ describes (`of`: the signal, or its spectrum) and what it covers (`over`: which 
 window), judged against its limit. A record's with a shot, and a virtual shot's (the stacked
 correlations, their source a receiver), alike; a noise record's, its traces only.
 
-What a dispersion image is made of decides what is measured (2026-09-29): the phase shift
-divides each trace's spectrum by its own amplitude, so a filter common to the traces cannot
-change the image, nor a common delay (the trigger) when nothing is muted. The SNR and the
-coherence are measured in the signal's usable band (the frequencies where its surface waves
-stand over its noise), the noise and the arrivals on the record before its muting."""
+What a dispersion image is made of decides what is measured: the phase shift divides each trace's
+spectrum by its own amplitude, so a filter common to the traces cannot change the image, nor a
+common delay (the trigger) when nothing is muted. The SNR and the coherence are measured in the
+signal's usable band (the frequencies where its surface waves stand over its noise), the noise and
+the arrivals on the record before its muting."""
 
 from collections.abc import Callable, Collection, Iterable
 from dataclasses import dataclass
@@ -84,10 +84,9 @@ class SignalLimits(BaseModel):
     max_pulse_s: float = Field(
         default=0.5, gt=0, description="s, the longest pulse searched: longer, not measured"
     )
-    # A noise record's traces, and a shot's, against their neighbours' spectra (the user,
-    # 2026-09-28): flagged, never left out. On the demo, a passive trace sits 1 dB from its
-    # neighbours (3.4 at the 99th percentile); a shot's, its own level taken out and the five
-    # nearest the shot aside, 1.7 (5.6).
+    # A noise record's traces, and a shot's, against their neighbours' spectra: flagged, never left
+    # out. On the demo, a passive trace sits 1 dB from its neighbours (3.4 at the 99th percentile);
+    # a shot's, its own level taken out and the five nearest the shot aside, 1.7 (5.6).
     spectra_fmin_hz: float = Field(
         default=2.0, ge=0, description="Hz, where the traces' spectra are compared from"
     )
@@ -137,7 +136,7 @@ class SignalLimits(BaseModel):
         default=6.0,
         description="dB, the traces' median SNR in their usable band: a record's, and a window's "
         "stacked correlations' measured as a shot's from their virtual source (one limit for "
-        "every signal, the user, 2026-09-29).",
+        "every signal).",
     )
     reach_snr_db: float = Field(
         default=2.0,
@@ -145,10 +144,11 @@ class SignalLimits(BaseModel):
         "no wave: the line's reach (line_reach), the traces a record's measures cover.",
     )
     min_fk_kept_share: float = Field(
-        default=0.2,
+        default=0.01,
         ge=0,
         le=1,
-        description="Share of a passive window's segments its fk selection keeps, at least.",
+        description="Share of a passive window's segments its fk selection keeps, at least: good\n"
+        "segments are rare. PACo's segment trials use it too.",
     )
     band_db: float = Field(
         default=6.0, gt=0, description="Signal above noise, for the usable band."
@@ -323,7 +323,7 @@ def measure_signal(
     unmuted = _unmuted(before_muting, finite, ts, windows, offsets, limits, within, scale)
     noise = unmuted.windows
     # A virtual shot of muted records without their correlations before the muting: its noise
-    # window zeroed, its SNR hundreds of dB whatever the data (the user, 2026-09-29).
+    # window zeroed, its SNR hundreds of dB whatever the data.
     zeroed = source == "virtual" and records_muted and not unmuted.muted
     over = f"{_traces(int(measured.sum()), n_traces)}" + _reach(reach_m, within)
     if source == "virtual":
@@ -341,8 +341,8 @@ def measure_signal(
         else None
     )
     band = found if found is not None and found[1] - found[0] >= limits.min_band_hz else None
-    # The part of it the dispersion images use (the user, 2026-09-29): above it, a record's
-    # near-source energy no image uses, where neighbouring traces agree less.
+    # The part of it the dispersion images use: above it, a record's near-source energy no image
+    # uses, where neighbouring traces agree less.
     imaged = _imaged(band, image_band, limits.min_band_hz)
     # The SNR and the coherence in that band, as a filter to it would give them: a filter common
     # to the traces changes no dispersion image, so neither may it change what G1 decides.
@@ -433,9 +433,8 @@ def measure_signal(
     # Only the traces whose own SNR passes: a noisy trace's envelope crosses the threshold on
     # noise, early or late.
     breaks[~usable | (snr < limits.min_snr_db)] = np.nan
-    # The shot's pulse (the user, 2026-09-28): how long its energy lasts after the first break,
-    # the median over the traces nearest the shot that show one; the width a mute keeps after
-    # the slowest arrival.
+    # The shot's pulse: how long its energy lasts after the first break, the median over the traces
+    # nearest the shot that show one; the width a mute keeps after the slowest arrival.
     pulse: float | None = None
     if arrivals:
         pulses = pulse_durations(
@@ -670,8 +669,7 @@ def _as_is(xt: np.ndarray) -> np.ndarray:
 def _lags_scaled(xt: np.ndarray) -> np.ndarray:
     """Stacked causal correlations, each lag scaled by the square root of the share of samples
     it sums (n - k of the n correlated, at lag k): noise alone then as strong at every lag, as
-    on a record, where unscaled it reads 4 to 5 dB louder early than late (the user,
-    2026-09-29)."""
+    on a record, where unscaled it reads 4 to 5 dB louder early than late."""
     n = xt.shape[1]
     return xt / np.sqrt((n - np.arange(n)) / n)[None, :]
 
