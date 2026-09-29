@@ -47,6 +47,10 @@ WATCHED = 5
 # this share of its depth thick: thinner, it is where they place an interface they agree on (its
 # depth's 10-90 % within a fifth of it, about ±8 %), as well as surface waves resolve one.
 RESOLVED_SHARE = 0.2
+# One structure: from ONE_STRUCTURE_FROM (m), how far down the models' Vs there stays correlated
+# and precise (U under PRECISE).
+PRECISE = 0.10
+ONE_STRUCTURE_FROM = 1.0
 
 
 class BandFit(BaseModel):
@@ -123,6 +127,9 @@ class InversionMeasures(BaseModel):
     # Per INTERFACE_DZ from the surface down to the bottom, the share of the kept models with an
     # interface there; empty in measures from before 2026-09-28.
     interfaces: tuple[float, ...] = ()
+    # The share of the models' depths where their Vs is precise yet one structure the data do
+    # not resolve apart (one_structure); None in measures from before 2026-09-29.
+    one_structure: float | None = None
 
     def fit(self, model: str) -> ModelFit:
         return next(fit for fit in self.fits if fit.model == model)
@@ -154,6 +161,7 @@ def measure_inversion(
     ran = window.parameters if window is not None else parameters.resolved(fs, vs)
     samples, n_chains = load_samples(out / SAMPLES_FILE)
     profiles = load_profiles(out / SAMPLES_FILE)
+    spread = vs_spread(profiles, ran.bottom)
     depths_watched = convergence_depths(picked, ran.bottom)
     at_depths = profiles.at(np.asarray(depths_watched))
     watched = tuple(f"vs@{depth:g}m" for depth in depths_watched)
@@ -188,7 +196,8 @@ def measure_inversion(
             if ran.layering == "fixed"
             else free_bound_shares(profiles, ran, bound_edge)
         ),
-        useful_depth_m=useful_depth(vs_spread(profiles, ran.bottom), max_uncertainty),
+        useful_depth_m=useful_depth(spread, max_uncertainty),
+        one_structure=one_structure(spread),
         useful_reference=USEFUL_REFERENCE,
         quantiles={
             name: (
@@ -465,6 +474,21 @@ def useful_depth(
         if end == wide.size or (end - start) * cell >= resolved * top:
             return round(top, 2)
     return None
+
+
+def one_structure(spread: VsSpread) -> float | None:
+    """How much of the model, from ONE_STRUCTURE_FROM down to its bottom, the models' Vs there
+    stays correlated with, where it is precise (U under PRECISE): a share of that depth. Near 1,
+    one structure the data pin, not its depths apart (a uniform Vs most models hold as one
+    layer); small, an interface they agree on parts it. None without such depths, or with the
+    models all alike there."""
+    start = int(np.searchsorted(spread.depths, ONE_STRUCTURE_FROM))
+    if start >= spread.depths.size or np.isnan(spread.correlation[start]):
+        return None
+    cell = float(spread.depths[1] - spread.depths[0]) if spread.depths.size > 1 else 1.0
+    end = min(start + round(float(spread.correlation[start]) / cell), spread.depths.size)
+    precise = spread.uncertainty()[start:end] < PRECISE
+    return round(float(np.sum(precise)) / (spread.depths.size - start), 3)
 
 
 def _steps(parameters: InversionParameters) -> dict[str, float]:

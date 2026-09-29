@@ -5,7 +5,7 @@ Functions take a run folder and window folders of it (`units`, named xmid_<x>)."
 
 import logging
 import warnings
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Literal, cast
@@ -386,16 +386,42 @@ def uncertainty_grid(
 ) -> np.ndarray:
     """On `grid` (`velocity_grid`'s, of the same windows): the kept models' relative uncertainty
     of Vs, U(z) = (P90 - P10) / (2 P50) (what the depth informed is read from), from each
-    window's middle, ground elevation and spread (None: not known); NaN where not known, and
-    outside the grid's columns. Smoothed along the line as the grid's Vs when
-    `lateral_smoothing`; a column nearest a window without a spread left without."""
+    window's middle, ground elevation and spread (None: not known); `_spread_grid`'s."""
+    return _spread_grid(grid, windows, VsSpread.uncertainty, lateral_smoothing, window_m)
+
+
+def correlation_grid(
+    grid: VelocityGrid,
+    windows: Sequence[tuple[float, float, VsSpread | None]],
+    lateral_smoothing: bool = False,
+    window_m: float | None = None,
+) -> np.ndarray:
+    """On `grid`: how far below each depth (m) the kept models' Vs stays correlated with its own
+    (VsSpread.correlation), from each window's middle, ground elevation and spread (None: not
+    known); `_spread_grid`'s."""
+    return _spread_grid(
+        grid, windows, lambda spread: spread.correlation, lateral_smoothing, window_m
+    )
+
+
+def _spread_grid(
+    grid: VelocityGrid,
+    windows: Sequence[tuple[float, float, VsSpread | None]],
+    measure: Callable[[VsSpread], np.ndarray],
+    lateral_smoothing: bool,
+    window_m: float | None,
+) -> np.ndarray:
+    """`measure` of each window's spread (by depth) on `grid`, from its ground down to its last
+    depth; NaN where not known, and outside the grid's columns. Smoothed along the line as the
+    grid's Vs when `lateral_smoothing`; a column nearest a window without a spread left
+    without."""
     xs = np.array([x for x, _, _ in windows], dtype=np.float32)
     values = np.full((len(windows), grid.elevations.size), np.nan)
     for i, (_, ground, spread) in enumerate(windows):
         if spread is not None:
             # From the ground (its first cell's), down to its last cell.
             values[i] = np.interp(
-                ground - grid.elevations, spread.depths, spread.uncertainty(), right=np.nan
+                ground - grid.elevations, spread.depths, measure(spread), right=np.nan
             )
     nearest = np.abs(grid.positions[:, None] - xs[None, :]).argmin(axis=1)
     unknown = np.array([spread is None for _, _, spread in windows])[nearest]

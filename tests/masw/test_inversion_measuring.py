@@ -17,6 +17,7 @@ from sigpipe.masw.inversion.measuring import (
     fit_by_band,
     interface_shares,
     lag1_autocorrelation,
+    one_structure,
     report_depths,
     split_rhat,
     useful_depth,
@@ -208,7 +209,7 @@ def test_the_limit_sets_how_uncertain_a_vs_still_informs() -> None:
     assert depth is not None and 2.8 <= depth <= 3.1
 
 
-def test_depths_the_models_move_alike_share_their_correlation_length() -> None:
+def test_the_correlation_length_reaches_down_to_where_the_models_part() -> None:
     # Two blocks of 8 depths each, every model's Vs one value per block, the blocks apart; then
     # a depth where every model holds the same Vs.
     top, below = RNG.normal(250.0, 20.0, 2_000), RNG.normal(600.0, 50.0, 2_000)
@@ -216,8 +217,39 @@ def test_depths_the_models_move_alike_share_their_correlation_length() -> None:
 
     lengths = correlation_lengths(rasters, 0.25)
 
-    np.testing.assert_allclose(lengths[:16], 2.0)  # 8 depths of 25 cm, each block
+    # From each depth down to its block's end: the next block's first depth is apart.
+    np.testing.assert_allclose(lengths[:8], (8 - np.arange(8)) * 0.25)
+    np.testing.assert_allclose(lengths[8:16], (16 - np.arange(8, 16)) * 0.25)
     assert np.isnan(lengths[16])
+
+
+def test_a_precise_vs_the_data_do_not_resolve_apart_is_one_structure() -> None:
+    # One layer in nine models of ten: Vs pinned to a few percent, the same variable at every
+    # depth down to the bottom.
+    samples = {
+        "vs1": RNG.normal(300.0, 6.0, 3_000),
+        "thick1": np.where(RNG.random(3_000) < 0.9, 5.9, 3.0),
+        "vs2": RNG.normal(300.0, 6.0, 3_000),
+    }
+    samples["vs2"] = np.where(samples["thick1"] > 5.0, samples["vs1"], samples["vs2"])
+    uniform = vs_spread(_profiles(samples), PARAMETERS.bottom)
+    # Two layers resolved apart at 3 m.
+    layered = vs_spread(
+        _profiles(
+            {
+                "vs1": RNG.normal(250.0, 5.0, 3_000),
+                "thick1": RNG.normal(3.0, 0.05, 3_000),
+                "vs2": RNG.normal(400.0, 8.0, 3_000),
+            }
+        ),
+        PARAMETERS.bottom,
+    )
+
+    share = one_structure(uniform)
+    assert share is not None and share > 0.9
+    # From 1 m to the interface at 3 m: 2 m of the 5 below 1 m.
+    parted = one_structure(layered)
+    assert parted is not None and 0.35 <= parted <= 0.45
 
 
 def test_the_fit_is_judged_by_band_of_wavelength() -> None:
