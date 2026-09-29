@@ -9,6 +9,7 @@ import pytest
 from sigpipe.base.acquisition import LinearAcquisition
 from sigpipe.base.coordinate import Coordinate
 from sigpipe.base.stream import Stream
+from sigpipe.masw.quality.measures import SignalLimits, measure_signal
 from sigpipe.masw.quality.signal import (
     Windows,
     dead_clipped_nan,
@@ -24,6 +25,7 @@ from sigpipe.masw.quality.signal import (
     trigger_shift,
     usable_band,
 )
+from sigpipe.transformers import ActiveShotCorrelation, Apodize, Mute, Stack
 
 SAMPLING = 1000.0
 N_TRACES = 24
@@ -228,3 +230,160 @@ def test_a_trace_with_a_dead_band_or_a_gain_of_its_own_stands_out_of_its_neighbo
     assert dropped[12] == pytest.approx(20 / 95, abs=0.03)
     others = np.delete(np.arange(N_TRACES), [5, 12])
     assert np.nanmax(deviation[others]) < 3.0 and np.nanmax(dropped[others]) == 0.0
+
+
+def test_one_definition_measures_a_shot_and_says_what_each_measure_covers() -> None:
+    # PACo's G1 and PAC alike: each measure with its object and what it covers.
+    report = measure_signal(_shot(), SignalLimits(), reach_m=12.0)
+
+    measures = {one.name: one for one in report.measures}
+    assert list(measures)[:4] == ["dead_traces", "clipped_traces", "nan_traces", "rms_outliers"]
+    snr = measures["snr_db"]
+    assert snr.of == "signal" and snr.passed and snr.threshold == 6.0
+    # Within the reach: the receivers 2 to 12 m from the shot, 11 of the 24; in its band.
+    assert snr.over.startswith("11 of 24 traces, within 12 m of the source; in its usable band, ")
+    # The record long enough for every trace: its noise after the farthest one's slowest wave,
+    # as before the reach (only a record too short for them all takes the reach's).
+    assert snr.over.endswith("; noise after the slowest arrival, 0.36 s on")
+    assert measures["usable_band_hz"].of == "spectrum"
+    assert report.band is not None and report.band[0] < FREQUENCY < report.band[1]
+
+
+def test_the_snr_and_the_coherence_are_measured_in_the_usable_band() -> None:
+    # A 20 Hz wave under a 150 Hz hum, as loud in the noise window as in the wave's: over the
+    # whole spectrum its SNR fails; in its band (a filter to it would give the same, and a
+    # filter common to the traces changes no image) it passes.
+    shot = _shot(noise=0.02)
+    hum = 0.5 * np.sin(2 * np.pi * 150.0 * np.asarray(shot.ts, dtype=float))
+    humming = replace(shot, xt=(shot.xt + hum[None, :]).astype(np.float32))
+
+    report = measure_signal(humming, SignalLimits())
+
+    measures = {one.name: one for one in report.measures}
+    snr = measures["snr_db"]
+    assert report.band is not None and report.band[1] < 150.0
+    assert np.median(snr_db(humming.xt.astype(float), _windows(humming))) < 6.0
+    assert snr.passed and snr.value is not None and snr.value > 6.0
+    assert "in its usable band" in snr.over
+    assert measures["lateral_coherence"].over.endswith(", in its usable band")
+
+
+def test_the_snr_and_the_coherence_are_measured_where_the_images_look() -> None:
+    # The usable band (0 to 44.5 Hz here) within the band the dispersion images use: its part
+    # under 30 Hz; a record whose band misses theirs has nothing they could use.
+    report = measure_signal(_shot(), SignalLimits(), image_band=(0.0, 30.0))
+
+    measures = {one.name: one for one in report.measures}
+    assert report.band is not None and report.band[1] > 30.0
+    assert report.imaged == (report.band[0], 30.0)
+    assert f"in its usable band within the images', {report.band[0]:g}-30 Hz" in (
+        measures["snr_db"].over
+    )
+    assert measures["lateral_coherence"].over.endswith("in its usable band within the images'")
+    missed = measure_signal(_shot(), SignalLimits(), image_band=(200.0, 300.0))
+    band = {one.name: one for one in missed.measures}["usable_band_hz"]
+    assert missed.imaged is None and not band.passed
+    assert band.over.endswith("; reaching the images' band, 200-300 Hz")
+
+
+def test_a_band_of_a_frequency_or_two_is_no_band() -> None:
+    # Narrower than min_band_hz: no dispersion to see, and no band to measure the SNR in.
+    report = measure_signal(_shot(), SignalLimits(min_band_hz=500.0))
+
+    measures = {one.name: one for one in report.measures}
+    band = measures["usable_band_hz"]
+    assert report.band is None and not band.passed and band.threshold == 500.0
+    assert band.value is not None and 0 < band.value < 500.0
+    assert "its whole spectrum, no usable band" in measures["snr_db"].over
+
+
+def test_a_record_is_long_enough_when_it_leaves_its_reach_room_for_noise() -> None:
+    # 0.5 s: the slowest wave reaches the farthest trace (25 m) at 0.36 s, too late to leave a
+    # noise window after it; within 10 m of the shot, at 0.18 s: room.
+    short = _shot(duration_s=0.5)
+
+    assert measure_signal(short, SignalLimits()).windows is None
+    assert measure_signal(short, SignalLimits(), reach_m=10.0).windows is not None
+
+
+def test_a_muted_records_trigger_and_pulse_are_measured_before_its_muting() -> None:
+    # A shot 30 ms late in its file, the muting's trigger left at 0: on the muted record its
+    # first breaks would be the mute's edge; before its muting, they put the shot 30 ms off.
+    late = _shot(t0=0.03)
+    muted = Mute(method="mute", vmin=VMIN, vmax=VMAX, width=0.2).transform([late])[0]
+
+    report = measure_signal(muted, SignalLimits(), applied_s=0.0, before_muting=(late, 0.0))
+
+    measures = {one.name: one for one in report.measures}
+    trigger = measures["trigger_error_s"]
+    assert trigger.value == pytest.approx(0.03, abs=0.005)
+    assert not trigger.passed and trigger.threshold == 0.01
+    assert trigger.over.endswith(", before the muting")
+    assert measures["pulse_s"].value == pytest.approx(0.12, abs=0.02)
+    # Without the record before its muting, neither is measured.
+    alone = {one.name: one for one in measure_signal(muted, SignalLimits(), applied_s=0.0).measures}
+    assert alone["trigger_error_s"].value is None and "pulse_s" not in alone
+    # Unmuted, the trigger is reported alone: a common delay changes no image.
+    unmuted = {one.name: one for one in measure_signal(late, SignalLimits()).measures}
+    error = unmuted["trigger_error_s"]
+    assert error.value == pytest.approx(0.03, abs=0.005)
+    assert error.passed and error.threshold is None
+
+
+def test_the_trigger_is_fitted_on_the_direct_wave_nearest_the_shot() -> None:
+    # The direct wave at 400 m/s runs through the shot; past 8.2 m a refractor's head wave at
+    # 1,500 m/s arrives first, its line crossing the shot's time at 15 ms. Every break fitted
+    # reads a trigger 15 ms off; the six nearest, none.
+    offsets = np.arange(1.0, 49.0, 1.0)
+    breaks = np.minimum(offsets / 400.0, 0.015 + offsets / 1500.0)
+
+    everything = trigger_shift(breaks, offsets)
+    nearest = trigger_shift(breaks, offsets, nearest=6)
+
+    assert everything is not None and everything[0] > 0.01
+    assert nearest is not None and nearest[0] == pytest.approx(0.0, abs=0.001)
+    assert nearest[1] == pytest.approx(400.0, rel=0.01)
+
+
+def test_a_virtual_shot_is_measured_as_a_shot_against_the_one_limit() -> None:
+    # Stacked correlations: their source a receiver, its own trace aside, each lag scaled for
+    # the samples it sums; no trigger or pulse to measure; one SNR limit for every signal.
+    shot = _shot()
+    receivers = shot.acquisition.receivers
+    virtual = replace(shot, acquisition=LinearAcquisition(source=receivers[0], receivers=receivers))
+
+    report = measure_signal(virtual, SignalLimits(), source="virtual")
+
+    measures = {one.name: one for one in report.measures}
+    assert "trigger_error_s" not in measures and "pulse_s" not in measures
+    snr = measures["snr_db"]
+    assert snr.threshold == SignalLimits().min_snr_db == 6.0 and snr.passed
+    assert snr.over.startswith(
+        "23 of 24 traces, the virtual source's own aside, each lag scaled for the samples it sums"
+    )
+    # Its records muted before correlating, without their correlations before the muting: its
+    # noise window zeroed, its SNR and band not measured (hundreds of dB whatever the data).
+    zeroed = measure_signal(virtual, SignalLimits(), source="virtual", records_muted=True)
+    said = {one.name: one for one in zeroed.measures}
+    assert said["snr_db"].value is None and said["snr_db"].passed
+    assert said["snr_db"].over.startswith("not measured: its records muted before correlating")
+    assert said["usable_band_hz"].value is None and zeroed.band is None
+
+
+def test_noise_alone_correlated_reads_under_the_limit() -> None:
+    # Shots of noise alone, correlated and stacked as a passive-active window's: unscaled, their
+    # early lags read 4 to 5 dB over their late ones (a causal correlation sums fewer samples
+    # the later its lag); scaled, about 2 dB, under the 6 dB every signal is held to.
+    rng = np.random.default_rng(3)
+    shots = [
+        replace(one, xt=rng.standard_normal(one.xt.shape).astype(np.float32))
+        for one in (_shot(seed=k) for k in range(10))
+    ]
+    chain = Apodize(method="hanning", frac=0.1).transform(shots)
+    stacked = Stack(method="linear").transform(
+        ActiveShotCorrelation(method="cross").transform(chain)
+    )[0]
+
+    report = measure_signal(stacked, SignalLimits(), source="virtual")
+
+    assert report.median_snr is not None and report.median_snr < 4.0

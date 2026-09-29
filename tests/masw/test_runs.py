@@ -15,6 +15,7 @@ from pydantic import ValidationError
 from synthetic import N_RECEIVERS, SAMPLING, SOURCES
 
 from sigpipe.algorithms.picking.dispersion.tracking import pick_modes
+from sigpipe.dataio.selection_plotting import load_selection
 from sigpipe.dataio.signal_plotting import load_spectra
 from sigpipe.dataio.stream import loading as stream_loading
 from sigpipe.masw.inversion import (
@@ -278,6 +279,15 @@ def test_a_passive_run_with_the_fk_selection_draws_every_segments_score(
     folder = find_run(manifest.run_id, workspace)
     assert [window.status for window in manifest.windows] == ["succeeded"] * 3
     assert all((folder / one.folder / "Selection_0000.png").exists() for one in manifest.windows)
+    # And its data, for Visualization: each segment's ratio and whether it was kept, counted.
+    for window in manifest.windows:
+        scores = load_selection(folder / window.folder)
+        assert scores is not None and scores.threshold == 0.0
+        assert scores.segments == len(scores.ratios) == len(scores.kept) > 0
+        assert scores.kept_count == sum(scores.kept) and 0 < scores.kept_share <= 1
+        assert scores.flipped_count == sum(
+            1 for ratio, kept in zip(scores.ratios, scores.kept, strict=True) if kept and ratio > 0
+        )
 
 
 def test_a_records_trigger_comes_from_its_file(monkeypatch: pytest.MonkeyPatch) -> None:

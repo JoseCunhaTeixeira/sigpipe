@@ -2,14 +2,11 @@ from collections.abc import Sequence
 from pathlib import Path
 from typing import Any, Literal
 
-import matplotlib.pyplot as plt
-
 from sigpipe.algorithms.selection.registry import STREAM_SELECTION_METHODS
 from sigpipe.algorithms.selection.stream.fk import fk_ratio, select_by_ratio
 from sigpipe.base.stream import Stream
 from sigpipe.base.transformer import Transformer
-from sigpipe.dataio.selection_plotting import plot_selection
-from sigpipe.transformers.plotting import Plot
+from sigpipe.dataio.selection_plotting import save_selection
 
 
 class Selection(Transformer[Stream, Stream]):
@@ -79,9 +76,9 @@ class Selection(Transformer[Stream, Stream]):
 
 
 class PlotSelection(Transformer[Stream, Stream]):
-    """Pass the streams on, and save `selection`'s scores as a figure in `folder_path`
-    (`file_name`_0000.png): each segment's fk_ratio, kept or not, around its threshold. Nothing
-    without scores (the method none)."""
+    """Pass the streams on, and save `selection`'s scores in `folder_path` (save_selection): a
+    figure (`file_name`_0000.png), each segment's fk_ratio, kept or not, around its threshold,
+    and its data (`file_name`_0000.json). Nothing without scores (the method none)."""
 
     def __init__(
         self, selection: Selection, folder_path: Path, file_name: str = "Selection"
@@ -92,9 +89,12 @@ class PlotSelection(Transformer[Stream, Stream]):
 
     def transform(self, data: Sequence[Stream]) -> list[Stream]:
         if self.selection.scores:
-            threshold = float(self.selection.params.get("threshold", 0.0))  # pyright: ignore[reportArgumentType]
-            figure = plot_selection(self.selection.scores, threshold)
-            self.folder_path.mkdir(parents=True, exist_ok=True)
-            Plot.savefig(path=self.folder_path / f"{self.file_name}_0000.png", figure=figure)
-            plt.close(figure)
+            params = self.selection.params
+            save_selection(
+                self.selection.scores,
+                float(params.get("threshold", 0.0)),  # pyright: ignore[reportArgumentType]
+                bool(params.get("flip_negatives", False)),
+                self.folder_path,
+                self.file_name,
+            )
         return list(data)

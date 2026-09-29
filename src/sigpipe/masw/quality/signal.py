@@ -26,21 +26,36 @@ class Windows:
 
 
 def signal_windows(
-    offsets: np.ndarray, ts: np.ndarray, vmin: float, vmax: float, pad: float
+    offsets: np.ndarray,
+    ts: np.ndarray,
+    vmin: float,
+    vmax: float,
+    pad: float,
+    within: np.ndarray | None = None,
 ) -> Windows | None:
     """The surface-wave window of each trace, between the arrivals at `vmax` and `vmin` (m/s)
     widened by `pad` seconds on both sides, and a noise window: before the trigger when the
-    record has samples there, else after the slowest arrival when the record is long enough;
-    None when it is not."""
+    record has samples there, else after the slowest arrival of every trace when the record is
+    long enough, else after the slowest arrival of the traces `within` the reach (beyond it no
+    trace carries the wave, and none is measured: a long line's record is long enough for its
+    reach); None when it is not."""
     starts = offsets / vmax - pad
     stops = offsets / vmin + pad
     signal = (ts[None, :] >= starts[:, None]) & (ts[None, :] <= stops[:, None])
     if ts[0] < -pad:
         noise = np.broadcast_to(ts < 0.0, signal.shape)
         return Windows(signal, np.array(noise), "before the trigger")
-    after = float(stops.max())
-    if ts[-1] - after < (stops - starts).mean():
+    every = np.ones(offsets.size, dtype=bool)
+    reached = every
+    for traces in (every, within):
+        if traces is None or not traces.any():
+            continue
+        reached = traces
+        if ts[-1] - float(stops[traces].max()) >= (stops[traces] - starts[traces]).mean():
+            break
+    else:
         return None
+    after = float(stops[reached].max())
     noise = np.broadcast_to(ts > after, signal.shape)
     return Windows(signal, np.array(noise), f"after the slowest arrival, {after:.2f} s on")
 
@@ -137,18 +152,18 @@ def usable_band(
     peak_db: float = 20.0,
 ) -> tuple[float, float] | None:
     """The band of frequencies, around the signal spectrum's peak, where the signal windows'
-    spectrum exceeds the noise windows' by `band_db` and stays within `peak_db` of its peak;
-    None when no frequency does."""
-    signal = mean_spectrum(xt, windows.signal, sampling_freq)
-    noise = mean_spectrum(xt, windows.noise, sampling_freq)
-    if signal is None or noise is None:
+    spectrum exceeds the noise windows' by `band_db` and stays within `peak_db` of its peak
+    among them (a hum's line, as loud in the noise, sets no peak); None when no frequency
+    does."""
+    spectra = window_spectra(xt, windows, sampling_freq)
+    if spectra is None:
         return None
-    freqs, signal_power = signal
-    _, noise_power = noise
+    freqs, signal_power, noise_power = spectra
     above = 10 * np.log10((signal_power + 1e-30) / (noise_power + 1e-30)) > band_db
-    above &= 10 * np.log10((signal_power + 1e-30) / (signal_power.max() + 1e-30)) > -peak_db
     if not above.any():
         return None
+    peak_power = float(signal_power[above].max())
+    above &= 10 * np.log10((signal_power + 1e-30) / (peak_power + 1e-30)) > -peak_db
     peak = int(np.argmax(np.where(above, signal_power, -np.inf)))
     low = peak
     while low > 0 and above[low - 1]:
@@ -168,7 +183,8 @@ def lateral_coherence(
     peaks = np.zeros(xt.shape[0] - 1)
     for i in range(xt.shape[0] - 1):
         mask = windows.signal[i] | windows.signal[i + 1]
-        a, b = xt[i][mask], xt[i + 1][mask]
+        # In double precision: squared sums of large samples (a correlation's) overflow single.
+        a, b = xt[i][mask].astype(float), xt[i + 1][mask].astype(float)
         norm = np.sqrt(np.sum(a**2) * np.sum(b**2))
         if norm == 0:
             continue
@@ -219,16 +235,24 @@ def pulse_durations(
     return pulses
 
 
-def trigger_shift(breaks: np.ndarray, offsets: np.ndarray) -> tuple[float, float, float] | None:
+def trigger_shift(
+    breaks: np.ndarray, offsets: np.ndarray, nearest: int | None = None
+) -> tuple[float, float, float] | None:
     """The first breaks fitted as t = t0 + offset / v, robustly (Theil-Sen): (t0, v, the
     breaks' scatter about the line, as 1.4826 x their median absolute deviation); None with
-    fewer than 4 breaks, or breaks spanning less than half the offsets (a noisy far half fakes
-    a shift)."""
+    fewer than 4 breaks. With `nearest`, that many breaks nearest the shot alone: the direct
+    wave's, whose line runs through the shot (farther, a refractor's head wave arrives first,
+    its line crossing the shot's time at its intercept time, no trigger's). Without, every
+    break, spanning half the offsets at least (a noisy far half fakes a shift)."""
     valid = ~np.isnan(breaks)
+    if nearest is not None:
+        chosen = [i for i in np.argsort(offsets) if valid[i]][:nearest]
+        valid = np.zeros(breaks.size, dtype=bool)
+        valid[chosen] = True
     if valid.sum() < 4:
         return None
     span = offsets[valid].max() - offsets[valid].min()
-    if span < 0.5 * (offsets.max() - offsets.min()):
+    if nearest is None and span < 0.5 * (offsets.max() - offsets.min()):
         return None
     fit = np.asarray(theilslopes(breaks[valid], offsets[valid]), dtype=float)
     slowness, t0 = float(fit[0]), float(fit[1])
@@ -245,26 +269,44 @@ def energy_per_sample(xt: np.ndarray, mask: np.ndarray) -> np.ndarray:
     return np.where(counts > 0, energy / np.maximum(counts, 1), 0.0)
 
 
-def mean_spectrum(
-    xt: np.ndarray, mask: np.ndarray, sampling_freq: float
-) -> tuple[np.ndarray, np.ndarray] | None:
-    """The mean power spectrum of the traces' masked samples, each trace's window cut to its
-    samples and zero-padded to the record's length."""
-    if xt.shape[0] == 0 or not mask.any():
-        return None
+def window_spectra(
+    xt: np.ndarray, windows: Windows, sampling_freq: float
+) -> tuple[np.ndarray, np.ndarray, np.ndarray] | None:
+    """The traces' mean power spectra in their surface-wave window and in their noise window,
+    per sample, at one resolution: each trace's noise window cut in pieces as long as its
+    surface-wave window (half overlapping), each piece and the window tapered (Hann) and
+    zero-padded to the record's length, the pieces averaged. A short window cannot resolve a
+    line (a hum's): its lobe spreads over 2 / its length on each side; compared with the long
+    noise window's sharp line, its sides would seem signal. None without a trace holding both."""
     n = xt.shape[1]
-    power = np.zeros(n // 2 + 1)
+    signal_power = np.zeros(n // 2 + 1)
+    noise_power = np.zeros(n // 2 + 1)
     counted = 0
-    for trace, keep in zip(xt, mask, strict=True):
-        if not keep.any():
+    for trace, in_signal, in_noise in zip(xt, windows.signal, windows.noise, strict=True):
+        signal_at = np.flatnonzero(in_signal)
+        noise_at = np.flatnonzero(in_noise)
+        length = min(signal_at.size, noise_at.size)
+        if signal_at.size < 2 or length < 2:
             continue
-        segment = np.where(keep, trace, 0.0)
-        spectrum = np.abs(np.fft.rfft(segment, n=n)) ** 2 / max(int(keep.sum()), 1)
-        power += spectrum
+        taper = np.hanning(signal_at.size)
+        signal_power += _tapered_power(trace[signal_at], taper, n)
+        # A noise window shorter than the surface-wave window (before an early trigger): one
+        # piece of it, as long as it is.
+        piece = np.hanning(length)
+        starts = range(0, noise_at.size - length + 1, max(1, length // 2))
+        noise_power += np.mean(
+            [_tapered_power(trace[noise_at[k : k + length]], piece, n) for k in starts], axis=0
+        )
         counted += 1
     if counted == 0:
         return None
-    return np.fft.rfftfreq(n, d=1 / sampling_freq), power / counted
+    freqs = np.fft.rfftfreq(n, d=1 / sampling_freq)
+    return freqs, signal_power / counted, noise_power / counted
+
+
+def _tapered_power(samples: np.ndarray, taper: np.ndarray, n: int) -> np.ndarray:
+    """`samples` tapered and zero-padded to `n`: their power spectrum per sample."""
+    return np.abs(np.fft.rfft(samples * taper, n=n)) ** 2 / float(np.sum(taper**2))
 
 
 def spectral_deviations(
