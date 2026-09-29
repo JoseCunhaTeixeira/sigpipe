@@ -39,8 +39,12 @@ from sigpipe.masw.inversion.section import (
 from sigpipe.masw.inversion.summary import LINE_SUMMARY_FIGURE, save_line_summary
 from sigpipe.masw.picks import PICKS_FIGURE_STEM, save_pick, save_picks_figures
 from sigpipe.masw.pipelines.common import stage_kwargs
-from sigpipe.masw.pipelines.preprocessing import build_preprocessing_pipeline
-from sigpipe.masw.presets import PresetError, make_preset, resolve_preset
+from sigpipe.masw.pipelines.preprocessing import (
+    build_preprocessing_pipeline,
+    shot_time_s,
+    unmuted_record,
+)
+from sigpipe.masw.presets import ActivePreset, PresetError, make_preset, resolve_preset
 from sigpipe.masw.profiles import ProfileError, ProfileKind, list_profiles, load_profile
 from sigpipe.masw.runs import (
     RunError,
@@ -53,7 +57,7 @@ from sigpipe.masw.runs import (
 )
 from sigpipe.masw.runs.processing import preprocess_records
 from sigpipe.masw.workspace import Folders
-from sigpipe.transformers import Shift
+from sigpipe.transformers import Mute, Shift
 
 WINDOWS = {"masw": {"length": 6, "step": 3}}
 
@@ -304,6 +308,30 @@ def test_the_trigger_moves_a_shots_origin_with_the_muting_only(
     # A bound left out reaches sigpipe as none; a value the profile derives never does.
     preset = resolve_preset(make_preset("active", windows | {"muting": mute}), profile)
     assert stage_kwargs(preset, "muting")["tmin"] is None
+
+
+def test_a_records_checks_measure_it_before_its_muting(workspace: Folders) -> None:
+    profile = load_profile("shots", workspace)
+    record = profile.records[0].model_copy(update={"trigger_s": 0.02})  # as its file said
+    windows = {"masw": {"length": 6, "step": 3}}
+    mute = {"method": "mute", "vmin": 200.0, "vmax": 1500.0}
+
+    def preset(overrides: dict[str, object]) -> ActivePreset:
+        return resolve_preset(make_preset("active", windows | overrides), profile)
+
+    muted = preset({"muting": mute})
+    built = build_preprocessing_pipeline(muted, record, profile, None, muted=False)
+
+    # Neither its trigger shifted (part of the muting) nor muted: as recorded, filtered.
+    assert not [step for step in built.steps if isinstance(step, Shift)]
+    assert [step.method for step in built.steps if isinstance(step, Mute)] == ["none"]
+    as_recorded = unmuted_record(preset({}), record, profile)
+    np.testing.assert_allclose(unmuted_record(muted, record, profile).xt, as_recorded.xt)
+    # Its shot where the muting's shift puts the time origin; off, where its file says.
+    assert shot_time_s(muted, record) == pytest.approx(0.02)
+    corrected = preset({"muting": mute, "trigger": {"t0": 0.005}})
+    assert shot_time_s(corrected, record) == pytest.approx(0.005)
+    assert shot_time_s(preset({}), record) == pytest.approx(0.02)
 
 
 @pytest.mark.parametrize(

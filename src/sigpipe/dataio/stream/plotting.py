@@ -8,37 +8,23 @@ from sigpipe.dataio.plot_config import CM, DISP_DPI, DOUBLE_COLUMN_CM
 
 # The samples a trace keeps, as PAC's gather view does: what a figure shows, far faster.
 GATHER_SAMPLES = 1200
-# The time a gather's figure shows: up to the last sample any trace passes this share of its
-# largest value at, and a tenth more (a muted record's zeros, a correlation's quiet lags, left
-# out).
-SIGNAL_SHARE = 0.02
 # PAC's gather colours: the traces' ink, the shot's star.
 _INK = "#1a1a1a"
 _SOURCE = "#2a78d6"
 
 
-def signal_end(xt: np.ndarray) -> int:
-    """How many of `xt`'s samples (traces x samples) a view shows: up to the last any trace
-    passes SIGNAL_SHARE of its own largest value at, and a tenth more; all when none does."""
-    peaks = np.max(np.abs(xt), axis=1, keepdims=True)
-    loud = np.flatnonzero(np.max(np.abs(xt) / (peaks + 1e-12), axis=0) > SIGNAL_SHARE)
-    return min(xt.shape[1], int(1.1 * (loud[-1] + 1)) + 1) if loud.size else xt.shape[1]
-
-
 def plot_stream(stream: Stream, normalize: bool = True) -> Figure:
     """`stream`'s traces as PAC's gather view draws them: wiggles at their receivers' positions
     along the line (their offsets when the line runs along y), positive lobes filled, each
-    trace scaled to its own largest value (`normalize`; else the gather's), up to where they
-    carry signal (SIGNAL_SHARE), at most GATHER_SAMPLES samples a trace; time down. A shot off
-    the receivers is a star above its position (a virtual source or a passive record's
-    stand-in, on a receiver, none)."""
+    trace scaled to its own largest value (`normalize`; else the gather's), the whole of it, at
+    most GATHER_SAMPLES samples a trace; time down. A shot off the receivers is a star above its
+    position (a virtual source or a passive record's stand-in, on a receiver, none)."""
     full = np.asarray(stream.xt, dtype=np.float32)
-    end = signal_end(full)
     peaks = np.max(np.abs(full), axis=1, keepdims=True) if normalize else np.max(np.abs(full))
     full = full / (peaks + 1e-12)
-    stride = max(1, -(-end // GATHER_SAMPLES))
-    xt = full[:, :end:stride]
-    ts = np.asarray(stream.ts[:end:stride], dtype=np.float32)
+    stride = max(1, -(-stream.nt // GATHER_SAMPLES))
+    xt = full[:, ::stride]
+    ts = np.asarray(stream.ts[::stride], dtype=np.float32)
     receivers = stream.acquisition.receivers
     xs = np.array([receiver.x for receiver in receivers], dtype=float)
     if np.ptp(xs) == 0 and xs.size > 1:
