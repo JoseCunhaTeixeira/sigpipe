@@ -112,6 +112,16 @@ def test_the_line_gives_every_section(run: tuple[Path, list[str]]) -> None:
     grid = petro_grid(section)
     assert grid.positions.tolist() == [6.0, 8.0, 10.0]
     assert grid.n_grid.shape == (3, grid.elevations.size) and grid.elevations.size <= 200
+    # Smoothed along the line: more columns, from the first window's middle to the last's.
+    smooth = petro_grid(section, lateral_smoothing=True, window_m=12.0)
+    assert smooth.positions[0] == 6.0 and smooth.positions[-1] == 10.0
+    assert len(smooth.soil_grid) == smooth.positions.size > 3
+    assert {str(soil) for column in smooth.soil_grid for soil in column} <= {
+        "",
+        *(str(soil) for column in grid.soil_grid for soil in column),
+    }
+    assert smooth.n_grid.shape == (smooth.positions.size, grid.elevations.size)
+    assert smooth.water_table_elevations.shape == smooth.positions.shape
     assert save_petro_section(run_folder, units) == run_folder / SECTION_FIGURE
     assert save_petro_sections_file(run_folder, units) == run_folder / SECTION_FILE
     with h5py.File(run_folder / SECTION_FILE) as file:
@@ -120,6 +130,9 @@ def test_the_line_gives_every_section(run: tuple[Path, list[str]]) -> None:
     for quantity, found in QUANTITIES.items():
         rock = rock_physics_grid(run_folder, units, quantity)
         assert rock is not None and rock.values.shape == (3, rock.elevations.size)
+        smooth_rock = rock_physics_grid(run_folder, units, quantity, True, window_m=12.0)
+        assert smooth_rock is not None and smooth_rock.positions.size > 3
+        assert smooth_rock.values.shape == (smooth_rock.positions.size, rock.elevations.size)
         assert save_rock_physics_section(run_folder, units, quantity) == (
             run_folder / found.section_figure
         )

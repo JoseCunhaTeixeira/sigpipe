@@ -5,7 +5,13 @@ import numpy as np
 
 from sigpipe.base.coordinate import Coordinate
 from sigpipe.base.velocity_model import VelocityModel, VelocityModelsSection
-from sigpipe.masw.inversion.section import informed_levels, interface_grid, velocity_grid
+from sigpipe.masw.inversion.section import (
+    informed_levels,
+    interface_grid,
+    uncertainty_grid,
+    velocity_grid,
+)
+from sigpipe.masw.inversion.window import VsSpread
 
 XS = np.arange(6) * 1.5  # the windows' middles
 
@@ -127,3 +133,40 @@ def test_the_interfaces_are_drawn_from_each_ground() -> None:
     grounds = np.interp(grid.positions, XS, [_ground(float(x)) for x in XS])
     above = grid.elevations[None, :] > grounds[:, None] + 1e-3
     assert np.isnan(smoothed[above]).all() and np.nanmax(smoothed) <= 1.0
+
+
+def _spread(narrow_to: float, bottom: float = 20.0) -> VsSpread:
+    """An uncertainty U of 10 % down to `narrow_to` m, 75 % below it."""
+    depths = (np.arange(int(bottom / 0.05)) + 0.5) * 0.05
+    middle = np.full(depths.size, 300.0)
+    half = np.where(depths < narrow_to, 30.0, 225.0)
+    return VsSpread(depths, middle - half, middle, middle + half, np.full(depths.size, 1.0))
+
+
+def test_the_uncertainty_is_drawn_from_each_ground_and_smoothed_as_vs() -> None:
+    section = VelocityModelsSection(velocity_models=tuple(_model(x) for x in XS))
+    grounds = [_ground(float(x)) for x in XS]
+    spreads = [_spread(4.0 + i) for i in range(len(XS))]
+    windows = [(float(x), g, s) for x, g, s in zip(XS, grounds, spreads, strict=True)]
+    # The fourth window's spread not known: its column left without.
+    windows[3] = (windows[3][0], windows[3][1], None)
+
+    grid = velocity_grid(section, depths=[20.0] * len(XS))
+    plain = uncertainty_grid(grid, windows)
+    for i, ground in enumerate(grounds):
+        column = plain[i]
+        depth = ground - grid.elevations
+        if i == 3:
+            assert np.isnan(column).all()
+            continue
+        inside = ~np.isnan(column)
+        # U of 10 % above the window's depth informed, 75 % below, from its ground.
+        np.testing.assert_allclose(column[inside & (depth < 3.9 + i)], 0.1)
+        np.testing.assert_allclose(column[inside & (depth > 4.1 + i)], 0.75)
+        assert np.isnan(column[depth < 0]).all()
+
+    smooth_grid = velocity_grid(section, True, window_m=3.0, depths=[20.0] * len(XS))
+    smooth = uncertainty_grid(smooth_grid, windows, True, window_m=3.0)
+    assert np.isnan(smooth[smooth_grid.outside()]).all()
+    held = smooth[~smooth_grid.outside()]
+    assert np.nanmin(held) >= 0.1 - 1e-6 and np.nanmax(held) <= 0.75 + 1e-6

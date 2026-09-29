@@ -16,7 +16,14 @@ from sigpipe.base.dispersion_curve import DispersionCurve, DispersionCurvesSecti
 from sigpipe.base.petro_model import PetroModel, PetroModelsSection, SoilType
 from sigpipe.dataio.petro_model.section import plot_petro_models_section
 from sigpipe.dataio.plot_config import CM, DISP_DPI, DOUBLE_COLUMN_CM, HEIGHT_CM
-from sigpipe.masw.inversion.section import VIEW_NZ, ComparisonGrids, grids_of
+from sigpipe.masw.inversion.section import (
+    VIEW_NZ,
+    ComparisonGrids,
+    along_line,
+    grids_of,
+    smoothed,
+    smoothed_categories,
+)
 from sigpipe.masw.petro.window import (
     QUANTITIES,
     Quantity,
@@ -32,6 +39,10 @@ SECTION_FILE = "PetroInversion_Section_0000.hdf5"
 # The rock physics' sampling step (petro.forward.rock_physics' default), the grid its sections
 # share.
 PROFILE_DZ = 0.01
+# Smoothed along the line, a section's columns at least: a soil boundary deeper in a window than
+# in the next runs straight between them, not in a window's two columns (and the rock physics as
+# finely, beside it).
+SMOOTHED_COLUMNS = 300
 
 
 def petro_models(run_folder: Path, units: Sequence[str]) -> PetroModelsSection | None:
@@ -45,8 +56,8 @@ def petro_models(run_folder: Path, units: Sequence[str]) -> PetroModelsSection |
 
 @dataclass(frozen=True, slots=True)
 class PetroGrid:
-    """The soils and N values on screen: one column per inverted window (soils and N are
-    categorical, nothing to interpolate between windows), at most VIEW_NZ elevations."""
+    """The soils and N values on screen: one column per inverted window, or smoothed along the
+    line (`petro_grid`), at most VIEW_NZ elevations."""
 
     positions: np.ndarray
     elevations: np.ndarray
@@ -57,7 +68,17 @@ class PetroGrid:
     water_table_elevations: np.ndarray
 
 
-def petro_grid(section: PetroModelsSection) -> PetroGrid:
+def petro_grid(
+    section: PetroModelsSection, lateral_smoothing: bool = False, window_m: float | None = None
+) -> PetroGrid:
+    """`section` on a grid: one column per window, each from its ground down to its column's
+    depth.
+
+    Smoothed along the line (`lateral_smoothing`), as the velocity section is (inversion.section's
+    `smoothed`, over a share of a window's length `window_m`): the N values and the water table's
+    depth as Vs; the soils as categories (`smoothed_categories`: a boundary runs straight from a
+    window to the next, a soil one window alone holds does not spread).
+    """
     models: Sequence[PetroModel] = section.petro_models
     tops = [model.position.z for model in models]
     bottoms = [model.position.z - sum(model.thicknesses) for model in models]
@@ -66,7 +87,7 @@ def petro_grid(section: PetroModelsSection) -> PetroGrid:
     elevations = (max(tops) - np.arange(nz, dtype=np.float32) * dz).astype(np.float32)
     stride = max(nz // VIEW_NZ, 1)
     kept = elevations[::stride]
-    return PetroGrid(
+    plain = PetroGrid(
         positions=np.array([model.position.x for model in models], dtype=np.float32),
         elevations=kept,
         soil_grid=[list(model.sample_soil(kept)) for model in models],
@@ -74,6 +95,33 @@ def petro_grid(section: PetroModelsSection) -> PetroGrid:
         water_table_elevations=np.array(
             [model.position.z - model.water_table_depth for model in models], dtype=np.float32
         ),
+    )
+    if not lateral_smoothing:
+        return plain
+    xs = plain.positions
+    frame = along_line(
+        xs, np.array(tops), np.array(tops) - np.array(bottoms), kept, window_m, SMOOTHED_COLUMNS
+    )
+    # sample_soil's "" (see PetroGrid): no soil, -1.
+    kinds = [soil for soil in SoilType if soil is not SoilType.NONE]
+    labels = np.array(
+        [
+            [kinds.index(SoilType(str(soil))) if str(soil) else -1 for soil in column]
+            for column in plain.soil_grid
+        ]
+    )
+    step = float(kept[0] - kept[1]) if kept.size > 1 else dz
+    smoothed_labels = smoothed_categories(labels, xs, frame.positions, step, frame.empty)
+    depths = np.array(tops) - plain.water_table_elevations
+    water = frame.ground - smoothed(depths[:, None], xs, frame.positions, frame.window_m)[:, 0]
+    return PetroGrid(
+        positions=frame.positions,
+        elevations=kept,
+        soil_grid=[[kinds[k] if k >= 0 else "" for k in column] for column in smoothed_labels],
+        n_grid=smoothed(plain.n_grid, xs, frame.positions, frame.window_m, frame.empty).astype(
+            np.float32
+        ),
+        water_table_elevations=water.astype(np.float32),
     )
 
 
@@ -122,11 +170,16 @@ class RockPhysicsGrid:
 
 
 def rock_physics_grid(
-    run_folder: Path, units: Sequence[str], quantity: Quantity
+    run_folder: Path,
+    units: Sequence[str],
+    quantity: Quantity,
+    lateral_smoothing: bool = False,
+    window_m: float | None = None,
 ) -> RockPhysicsGrid | None:
     """Each window's saved profile of `quantity`, interpolated within itself onto the line's
     elevations: shear modulus and Vs vary continuously with depth, within a soil layer too
-    (saturation and effective pressure do)."""
+    (saturation and effective pressure do). Smoothed along the line (`lateral_smoothing`) as the
+    velocity section's Vs, over a share of a window's length `window_m`."""
     found = QUANTITIES[quantity]
     entries: list[tuple[float, float, np.ndarray, np.ndarray]] = []  # x, top, elevations, values
     for unit in units:
@@ -152,10 +205,22 @@ def rock_physics_grid(
             elevations[inside], ascending, profile_values[::-1] * found.scale
         )
     stride = max(nz // VIEW_NZ, 1)
-    return RockPhysicsGrid(
+    plain = RockPhysicsGrid(
         positions=np.array([entry[0] for entry in entries], dtype=np.float32),
         elevations=elevations[::stride],
         values=values[:, ::stride],
+    )
+    if not lateral_smoothing:
+        return plain
+    tops = np.array([entry[1] for entry in entries])
+    reach = tops - np.array([float(entry[2][-1]) for entry in entries])
+    frame = along_line(plain.positions, tops, reach, plain.elevations, window_m, SMOOTHED_COLUMNS)
+    return RockPhysicsGrid(
+        positions=frame.positions,
+        elevations=plain.elevations,
+        values=smoothed(
+            plain.values, plain.positions, frame.positions, frame.window_m, frame.empty
+        ).astype(np.float32),
     )
 
 

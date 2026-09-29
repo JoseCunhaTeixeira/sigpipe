@@ -12,6 +12,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 from disba import DispersionError
 from pydantic import BaseModel, ConfigDict
+from scipy.stats import rankdata
 
 from sigpipe.algorithms.inversion.rayleigh.seismic.forward import (
     fwd_seismic_all_modes,
@@ -48,6 +49,15 @@ PARAMETERS_FILE = "SeismicInversion_Parameters_0000.json"
 # 50th and 90th percentiles.
 SPREAD_FILE = "SeismicInversion_DispersionSpread_0000.csv"
 SPREAD_PERCENTILES = (10.0, 50.0, 90.0)
+# The kept models' Vs at each depth, as the same percentiles: the profile's band, the section's
+# uncertainty and the depth informed read from it (measuring.useful_depth); with how far around
+# each depth their Vs moves together (the depth's correlation length).
+VS_SPREAD_FILE = "SeismicInversion_VsSpread_0000.csv"
+VS_SPREAD_DZ = 0.05  # m between its depths
+# The correlation length: measured every CORRELATION_DZ (m), the span of the neighbouring depths
+# whose Vs keeps a rank correlation of at least CORRELATED with the depth's own.
+CORRELATION_DZ = 0.25
+CORRELATED = 0.5
 # The samples file's arrays that are no named value: the layers, and what describes the file.
 _DEPTHS = "profile_depths"
 _VS = "profile_vs"
@@ -107,6 +117,8 @@ def invert_window(
     save_parameters(parameters, result, out / PARAMETERS_FILE)
     save_samples(result, out / SAMPLES_FILE)
     save_spread(result, curves, out / SPREAD_FILE)
+    ran = load_parameters(out / PARAMETERS_FILE).parameters
+    save_vs_spread(vs_spread(result.profiles, ran.bottom), out / VS_SPREAD_FILE)
 
     # The median model's M0 at the picked frequencies, and every mode it supports across the
     # image, drawn over the image.
@@ -287,6 +299,83 @@ def load_spread(folder: Path) -> dict[str, Spread]:
         label: Spread(*(np.array(column) for column in zip(*values, strict=True)))
         for label, values in rows.items()
     }
+
+
+@dataclass(frozen=True, slots=True)
+class VsSpread:
+    """The kept models' Vs at depths from the surface down: their SPREAD_PERCENTILES, and how
+    far around each depth their Vs moves together."""
+
+    depths: np.ndarray  # m, each cell's middle, VS_SPREAD_DZ apart
+    low: np.ndarray  # m/s, the 10th percentile
+    middle: np.ndarray  # the 50th
+    high: np.ndarray  # the 90th
+    correlation: np.ndarray  # m, the correlation length (NaN: the models all alike there)
+
+    def uncertainty(self) -> np.ndarray:
+        """U(z), the relative uncertainty of Vs at each depth: (P90 - P10) / (2 P50)."""
+        return (self.high - self.low) / (2 * self.middle)
+
+
+def vs_spread(profiles: LayeredSamples, bottom: float, dz: float = VS_SPREAD_DZ) -> VsSpread:
+    """The kept models' (`profiles`) Vs in cells `dz` thick down to `bottom` (m), at each cell's
+    middle, as their SPREAD_PERCENTILES, and each depth's correlation length (measured every
+    CORRELATION_DZ, drawn between)."""
+    depths = (np.arange(max(int(np.ceil(bottom / dz)), 1)) + 0.5) * dz
+    low, middle, high = np.percentile(profiles.at(depths), SPREAD_PERCENTILES, axis=0)
+    coarse = (np.arange(max(int(np.ceil(bottom / CORRELATION_DZ)), 1)) + 0.5) * CORRELATION_DZ
+    lengths = correlation_lengths(profiles.at(coarse), CORRELATION_DZ)
+    return VsSpread(depths, low, middle, high, np.interp(depths, coarse, lengths))
+
+
+def correlation_lengths(rasters: np.ndarray, dz: float) -> np.ndarray:
+    """At each depth of `rasters` (the models' Vs, models x depths `dz` apart), how far around it
+    (m) their Vs moves with its own: the span of the neighbouring depths whose Vs keeps a rank
+    correlation (Spearman: a posterior far from Gaussian, two modes about an interface) of at
+    least CORRELATED with it. A long span: the data do not tell these depths apart. NaN where
+    the models all hold one Vs."""
+    ranks = rankdata(rasters, axis=0)
+    ranks -= ranks.mean(axis=0)
+    scale = np.sqrt((ranks**2).sum(axis=0))
+    alike = scale == 0
+    ranks[:, ~alike] /= scale[~alike]
+    corr = ranks.T @ ranks  # the depths' rank correlations; 0 with a depth all alike
+    lengths = np.full(rasters.shape[1], np.nan)
+    for i in np.flatnonzero(~alike):
+        together = corr[i] >= CORRELATED
+        lo = i
+        while lo > 0 and together[lo - 1]:
+            lo -= 1
+        hi = i
+        while hi < together.size - 1 and together[hi + 1]:
+            hi += 1
+        lengths[i] = (hi - lo + 1) * dz
+    return lengths
+
+
+def save_vs_spread(spread: VsSpread, path: Path) -> None:
+    """`spread` as a row per depth. Written whole, then moved in place: a reader never finds half
+    of it (PAC writes it on reading an inversion saved before it was, see load_vs_spread)."""
+    lines = ["depth_m,p10_m/s,p50_m/s,p90_m/s,correlation_m"]
+    columns = (spread.depths, spread.low, spread.middle, spread.high, spread.correlation)
+    for row in zip(*columns, strict=True):
+        lines.append(",".join(f"{value:.6g}" for value in row))
+    partial = path.with_name(f".{path.name}.partial")
+    partial.write_text("\n".join(lines) + "\n")
+    partial.replace(path)
+
+
+def load_vs_spread(folder: Path) -> VsSpread | None:
+    """The kept models' Vs spread `save_vs_spread` wrote in window folder `folder`; None without
+    its file, or with one of its first version, without the correlation length (the inversions
+    saved before 2026-09-29: vs_spread makes it from their samples)."""
+    path = folder / VS_SPREAD_FILE
+    if not path.exists():
+        return None
+    rows = np.loadtxt(path, delimiter=",", skiprows=1, ndmin=2)
+    if rows.shape[1] < 5:
+        return None
+    return VsSpread(*(rows[:, k].copy() for k in range(5)))
 
 
 def load_profiles(path: Path) -> LayeredSamples:

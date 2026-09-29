@@ -16,25 +16,33 @@ from .priors import InversionError
 from .window import (
     PARAMETERS_FILE,
     SPREAD_FILE,
+    VS_SPREAD_FILE,
     Spread,
+    VsSpread,
     WindowParameters,
     build_inversion_pipeline,
     invert_window,
     load_parameters,
     load_spread,
+    load_vs_spread,
+    vs_spread,
 )
 
 __all__ = [
     "PARAMETERS_FILE",
     "SPREAD_FILE",
+    "VS_SPREAD_FILE",
     "InversionError",
     "InversionParameters",
     "Spread",
     "ThicknessLayer",
     "VsLayer",
+    "VsSpread",
     "WindowParameters",
     "build_inversion_pipeline",
     "invert_window",
     "load_parameters",
     "load_spread",
+    "load_vs_spread",
+    "vs_spread",
 ]

@@ -17,7 +17,6 @@ from pydantic import BaseModel, ConfigDict
 from scipy.stats import norm, rankdata
 
 from sigpipe.algorithms.inversion.rayleigh.seismic.parameters import InversionParameters
-from sigpipe.algorithms.inversion.rayleigh.seismic.transdimensional import THINNEST
 from sigpipe.base.dispersion_curve import DispersionCurve
 from sigpipe.base.inversion import LayeredSamples
 from sigpipe.dataio.dispersion.loading import load_dispersion_curves
@@ -25,9 +24,11 @@ from sigpipe.dataio.velocity_model.loading import load_velocity_models
 from sigpipe.masw.inversion.window import (
     PARAMETERS_FILE,
     SAMPLES_FILE,
+    VsSpread,
     load_parameters,
     load_profiles,
     load_samples,
+    vs_spread,
 )
 from sigpipe.masw.picks import CURVES_FILE
 
@@ -42,8 +43,10 @@ _RATE = re.compile(r"ACCEPTANCE RATE: \d+/\d+ \(([\d.]+) %\)")
 # Depths the chains' agreement is measured at, between a third of the shortest and of the longest
 # picked wavelength.
 WATCHED = 5
-# The draws of a prior model at most, until one keeps the Vs drop allowed.
-DRAWS = 200
+# A stretch where the kept models' uncertainty is too high ends the depth informed when at least
+# this share of its depth thick: thinner, it is where they place an interface they agree on (its
+# depth's 10-90 % within a fifth of it, about ±8 %), as well as surface waves resolve one.
+RESOLVED_SHARE = 0.2
 
 
 class BandFit(BaseModel):
@@ -82,9 +85,10 @@ class BoundShare(BaseModel):
     share: float  # of the samples within the watched edge of the prior's range
 
 
-# What a useful depth read against `yardstick` says it was read against: the measures saved
-# before it hold none, and their useful depth compares with no other window's.
-USEFUL_REFERENCE = "curve"
+# How the useful depth was read: from the kept models' relative uncertainty U(z) (useful_depth).
+# The measures saved before say "curve" (against one prior for every window, drawn from the
+# picked curve) or nothing (against the run's own prior).
+USEFUL_REFERENCE = "band"
 
 
 class InversionMeasures(BaseModel):
@@ -107,9 +111,10 @@ class InversionMeasures(BaseModel):
     steps: dict[str, float] = {}  # each parameter's step as the sampler ran it
     samples_per_chain: int
     at_bounds: tuple[BoundShare, ...]  # the most piled first
-    useful_depth_m: float | None  # where the posterior's spread reaches the prior's; None: nowhere
-    # What the useful depth was read against: USEFUL_REFERENCE (one yardstick for every window);
-    # empty in measures from before 2026-09-28, against the run's own prior.
+    # Where the kept models' uncertainty of Vs gets too high (useful_depth); None: nowhere.
+    useful_depth_m: float | None
+    # How the useful depth was read: USEFUL_REFERENCE; "curve" or empty in measures from before
+    # (see USEFUL_REFERENCE).
     useful_reference: str = ""
     depth_max_m: float  # the bottom of the models sigpipe builds
     vs_at_depths: tuple[tuple[float, float], ...]  # (depth m, the monitored model's Vs m/s)
@@ -129,16 +134,16 @@ def measure_inversion(
     depths: Sequence[float] = (),
     n_bands: int = 3,
     bound_edge: float = 0.02,
-    std_ratio: float = 0.5,
+    max_uncertainty: float = 0.25,
     output_folder: Path | None = None,
 ) -> InversionMeasures:
     """The measures of the inversion saved in window folder `folder` (or in `output_folder`, a
     staging folder, beside the curves `folder` keeps), inverted with
     `parameters`: the fits over `n_bands` bands of the picked curve's wavelengths, the share of
     each parameter's samples within `bound_edge` of its prior's range from each bound, the
-    useful depth where the posterior's spread of Vs reaches `std_ratio` of the spread of one
-    yardstick for every window (`yardstick`), where the kept models put interfaces, and the
-    monitored model's Vs at `depths`."""
+    useful depth where the kept models' relative uncertainty of Vs, U(z) = (P90 - P10) / (2 P50),
+    gets above `max_uncertainty` (useful_depth), where they put interfaces, and the monitored
+    model's Vs at `depths`."""
     picked = _picked_m0(folder)
     out = output_folder or folder
     fits = tuple(fit_by_band(model, picked, _forward(out, model), n_bands) for model in MODELS)
@@ -183,7 +188,7 @@ def measure_inversion(
             if ran.layering == "fixed"
             else free_bound_shares(profiles, ran, bound_edge)
         ),
-        useful_depth_m=useful_depth(profiles, ran, std_ratio, reference=yardstick(fs, vs)),
+        useful_depth_m=useful_depth(vs_spread(profiles, ran.bottom), max_uncertainty),
         useful_reference=USEFUL_REFERENCE,
         quantiles={
             name: (
@@ -436,114 +441,30 @@ def _ends(low: float, high: float) -> tuple[tuple[Literal["min", "max"], float],
     return (("min", low), ("max", high))
 
 
-def yardstick(fs: np.ndarray, vs: np.ndarray) -> InversionParameters:
-    """What a window's useful depth is read against, the same for every window whatever
-    layering or bounds it ran with: the prior of the layers chosen by the data, its bounds found
-    from the fundamental mode's picks (frequencies Hz, phase velocities m/s): Vs from half the
-    slowest pick to three times the fastest, interfaces from a third of the shortest wavelength
-    to half the longest. Against a run's own prior, a narrow one made every model look
-    uninformed and a wide one every model informed: two windows could not be compared."""
-    return InversionParameters().resolved(fs, vs)
-
-
 def useful_depth(
-    profiles: LayeredSamples,
-    parameters: InversionParameters,
-    ratio: float,
-    dz: float = 0.05,
-    n_prior: int = 2_000,
-    reference: InversionParameters | None = None,
+    spread: VsSpread, max_uncertainty: float, resolved: float = RESOLVED_SHARE
 ) -> float | None:
-    """The depth below which the spread of the sampled Vs stays at least `ratio` of the prior's
-    spread there (the prior drawn `n_prior` times, with a fixed seed): below it, the data say
-    little. The prior is `reference`'s when given (`yardstick`'s, for measure_inversion), else
-    `parameters`' (both resolved); the depths read, `parameters`' models'. The spread is the
-    interquartile range, which a minority of samples in another mode does not widen as it does
-    the standard deviation. Read from the bottom up, so that a thin top layer the data cannot
-    resolve does not end it at the surface. 0 when the data inform no depth, None when they
-    inform the models down to their bottom."""
-    depth_max = parameters.bottom
-    grid = (np.arange(int(np.ceil(depth_max / dz))) + 0.5) * dz
-    posterior = profiles.at(grid)
-    prior = prior_draws(reference if reference is not None else parameters, n_prior).at(grid)
-    informed = np.flatnonzero(_spread(posterior) < ratio * _spread(prior))
-    if not informed.size:
+    """How deep the kept models inform Vs, from them alone (no prior, no wavelength): from the
+    surface down, past a top they leave open, to where their relative uncertainty U(z) =
+    (P90 - P10) / (2 P50) (`spread`) gets above `max_uncertainty` and stays so over at least
+    `resolved` of that depth (a thinner stretch is an interface they place alike). 0 when U is
+    never that low, None when it stays so down to the models' bottom. Where they disagree on an
+    interface's depth, the depth informed ends, though they may agree again below it: on a
+    half-space's Vs, which the longest wavelengths pin whatever depth it starts at."""
+    narrow = spread.uncertainty() <= max_uncertainty
+    first = int(np.argmax(narrow))
+    if not narrow[first]:
         return 0.0
-    if informed[-1] == posterior.shape[1] - 1:
-        return None
-    return round(float((informed[-1] + 1) * dz), 2)
-
-
-def prior_draws(parameters: InversionParameters, count: int, seed: int = 0) -> LayeredSamples:
-    """`count` models of the priors (resolved), as the chains' priors hold them: the layers given
-    or chosen, the Vs drop allowed (a draw breaking it drawn again, then its Vs sorted after
-    DRAWS draws: close enough to the prior for its spread). Drawn all at once, those breaking the
-    drop again together: a window's yardstick is drawn whenever its measures are read again."""
-    rng = np.random.default_rng(seed)
-    draw = _fixed_draws if parameters.layering == "fixed" else _free_draws
-    depths, vs = draw(parameters, count, rng)
-    pending = np.flatnonzero(_drops(vs, parameters.least_ratio))
-    for _ in range(DRAWS - 1):
-        if not pending.size:
-            break
-        depths[pending], vs[pending] = draw(parameters, pending.size, rng)
-        pending = pending[_drops(vs[pending], parameters.least_ratio)]
-    vs[pending] = np.sort(vs[pending], axis=1)  # the padding (NaN) stays last
-    return LayeredSamples(depths=depths, vs=vs, n_chains=1)
-
-
-def _drops(vs: np.ndarray, least_ratio: float) -> np.ndarray:
-    """Whether each model (a row, NaN past its layers) has a layer whose Vs is under
-    `least_ratio` of the one above it."""
-    return np.any(vs[:, 1:] < least_ratio * vs[:, :-1], axis=1)
-
-
-def _fixed_draws(
-    parameters: InversionParameters, count: int, rng: np.random.Generator
-) -> tuple[np.ndarray, np.ndarray]:
-    """`count` models of the layers given: each thickness and Vs uniform within its bounds."""
-    thickness = np.column_stack(
-        [rng.uniform(*layer.bounds, count) for layer in parameters.thickness_layers]
-    )
-    vs = np.column_stack([rng.uniform(*layer.bounds, count) for layer in parameters.vs_layers])
-    return np.cumsum(thickness, axis=1), vs
-
-
-def _free_draws(
-    parameters: InversionParameters, count: int, rng: np.random.Generator
-) -> tuple[np.ndarray, np.ndarray]:
-    """`count` models of layers chosen by the data (NaN past each one's layers): 1 to max_layers
-    layers, their interfaces log-uniform within the depths' bounds, a layer at least THINNEST
-    of its top's depth thick (the interfaces drawn again, up to 100 times, when they break it),
-    each Vs log-uniform within its bounds."""
-    free = parameters.free
-    assert free.vs_min is not None and free.vs_max is not None
-    assert free.depth_min is not None and free.depth_max is not None
-    most = free.max_layers
-    layers = rng.integers(1, most + 1, count)
-    # Past a model's interfaces: +inf, sorted last and never too close to the one before.
-    unused = np.arange(most - 1)[None, :] >= (layers - 1)[:, None]
-    low, high = np.log(free.depth_min), np.log(free.depth_max)
-    gap = np.log(1 + THINNEST)
-
-    def interfaces(rows: np.ndarray) -> np.ndarray:
-        drawn = rng.uniform(low, high, (rows.size, most - 1))
-        drawn[unused[rows]] = np.inf
-        return np.sort(drawn, axis=1)
-
-    log_depths = interfaces(np.arange(count))
-    for _ in range(100):
-        # inf - inf, past the interfaces, is NaN: never under the gap.
-        with np.errstate(invalid="ignore"):
-            close = np.flatnonzero(np.any(np.diff(log_depths, axis=1) < gap, axis=1))
-        if not close.size:
-            break
-        log_depths[close] = interfaces(close)
-    log_vs = rng.uniform(np.log(free.vs_min), np.log(free.vs_max), (count, most))
-    log_vs[np.arange(most)[None, :] >= layers[:, None]] = np.nan
-    depths = np.exp(log_depths)
-    depths[unused] = np.nan
-    return depths, np.exp(log_vs)
+    cell = float(spread.depths[1] - spread.depths[0]) if spread.depths.size > 1 else 0.0
+    wide = ~narrow
+    wide[:first] = False
+    # Each stretch too wide: its first cell, then the one past its last.
+    edges = np.flatnonzero(np.diff(np.concatenate(([0], wide.astype(int), [0]))))
+    for start, end in zip(edges[::2], edges[1::2], strict=True):
+        top = float(spread.depths[start]) - cell / 2
+        if end == wide.size or (end - start) * cell >= resolved * top:
+            return round(top, 2)
+    return None
 
 
 def _steps(parameters: InversionParameters) -> dict[str, float]:
@@ -558,12 +479,6 @@ def _steps(parameters: InversionParameters) -> dict[str, float]:
     }
     fixed = parameters.fixed()
     return {name: step for name, step in steps.items() if name not in fixed}
-
-
-def _spread(rasters: np.ndarray) -> np.ndarray:
-    """The interquartile range of the samples' Vs at each depth."""
-    high, low = np.percentile(rasters, [75, 25], axis=0)
-    return high - low
 
 
 def depth_bottom(parameters: InversionParameters) -> float:

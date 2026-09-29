@@ -1,6 +1,6 @@
 """What G5 measures of an inversion, each measure on inputs with a known answer: chains that agree
-or not, samples piled at a bound, a half-space the data do not inform, one yardstick for every
-window, fits by band, the sampler's log."""
+or not, samples piled at a bound, the depth informed read from the kept models' band, fits by
+band, the sampler's log."""
 
 import numpy as np
 import pytest
@@ -21,8 +21,8 @@ from sigpipe.masw.inversion.measuring import (
     split_rhat,
     useful_depth,
     vs_at,
-    yardstick,
 )
+from sigpipe.masw.inversion.window import correlation_lengths, vs_spread
 
 RNG = np.random.default_rng(7)
 PARAMETERS = InversionParameters.model_validate(
@@ -31,6 +31,15 @@ PARAMETERS = InversionParameters.model_validate(
         "thickness_layers": [{"thickness_min": 1.0, "thickness_max": 5.0}],
     }
 )
+
+
+def _useful(
+    samples: dict[str, np.ndarray],
+    max_uncertainty: float = 0.25,
+    parameters: InversionParameters = PARAMETERS,
+) -> float | None:
+    """The depth informed of two-layer samples, read from their relative uncertainty U(z)."""
+    return useful_depth(vs_spread(_profiles(samples), parameters.bottom), max_uncertainty)
 
 
 def _profiles(samples: dict[str, np.ndarray]) -> LayeredSamples:
@@ -124,7 +133,7 @@ def test_the_useful_depth_ends_where_the_data_stop_informing_vs() -> None:
         "vs2": RNG.uniform(100.0, 500.0, 3_000),
     }
 
-    depth = useful_depth(_profiles(samples), PARAMETERS, 0.5)
+    depth = _useful(samples)
     assert depth is not None and 2.8 <= depth <= 3.1
 
 
@@ -146,10 +155,10 @@ def test_a_thin_top_layer_the_data_cannot_resolve_does_not_end_the_useful_depth(
     )
 
     # Informed below the top layer, to the models' bottom.
-    assert useful_depth(_profiles(samples), parameters, 0.5) is None
+    assert _useful(samples, parameters=parameters) is None
     # Nothing informed at all: 0.
     samples["vs2"] = RNG.uniform(100.0, 500.0, 3_000)
-    assert useful_depth(_profiles(samples), parameters, 0.5) == 0.0
+    assert _useful(samples, parameters=parameters) == 0.0
 
 
 def test_a_model_informed_to_its_bottom_has_no_useful_depth() -> None:
@@ -159,61 +168,56 @@ def test_a_model_informed_to_its_bottom_has_no_useful_depth() -> None:
         "vs2": RNG.normal(350.0, 5.0, 3_000),
     }
 
-    assert useful_depth(_profiles(samples), PARAMETERS, 0.5) is None
+    assert _useful(samples) is None
 
 
-# Picks from 400 m/s at 5 Hz to 200 m/s at 40 Hz: wavelengths from 5 to 80 m.
-PICKED_FS = np.array([5.0, 10.0, 20.0, 40.0])
-PICKED_VS = np.array([400.0, 300.0, 250.0, 200.0])
-# Run with the half-space's Vs between 300 and 700 m/s, or far wider.
-NARROW = PARAMETERS.model_copy(
-    update={"vs_layers": (VsLayer(vs_min=100.0, vs_max=500.0), VsLayer(vs_min=300.0, vs_max=700.0))}
-)
-WIDE = PARAMETERS.model_copy(
-    update={
-        "vs_layers": (VsLayer(vs_min=100.0, vs_max=500.0), VsLayer(vs_min=100.0, vs_max=1_500.0))
+def test_an_interface_the_models_disagree_on_ends_the_depth_informed() -> None:
+    # A layer resolved to an interface somewhere between 2 and 4 m, over a half-space they agree
+    # on: the depth informed ends where they start to disagree, not at the bottom.
+    samples = {
+        "vs1": RNG.normal(250.0, 5.0, 3_000),
+        "thick1": RNG.uniform(2.0, 4.0, 3_000),
+        "vs2": RNG.normal(800.0, 20.0, 3_000),
     }
-)
+
+    depth = _useful(samples)
+    assert depth is not None and 2.1 <= depth <= 2.35
 
 
-def _resolved_over(half_space: np.ndarray) -> LayeredSamples:
-    """A layer resolved to 3 m over a half-space whose Vs spreads as `half_space`."""
-    return _profiles(
-        {
-            "vs1": RNG.normal(250.0, 5.0, half_space.size),
-            "thick1": RNG.normal(3.0, 0.05, half_space.size),
-            "vs2": half_space,
-        }
-    )
+def test_an_interface_the_models_place_alike_does_not_end_the_depth_informed() -> None:
+    # A sharp contrast at 3 m give or take 5 cm: the band is wide over those centimetres only.
+    samples = {
+        "vs1": RNG.normal(250.0, 5.0, 3_000),
+        "thick1": RNG.normal(3.0, 0.05, 3_000),
+        "vs2": RNG.normal(800.0, 20.0, 3_000),
+    }
+
+    assert _useful(samples) is None
 
 
-def test_the_yardstick_is_the_prior_the_curve_alone_gives() -> None:
-    stick = yardstick(PICKED_FS, PICKED_VS)
+def test_the_limit_sets_how_uncertain_a_vs_still_informs() -> None:
+    # A half-space whose U(z) = (P90 - P10) / (2 P50) is about 14 %.
+    samples = {
+        "vs1": RNG.normal(250.0, 5.0, 3_000),
+        "thick1": RNG.normal(3.0, 0.05, 3_000),
+        "vs2": RNG.normal(400.0, 45.0, 3_000),
+    }
 
-    # The layers chosen by the data: Vs from half the slowest pick to three times the fastest,
-    # interfaces from a third of the shortest wavelength to half the longest.
-    assert stick.layering == "free"
-    assert (stick.free.vs_min, stick.free.vs_max) == (100.0, 1_200.0)
-    assert (stick.free.depth_min, stick.free.depth_max) == (1.67, 40.0)
+    assert _useful(samples, max_uncertainty=0.25) is None
+    depth = _useful(samples, max_uncertainty=0.125)
+    assert depth is not None and 2.8 <= depth <= 3.1
 
 
-def test_one_yardstick_reads_a_posterior_alike_whatever_its_prior() -> None:
-    # The half-space spreads over its narrow prior: against each run's own prior, the narrow
-    # run looks informed to 3 m only, the wide one to its bottom.
-    profiles = _resolved_over(RNG.uniform(300.0, 700.0, 3_000))
-    own = [useful_depth(profiles, run, 0.5) for run in (NARROW, WIDE)]
-    assert own[0] is not None and 2.8 <= own[0] <= 3.1 and own[1] is None
+def test_depths_the_models_move_alike_share_their_correlation_length() -> None:
+    # Two blocks of 8 depths each, every model's Vs one value per block, the blocks apart; then
+    # a depth where every model holds the same Vs.
+    top, below = RNG.normal(250.0, 20.0, 2_000), RNG.normal(600.0, 50.0, 2_000)
+    rasters = np.column_stack([top] * 8 + [below] * 8 + [np.full(2_000, 700.0)])
 
-    # Against the yardstick, one reading: a spread under half of what the curve alone allows.
-    stick = yardstick(PICKED_FS, PICKED_VS)
-    assert [useful_depth(profiles, run, 0.5, reference=stick) for run in (NARROW, WIDE)] == [
-        None,
-        None,
-    ]
-    # A half-space as open as the curve alone leaves it: informed to 3 m, whatever the run.
-    open_below = _resolved_over(np.exp(RNG.uniform(np.log(100.0), np.log(1_200.0), 3_000)))
-    read = [useful_depth(open_below, run, 0.5, reference=stick) for run in (NARROW, WIDE)]
-    assert read[0] == read[1] and read[0] is not None and 2.8 <= read[0] <= 3.1
+    lengths = correlation_lengths(rasters, 0.25)
+
+    np.testing.assert_allclose(lengths[:16], 2.0)  # 8 depths of 25 cm, each block
+    assert np.isnan(lengths[16])
 
 
 def test_the_fit_is_judged_by_band_of_wavelength() -> None:

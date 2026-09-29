@@ -8,11 +8,11 @@ import warnings
 from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Literal
+from typing import Literal, cast
 
 import matplotlib.pyplot as plt
 import numpy as np
-from scipy.ndimage import gaussian_filter1d
+from scipy.ndimage import distance_transform_edt, gaussian_filter1d
 
 from sigpipe.base.dispersion_curve import DispersionCurve, DispersionCurvesSection, Mode
 from sigpipe.base.velocity_model import VelocityModel, VelocityModelsSection
@@ -28,7 +28,7 @@ from sigpipe.dataio.velocity_model.section import (
     save_velocity_models_sections,
 )
 from sigpipe.masw.inversion.measuring import INTERFACE_DZ
-from sigpipe.masw.inversion.window import DZ, M0
+from sigpipe.masw.inversion.window import DZ, M0, VsSpread
 from sigpipe.masw.picks import CURVES_FILE
 from sigpipe.transformers import Plot
 
@@ -157,11 +157,11 @@ def velocity_grid(
     )
 
 
-def smoothed_positions(xs: np.ndarray) -> np.ndarray:
+def smoothed_positions(xs: np.ndarray, at_least: int = 0) -> np.ndarray:
     """The columns of a section smoothed along the line: every half of the windows' smallest step
-    (each window two columns at least), VIEW_NX at most."""
+    (each window two columns at least), `at_least` of them, VIEW_NX at most."""
     step = max(float(np.min(np.diff(xs))) / 2, 1e-6) if xs.size > 1 else 1.0
-    count = min(int(np.floor((xs[-1] - xs[0]) / step)) + 1, VIEW_NX)
+    count = min(max(int(np.floor((xs[-1] - xs[0]) / step)) + 1, at_least), VIEW_NX)
     return np.linspace(float(xs[0]), float(xs[-1]), max(count, 2), dtype=np.float32)
 
 
@@ -182,17 +182,7 @@ def smoothed(
     spread); between windows, linear from those holding a value; then a Gaussian along the line
     whose full width at half height is SMOOTHED_SHARE of `window_m`, a window's length. The
     cells `empty` (above the ground) left empty, and none of them weighed in."""
-    padded = np.pad(np.asarray(values, dtype=float), ((1, 1), (0, 0)), mode="edge")
-    with warnings.catch_warnings():
-        warnings.simplefilter("ignore", category=RuntimeWarning)  # a row without a value
-        robust = np.nanmedian(np.stack([padded[:-2], padded[1:-1], padded[2:]]), axis=0)
-    out = np.full((positions.size, robust.shape[1]), np.nan)
-    for j in range(robust.shape[1]):
-        held = ~np.isnan(robust[:, j])
-        if held.any():
-            out[:, j] = np.interp(positions, xs[held], robust[held, j])
-    if empty is not None:
-        out[empty] = np.nan
+    out = _interpolated(values, xs, positions, empty)
     step = float(positions[1] - positions[0]) if positions.size > 1 else 1.0
     sigma = SMOOTHED_SHARE * window_m / (2 * np.sqrt(2 * np.log(2))) / step
     weights = (~np.isnan(out)).astype(float)
@@ -202,6 +192,135 @@ def smoothed(
         result = total / weight
     result[weights == 0] = np.nan
     return result
+
+
+def _median_of_three(values: np.ndarray) -> np.ndarray:
+    """Each window's values (a row each) the median of its and its two neighbours' (the line's
+    ends their own twice), NaN left out."""
+    padded = np.pad(np.asarray(values, dtype=float), ((1, 1), (0, 0)), mode="edge")
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", category=RuntimeWarning)  # a row without a value
+        return np.nanmedian(np.stack([padded[:-2], padded[1:-1], padded[2:]]), axis=0)
+
+
+def _interpolated(
+    values: np.ndarray, xs: np.ndarray, positions: np.ndarray, empty: np.ndarray | None
+) -> np.ndarray:
+    """`smoothed` before its Gaussian: each window's value the median of its and its two
+    neighbours', linear between windows, NaN in the cells `empty`."""
+    robust = _median_of_three(values)
+    out = np.full((positions.size, robust.shape[1]), np.nan)
+    for j in range(robust.shape[1]):
+        held = ~np.isnan(robust[:, j])
+        if held.any():
+            out[:, j] = np.interp(positions, xs[held], robust[held, j])
+    if empty is not None:
+        out[empty] = np.nan
+    return out
+
+
+def smoothed_categories(
+    labels: np.ndarray,
+    xs: np.ndarray,
+    positions: np.ndarray,
+    dz: float,
+    empty: np.ndarray | None = None,
+) -> np.ndarray:
+    """Categories (`labels`, a row per window at `xs`, a label per cell `dz` apart down its
+    column, -1 where it has none) along the line at `positions`, as `smoothed` takes values
+    along it before its Gaussian: each category's signed distance to its edges (inside it, how
+    far to another; outside, minus how far to it) the median of a window's and its neighbours',
+    linear between windows, the largest winning among those the two windows around hold there.
+    A boundary deeper in one window than in the next runs straight between them, a category
+    one window alone holds does not spread, one two windows hold ends just past them, and none
+    shows between two windows that neither holds at that depth. No Gaussian: it would blur a
+    thin layer away. -1 in the cells `empty`, and where no window holds a label."""
+    labels = np.asarray(labels)
+    kinds = np.unique(labels[labels >= 0])
+    out = np.full((positions.size, labels.shape[1]), -1, dtype=int)
+    if kinds.size == 0:
+        return out
+    far = labels.shape[1] * dz  # farther than any edge of a column
+    robust = np.stack(
+        [
+            _median_of_three(
+                np.array([_signed_distance(column, kind, dz, far) for column in labels])
+            )
+            for kind in kinds
+        ]
+    )  # (kinds, windows, cells)
+    for j in range(labels.shape[1]):
+        held = ~np.isnan(robust[0, :, j])
+        if not held.any():
+            continue
+        at, values = xs[held], robust[:, held, j]
+        # Each window's category there: the one it is inside, or the nearest to it.
+        own = values.argmax(axis=0)
+        if at.size == 1:
+            out[:, j] = kinds[own[0]]
+            continue
+        right = np.clip(np.searchsorted(at, positions), 1, at.size - 1)
+        left = right - 1
+        t = np.clip((positions - at[left]) / (at[right] - at[left]), 0.0, 1.0)
+        between = values[:, left] * (1 - t) + values[:, right] * t  # (kinds, positions)
+        which = np.arange(kinds.size)[:, None]
+        allowed = (which == own[left]) | (which == own[right])
+        out[:, j] = kinds[np.where(allowed, between, -np.inf).argmax(axis=0)]
+    if empty is not None:
+        out[empty] = -1
+    return out
+
+
+def _signed_distance(column: np.ndarray, kind: int, dz: float, far: float) -> np.ndarray:
+    """Down a column of labels (-1: none): inside `kind`, how far (m) to another label, `far`
+    without one; elsewhere, minus how far to `kind`, minus `far` without it; NaN where none."""
+    inside = column == kind
+    other = (column >= 0) & ~inside
+    out = np.full(column.shape, np.nan)
+    if inside.any():
+        out[inside] = _cells_to_false(~other)[inside] * dz if other.any() else far
+    if other.any():
+        out[other] = -_cells_to_false(~inside)[other] * dz if inside.any() else -far
+    return out
+
+
+def _cells_to_false(mask: np.ndarray) -> np.ndarray:
+    """How many cells from each True cell of `mask` to the nearest False one."""
+    # An array: no output array is given.
+    return cast(np.ndarray, distance_transform_edt(mask))
+
+
+@dataclass(frozen=True, slots=True)
+class AlongLine:
+    """A section's columns smoothed along the line (`along_line`): their positions, ground and
+    floor, the cells outside them, and the smoothing's window length."""
+
+    positions: np.ndarray
+    ground: np.ndarray
+    floor: np.ndarray
+    empty: np.ndarray  # (positions, elevations)
+    window_m: float
+
+
+def along_line(
+    xs: np.ndarray,
+    tops: np.ndarray,
+    reach: np.ndarray,
+    elevations: np.ndarray,
+    window_m: float | None = None,
+    at_least: int = 0,
+) -> AlongLine:
+    """The columns of windows at `xs` (their grounds `tops`, reaching `reach` m down) smoothed
+    along the line as `velocity_grid` smooths them: `smoothed_positions` (`at_least` of them),
+    the ground straight from a window's middle to the next, the depths reached smoothed; over
+    `window_m`, by default `default_window`."""
+    positions = smoothed_positions(xs, at_least)
+    width = window_m or default_window(xs)
+    ground = np.interp(positions, xs, tops)
+    floor = ground - smoothed(np.asarray(reach, dtype=float)[:, None], xs, positions, width)[:, 0]
+    z = elevations[None, :]
+    empty = (z > ground[:, None] + 1e-3) | (z < floor[:, None] - 1e-3)
+    return AlongLine(positions, ground, floor, empty, width)
 
 
 def informed_levels(
@@ -249,6 +368,38 @@ def interface_grid(
     nearest = np.abs(grid.positions[:, None] - xs[None, :]).argmin(axis=1)
     unknown = np.array([not shares for _, _, shares in windows])[nearest]
     known = [i for i, (_, _, shares) in enumerate(windows) if shares]
+    if not lateral_smoothing or not known:
+        along = values[nearest]
+    else:
+        width = window_m or default_window(xs)
+        along = smoothed(values[known], xs[known], grid.positions, width, grid.outside())
+        along[unknown] = np.nan
+    along[grid.outside()] = np.nan
+    return along
+
+
+def uncertainty_grid(
+    grid: VelocityGrid,
+    windows: Sequence[tuple[float, float, VsSpread | None]],
+    lateral_smoothing: bool = False,
+    window_m: float | None = None,
+) -> np.ndarray:
+    """On `grid` (`velocity_grid`'s, of the same windows): the kept models' relative uncertainty
+    of Vs, U(z) = (P90 - P10) / (2 P50) (what the depth informed is read from), from each
+    window's middle, ground elevation and spread (None: not known); NaN where not known, and
+    outside the grid's columns. Smoothed along the line as the grid's Vs when
+    `lateral_smoothing`; a column nearest a window without a spread left without."""
+    xs = np.array([x for x, _, _ in windows], dtype=np.float32)
+    values = np.full((len(windows), grid.elevations.size), np.nan)
+    for i, (_, ground, spread) in enumerate(windows):
+        if spread is not None:
+            # From the ground (its first cell's), down to its last cell.
+            values[i] = np.interp(
+                ground - grid.elevations, spread.depths, spread.uncertainty(), right=np.nan
+            )
+    nearest = np.abs(grid.positions[:, None] - xs[None, :]).argmin(axis=1)
+    unknown = np.array([spread is None for _, _, spread in windows])[nearest]
+    known = [i for i, (_, _, spread) in enumerate(windows) if spread is not None]
     if not lateral_smoothing or not known:
         along = values[nearest]
     else:
