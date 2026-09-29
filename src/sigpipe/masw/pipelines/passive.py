@@ -14,6 +14,7 @@ from sigpipe.transformers import (
     Normalize,
     Plot,
     PlotSelection,
+    PlotSpectra,
     Save,
     Selection,
     Slice,
@@ -38,8 +39,10 @@ def build_passive_pipeline(
         >> Correlate(method="cross", virtual_source_index=0, part="causal")
         >> Stack(**stage_kwargs(preset, "stacking"))
         >> Save(folder_path=output_folder)
-        # The stacked correlations the image is made of, as PAC's gather view draws them.
+        # The stacked correlations the image is made of, as PAC's gather view draws them, and
+        # their spectra.
         >> Plot(folder_path=output_folder)
+        >> PlotSpectra(folder_path=output_folder)
         >> Dispersion(method="phase", **stage_kwargs(preset, "dispersion"))
         >> Plot(folder_path=output_folder, normalize=True)
         >> Save(folder_path=output_folder)

@@ -9,7 +9,15 @@ from sigpipe.base import Pipeline
 from sigpipe.masw.pipelines.common import load_preprocessed, stage_kwargs
 from sigpipe.masw.presets import PassiveActivePreset
 from sigpipe.masw.windows import MASWWindow
-from sigpipe.transformers import ActiveShotCorrelation, Apodize, Dispersion, Plot, Save, Stack
+from sigpipe.transformers import (
+    ActiveShotCorrelation,
+    Apodize,
+    Dispersion,
+    Plot,
+    PlotSpectra,
+    Save,
+    Stack,
+)
 
 
 def build_passive_active_pipeline(
@@ -21,8 +29,10 @@ def build_passive_active_pipeline(
         >> ActiveShotCorrelation(method="cross")
         >> Stack(**stage_kwargs(preset, "stacking"))
         >> Save(folder_path=output_folder)
-        # The stacked correlations the image is made of, as PAC's gather view draws them.
+        # The stacked correlations the image is made of, as PAC's gather view draws them, and
+        # their spectra.
         >> Plot(folder_path=output_folder)
+        >> PlotSpectra(folder_path=output_folder)
         >> Dispersion(method="phase", **stage_kwargs(preset, "dispersion"))
         >> Plot(folder_path=output_folder, normalize=True)
         >> Save(folder_path=output_folder)

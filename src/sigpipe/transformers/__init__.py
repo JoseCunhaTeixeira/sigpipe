@@ -15,7 +15,7 @@ from .mutting import Mute
 from .normalization import Normalize
 from .padding import Pad
 from .picking import Pick
-from .plotting import Plot
+from .plotting import Plot, PlotSpectra
 from .plotting_section import PlotSection
 from .residual_phase import ArrivalResidualPhase
 from .saving import Save
@@ -48,6 +48,7 @@ __all__ = [
     "Plot",
     "PlotSection",
     "PlotSelection",
+    "PlotSpectra",
     "Save",
     "Selection",
     "Shift",

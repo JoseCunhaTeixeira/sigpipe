@@ -15,6 +15,7 @@ from pydantic import ValidationError
 from synthetic import N_RECEIVERS, SAMPLING, SOURCES
 
 from sigpipe.algorithms.picking.dispersion.tracking import pick_modes
+from sigpipe.dataio.signal_plotting import load_spectra
 from sigpipe.dataio.stream import loading as stream_loading
 from sigpipe.masw.inversion import (
     IMAGE_FIGURE,
@@ -248,11 +249,18 @@ def test_every_mode_runs_into_pacs_layout(workspace: Folders, profile: str, mode
     assert load_manifest(manifest.run_id, workspace) == manifest
     for window in manifest.windows:
         assert (folder / window.folder / "DispersionImage_0000.hdf5").exists()
-        # Each final step's figure: the image, and the stacked correlations it is made of; no
-        # segment selection by default, and so no figure of one.
+        # Each final step's figure: the image, and the stacked correlations it is made of with
+        # their spectra (and the spectra's data); no segment selection by default, and so no
+        # figure of one.
         figures = {path.name for path in (folder / window.folder).glob("*.png")}
         assert "DispersionImage_0000.png" in figures
         assert ("Stream_0000.png" in figures) == (mode != "active")
+        assert ("Spectrum_0000.png" in figures) == (mode != "active")
+        spectra = load_spectra(folder / window.folder)
+        assert (spectra is not None) == (mode != "active")
+        if spectra is not None:
+            assert spectra.amplitude.shape == (spectra.positions.size, spectra.freqs.size)
+            assert spectra.amplitude.max() == 1.0 and spectra.band is None
         assert "Selection_0000.png" not in figures
     assert not list(folder.rglob(".partial"))  # every task's outputs moved into place
     for record in manifest.records:
