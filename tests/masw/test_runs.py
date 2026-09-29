@@ -29,14 +29,15 @@ from sigpipe.masw.inversion import (
     load_spread,
     load_vs_spread,
 )
-from sigpipe.masw.inversion.measuring import USEFUL_REFERENCE, measure_inversion
+from sigpipe.masw.inversion.measuring import MEASURES_FILE, USEFUL_REFERENCE, measure_inversion
 from sigpipe.masw.inversion.section import (
     COMPARISON_FIGURE,
     SECTION_FIGURE,
     save_comparison,
     save_section,
 )
-from sigpipe.masw.picks import save_pick
+from sigpipe.masw.inversion.summary import LINE_SUMMARY_FIGURE, save_line_summary
+from sigpipe.masw.picks import PICKS_FIGURE_STEM, save_pick, save_picks_figures
 from sigpipe.masw.pipelines.common import stage_kwargs
 from sigpipe.masw.pipelines.preprocessing import build_preprocessing_pipeline
 from sigpipe.masw.presets import PresetError, make_preset, resolve_preset
@@ -453,6 +454,7 @@ def test_the_shots_wave_is_picked_and_inverted_into_a_section(
         assert (vs.low <= vs.middle).all() and (vs.middle <= vs.high).all()
         # The chains' agreement measured on Vs at the depths the curve resolves.
         measures = measure_inversion(folder / unit, parameters)
+        (folder / unit / MEASURES_FILE).write_text(measures.model_dump_json())
         assert measures.useful_reference == USEFUL_REFERENCE
         assert measures.watched and set(measures.watched) <= set(measures.rhat)
         assert {"vs1", "vs2", "thick1", "noise"} <= set(measures.rhat)
@@ -467,6 +469,7 @@ def test_the_shots_wave_is_picked_and_inverted_into_a_section(
     assert {"vs", "noise"} <= set(window.steps) and {"birth", "death"} <= set(window.moves)
     assert window.exchanges is not None
     measures = measure_inversion(folder / units[0], free)
+    (folder / units[0] / MEASURES_FILE).write_text(measures.model_dump_json())
     assert {"layers", "top_vs", "half_space_vs", "deepest_interface"} <= {
         share.parameter for share in measures.at_bounds
     }
@@ -485,5 +488,11 @@ def test_the_shots_wave_is_picked_and_inverted_into_a_section(
     assert (folder / SECTION_FIGURE.replace(".png", "_lateralsmooth.png")).exists()
     assert save_comparison(folder, units) == folder / COMPARISON_FIGURE
     assert (folder / COMPARISON_FIGURE.replace(".png", "_wavelength.png")).exists()
+    # The line at a glance, from each window's measures; its picks along it, before any inversion.
+    assert save_line_summary(folder, units) == folder / LINE_SUMMARY_FIGURE
+    assert {path.name for path in save_picks_figures(folder, units)} == {
+        f"{PICKS_FIGURE_STEM}_M0.png",
+        f"{PICKS_FIGURE_STEM}_M0_wavelength.png",
+    }
     # A window inverted before the spreads were saved has none.
     assert load_spread(tmp_path) == {} and load_vs_spread(tmp_path) is None

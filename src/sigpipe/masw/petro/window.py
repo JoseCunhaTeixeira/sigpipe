@@ -4,10 +4,12 @@ that prediction gives back, and its rock physics with depth (the Hertz-Mindlin s
 and Vs), are saved beside it, so that the line's views only read files."""
 
 import json
+import logging
 from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Literal
 
+import matplotlib.pyplot as plt
 import numpy as np
 
 from sigpipe.algorithms.inversion.rayleigh.petro.forward import (
@@ -25,11 +27,16 @@ from sigpipe.base.petro_model import PetroModel
 from sigpipe.dataio.dispersion.loading import load_dispersion_curves
 from sigpipe.dataio.dispersion.saving import save_dispersion_curves
 from sigpipe.dataio.petro_model.loading import load_petro_models
+from sigpipe.dataio.petro_model.window_plotting import plot_petro_window
 from sigpipe.masw.picks import load_curves
-from sigpipe.transformers import Invert, Save
+from sigpipe.transformers import Invert, Plot, Save
+
+logger = logging.getLogger(__name__)
 
 MODEL_FILE = "PetroInversion_Model_0000.csv"
 MODELED_CURVE_FILE = "PetroInversion_DispersionCurves_0000.csv"
+# The window's figure, as PAC's card shows it: the curves, the soil column (draw_petro_figure).
+WINDOW_FIGURE = "PetroInversion_Window_0000.png"
 # Silex takes the fundamental mode as Mode("R", 0): a pick of mode number 0 is relabelled so,
 # whatever its letter (PAC's pickers label it M0).
 FUNDAMENTAL = Mode("R", 0)
@@ -109,7 +116,28 @@ def invert_window_petro(
     profile = rock_physics(result)
     _save_profile(out, "shear_modulus", result.position, profile.dz, profile.muHMs)
     _save_profile(out, "vs", result.position, profile.dz, profile.VSs)
+    draw_petro_figure(folder, output_folder)
     return result
+
+
+def draw_petro_figure(folder: Path, output_folder: Path | None = None) -> None:
+    """Draw the figure of the petrophysical inversion saved in window folder `folder` (or in
+    `output_folder`, a staging folder, the picks staying in `folder`) from its files alone: the
+    picked curve against the one the soil column gives back, and the column (WINDOW_FIGURE). A
+    figure that fails is logged and left out: it must not lose the inversion."""
+    out = output_folder or folder
+    figure = None
+    try:
+        model = load_petro_model(out)
+        if model is None:
+            return
+        figure = plot_petro_window(fundamental_curve(folder), load_modeled_curve(out), model)
+        Plot.savefig(path=out / WINDOW_FIGURE, figure=figure)
+    except Exception:  # a figure must not lose the inversion
+        logger.exception("Could not draw %s in %s", WINDOW_FIGURE, out)
+    finally:
+        if figure is not None:
+            plt.close(figure)
 
 
 def load_petro_model(folder: Path) -> PetroModel | None:

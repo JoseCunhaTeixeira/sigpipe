@@ -18,11 +18,16 @@ from sigpipe.base.dispersion_image import DispersionImage
 from sigpipe.dataio.dispersion.loading import load_dispersion_curves
 from sigpipe.dataio.dispersion.plotting import plot_dispersion_image
 from sigpipe.dataio.dispersion.saving import save_dispersion_curves
+from sigpipe.dataio.section_plotting import SectionPanel, plot_sections
 from sigpipe.transformers import Plot
 
 CURVES_FILE = "DispersionCurves_0000.csv"
 FIGURE_FILE = "DispersionImage_0000.png"
 PSEUDO_SECTION_POINTS = 200
+# The picked curves' pseudo-sections a run saves at its root, a mode's by frequency
+# (<stem>_<label>.png) and by wavelength (<stem>_<label>_wavelength.png), as Visualization's
+# dispersion tab draws them.
+PICKS_FIGURE_STEM = "DispersionPicking_PseudoSection_0000"
 
 
 def load_curves(folder: Path) -> DispersionCurvesImage | None:
@@ -130,3 +135,45 @@ def pseudo_section(
         lambdas_grid=lambdas_grid,
         velocities_by_wavelength=by_wavelength,
     )
+
+
+def save_picks_figures(
+    run_folder: Path, units: Sequence[str], modes: Sequence[Mode] | None = None
+) -> tuple[Path, ...]:
+    """The pseudo-section of each mode's curves picked in the window folders of `units` (`modes`,
+    by default every mode picked), as Visualization's dispersion tab draws them (cividis), by
+    frequency and by wavelength (downward), at run folder `run_folder`'s root (PICKS_FIGURE_STEM);
+    a mode picked in fewer than two windows has none (its figures from before removed). The
+    figures' paths."""
+    positions = [float(unit.removeprefix("xmid_")) for unit in units]
+    picked = [load_curves(run_folder / unit) or () for unit in units]
+    found = sorted(
+        {curve.mode for curves in picked for curve in curves}, key=lambda one: one.number
+    )
+    saved: list[Path] = []
+    for mode in modes if modes is not None else found:
+        curves = [next((one for one in curves if one.mode == mode), None) for curves in picked]
+        stem = f"{PICKS_FIGURE_STEM}_{mode.label}"
+        if sum(curve is not None for curve in curves) < 2:
+            for suffix in ("", "_wavelength"):
+                (run_folder / f"{stem}{suffix}.png").unlink(missing_ok=True)
+            continue
+        section = pseudo_section(positions, curves)
+        views = (
+            ("", "Frequency [Hz]", False, section.fs_grid, section.velocities_by_frequency),
+            (
+                "_wavelength",
+                "Wavelength [m]",
+                True,
+                section.lambdas_grid,
+                section.velocities_by_wavelength,
+            ),
+        )
+        for suffix, label, downward, ys, values in views:
+            panel = SectionPanel(section.positions, ys, values, "Phase velocity [m/s]", "cividis")
+            figure = plot_sections([panel], label, downward)
+            path = run_folder / f"{stem}{suffix}.png"
+            Plot.savefig(path=path, figure=figure)
+            plt.close(figure)
+            saved.append(path)
+    return tuple(saved)

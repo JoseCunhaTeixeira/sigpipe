@@ -42,6 +42,7 @@ from sigpipe.masw.petro.section import (
     save_rock_physics_section,
     smoothed_name,
 )
+from sigpipe.masw.petro.window import WINDOW_FIGURE
 from sigpipe.masw.picks import save_pick
 
 GRAND_EST = "grand_est_15-50hz_193-415mps"
@@ -105,6 +106,8 @@ def test_a_window_holds_its_model_curve_and_rock_physics(run: tuple[Path, list[s
     assert elevations[0] > elevations[-1]  # deepest last
     assert np.all(values > 0)
     assert load_profile(folder, "shear_modulus") is not None
+    # Its figure, as PAC's card shows it: the curves and the soil column.
+    assert (folder / WINDOW_FIGURE).stat().st_size > 10_000
 
 
 def test_the_line_gives_every_section(run: tuple[Path, list[str]]) -> None:
