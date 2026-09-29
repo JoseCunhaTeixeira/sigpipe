@@ -43,14 +43,11 @@ _RATE = re.compile(r"ACCEPTANCE RATE: \d+/\d+ \(([\d.]+) %\)")
 # Depths the chains' agreement is measured at, between a third of the shortest and of the longest
 # picked wavelength.
 WATCHED = 5
-# A stretch where the kept models' uncertainty is too high ends the depth informed when at least
-# this share of its depth thick: thinner, it is where they place an interface they agree on (its
-# depth's 10-90 % within a fifth of it, about ±8 %), as well as surface waves resolve one.
-RESOLVED_SHARE = 0.2
-# One structure: from ONE_STRUCTURE_FROM (m), how far down the models' Vs there stays correlated
-# and precise (U under PRECISE).
-PRECISE = 0.10
-ONE_STRUCTURE_FROM = 1.0
+# A stretch where the kept models' uncertainty is too high is only an interface they place at
+# depths a little apart when at least this share of their Vs in it is each one's own Vs just above
+# it or just below it: about all of them then, a fifth to a third when a layer lies in it whose Vs
+# they leave open.
+EXPLAINED_SHARE = 0.8
 
 
 class BandFit(BaseModel):
@@ -89,10 +86,12 @@ class BoundShare(BaseModel):
     share: float  # of the samples within the watched edge of the prior's range
 
 
-# How the useful depth was read: from the kept models' relative uncertainty U(z) (useful_depth).
-# The measures saved before say "curve" (against one prior for every window, drawn from the
-# picked curve) or nothing (against the run's own prior).
-USEFUL_REFERENCE = "band"
+# How the useful depth was read: from the kept models' relative uncertainty U(z), past the
+# interfaces they place at depths a little apart (useful_depth). The measures saved before say
+# "band" (to 2026-09-29: a stretch of it too high ended it once a fifth of its depth thick, an
+# interface's too), "curve" (against one prior for every window, drawn from the picked curve) or
+# nothing (against the run's own prior).
+USEFUL_REFERENCE = "band past interfaces"
 
 
 class InversionMeasures(BaseModel):
@@ -127,9 +126,6 @@ class InversionMeasures(BaseModel):
     # Per INTERFACE_DZ from the surface down to the bottom, the share of the kept models with an
     # interface there; empty in measures from before 2026-09-28.
     interfaces: tuple[float, ...] = ()
-    # The share of the models' depths where their Vs is precise yet one structure the data do
-    # not resolve apart (one_structure); None in measures from before 2026-09-29.
-    one_structure: float | None = None
 
     def fit(self, model: str) -> ModelFit:
         return next(fit for fit in self.fits if fit.model == model)
@@ -196,8 +192,7 @@ def measure_inversion(
             if ran.layering == "fixed"
             else free_bound_shares(profiles, ran, bound_edge)
         ),
-        useful_depth_m=useful_depth(spread, max_uncertainty),
-        one_structure=one_structure(spread),
+        useful_depth_m=useful_depth(spread, profiles, max_uncertainty),
         useful_reference=USEFUL_REFERENCE,
         quantiles={
             name: (
@@ -451,15 +446,19 @@ def _ends(low: float, high: float) -> tuple[tuple[Literal["min", "max"], float],
 
 
 def useful_depth(
-    spread: VsSpread, max_uncertainty: float, resolved: float = RESOLVED_SHARE
+    spread: VsSpread,
+    profiles: LayeredSamples,
+    max_uncertainty: float,
+    explained: float = EXPLAINED_SHARE,
 ) -> float | None:
-    """How deep the kept models inform Vs, from them alone (no prior, no wavelength): from the
-    surface down, past a top they leave open, to where their relative uncertainty U(z) =
-    (P90 - P10) / (2 P50) (`spread`) gets above `max_uncertainty` and stays so over at least
-    `resolved` of that depth (a thinner stretch is an interface they place alike). 0 when U is
-    never that low, None when it stays so down to the models' bottom. Where they disagree on an
-    interface's depth, the depth informed ends, though they may agree again below it: on a
-    half-space's Vs, which the longest wavelengths pin whatever depth it starts at."""
+    """How deep the kept models (`profiles`, their Vs spread `spread`) inform Vs, from them alone
+    (no prior, no wavelength): from the surface down, past a top they leave open, to the first
+    stretch where their relative uncertainty U(z) = (P90 - P10) / (2 P50) gets above
+    `max_uncertainty` that an interface does not explain: it reaches their bottom, or less than
+    `explained` of their Vs in it is each one's own Vs just above it or just below it (a layer lies
+    in it, whose Vs they disagree on). Where that much is, they only place an interface at depths a
+    little apart, the layers either side pinned, and the depth informed goes on past it. 0 when U
+    is never that low, None when no stretch ends it."""
     narrow = spread.uncertainty() <= max_uncertainty
     first = int(np.argmax(narrow))
     if not narrow[first]:
@@ -471,24 +470,14 @@ def useful_depth(
     edges = np.flatnonzero(np.diff(np.concatenate(([0], wide.astype(int), [0]))))
     for start, end in zip(edges[::2], edges[1::2], strict=True):
         top = float(spread.depths[start]) - cell / 2
-        if end == wide.size or (end - start) * cell >= resolved * top:
+        if end == wide.size:
+            return round(top, 2)
+        # Every model's Vs in the stretch, against its own just above it and just below it.
+        vs = profiles.at(spread.depths[start:end])
+        ends = profiles.at(spread.depths[[start - 1, end]])
+        if ((vs == ends[:, :1]) | (vs == ends[:, 1:])).mean() < explained:
             return round(top, 2)
     return None
-
-
-def one_structure(spread: VsSpread) -> float | None:
-    """How much of the model, from ONE_STRUCTURE_FROM down to its bottom, the models' Vs there
-    stays correlated with, where it is precise (U under PRECISE): a share of that depth. Near 1,
-    one structure the data pin, not its depths apart (a uniform Vs most models hold as one
-    layer); small, an interface they agree on parts it. None without such depths, or with the
-    models all alike there."""
-    start = int(np.searchsorted(spread.depths, ONE_STRUCTURE_FROM))
-    if start >= spread.depths.size or np.isnan(spread.correlation[start]):
-        return None
-    cell = float(spread.depths[1] - spread.depths[0]) if spread.depths.size > 1 else 1.0
-    end = min(start + round(float(spread.correlation[start]) / cell), spread.depths.size)
-    precise = spread.uncertainty()[start:end] < PRECISE
-    return round(float(np.sum(precise)) / (spread.depths.size - start), 3)
 
 
 def _steps(parameters: InversionParameters) -> dict[str, float]:

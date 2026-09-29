@@ -25,7 +25,7 @@ from sigpipe.masw.inversion import (
     load_spread,
     load_vs_spread,
 )
-from sigpipe.masw.inversion.measuring import measure_inversion
+from sigpipe.masw.inversion.measuring import USEFUL_REFERENCE, measure_inversion
 from sigpipe.masw.inversion.section import SECTION_FIGURE, save_comparison, save_section
 from sigpipe.masw.picks import save_pick
 from sigpipe.masw.pipelines.common import stage_kwargs
@@ -424,11 +424,9 @@ def test_the_shots_wave_is_picked_and_inverted_into_a_section(
         assert vs is not None and vs.depths[0] == pytest.approx(0.025)
         assert vs.depths[-1] < ran.parameters.bottom
         assert (vs.low <= vs.middle).all() and (vs.middle <= vs.high).all()
-        # With each depth's correlation length: how far around it the models' Vs moves together.
-        assert (vs.correlation[~np.isnan(vs.correlation)] >= 0.25).all()
         # The chains' agreement measured on Vs at the depths the curve resolves.
         measures = measure_inversion(folder / unit, parameters)
-        assert measures.useful_reference == "band"
+        assert measures.useful_reference == USEFUL_REFERENCE
         assert measures.watched and set(measures.watched) <= set(measures.rhat)
         assert {"vs1", "vs2", "thick1", "noise"} <= set(measures.rhat)
 

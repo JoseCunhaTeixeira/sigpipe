@@ -3,11 +3,13 @@ import numpy as np
 from disba import DispersionError
 from matplotlib import colors
 from matplotlib.figure import Figure
+from matplotlib.ticker import MaxNLocator
 from scipy.stats import gaussian_kde
 
 from sigpipe.algorithms.inversion.rayleigh.seismic.forward import fwd_seismic_phase
 from sigpipe.base.dispersion_curve import DispersionCurves
 from sigpipe.base.inversion import InversionResult
+from sigpipe.base.velocity_model import VelocityModel
 from sigpipe.dataio.plot_config import CM, DISP_DPI, DOUBLE_COLUMN_CM
 
 _MODEL_STYLE: dict[str, tuple[str, str]] = {
@@ -43,8 +45,10 @@ def plot_posterior_marginals(
     """
     names = list(samples.keys())
     n = len(names)
+    # A name's unit under it: long names side by side no longer run into each other.
+    labels = {name: name.replace(" [", "\n[") for name in names}
 
-    fig, axs = plt.subplots(n, n, figsize=(2.6 * CM * n, 2.4 * CM * n), dpi=150, squeeze=False)
+    fig, axs = plt.subplots(n, n, figsize=(3.2 * CM * n, 3.0 * CM * n), dpi=DISP_DPI, squeeze=False)
 
     grids_1d = {
         name: np.linspace(values.min(), values.max(), n_grid) for name, values in samples.items()
@@ -70,18 +74,27 @@ def plot_posterior_marginals(
                 levels = _hdi_levels(density, hdi_probs)
                 ax.contourf(X, Y, density, levels=[*levels, density.max()], cmap="Blues")
 
+            # Three ticks an axis, whole numbers for a count of layers.
+            ax.xaxis.set_major_locator(MaxNLocator(3, integer=name_j == "Layers"))
+            if i != j:
+                ax.yaxis.set_major_locator(MaxNLocator(3, integer=name_i == "Layers"))
+            ax.tick_params(labelsize=textsize - 1)
             if i == n - 1:
-                ax.set_xlabel(name_j, fontsize=textsize)
+                ax.set_xlabel(labels[name_j], fontsize=textsize)
+                for tick in ax.get_xticklabels():
+                    tick.set_rotation(30)
+                    tick.set_horizontalalignment("right")
             else:
                 ax.set_xticklabels([])
 
             if j == 0 and i != 0:
-                ax.set_ylabel(name_i, fontsize=textsize)
+                ax.set_ylabel(labels[name_i], fontsize=textsize)
             elif j == 0:
                 ax.set_ylabel("Density", fontsize=textsize)
             if j != 0:
                 ax.set_yticklabels([])
 
+    fig.align_labels()
     fig.tight_layout()
     return fig
 
@@ -221,4 +234,174 @@ def plot_density_curves(
     ax_vs.legend(loc="upper center", bbox_to_anchor=(0.5, -0.2))
 
     fig.tight_layout()
+    return fig
+
+
+# The window figure's colours, as PAC draws the same plots.
+_PICKED = "#2a78d6"
+_MODELLED = "#d63c3c"
+_MODELLED_SOFT = (214 / 255, 60 / 255, 60 / 255, 0.2)
+_VS = "#2a78d6"
+_VS_SOFT = (42 / 255, 120 / 255, 214 / 255, 0.18)
+_UNCERTAINTY = "#b23200"  # afmhot_r at 0.65, as U's section
+_INTERFACES = "#653e9b"  # Purples at 0.8, as the interfaces' section
+_INFORMED = "#d98a04"
+_VEIL = (0.06, 0.06, 0.08, 0.06)
+
+
+def plot_inversion_window(
+    observed_curves: DispersionCurves,
+    modelled_curves: DispersionCurves | None,
+    curve_spreads: dict[int, tuple[np.ndarray, np.ndarray]],
+    ensemble: VelocityModel,
+    spread: tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray],
+    informed: float | None,
+    interfaces: tuple[float, ...] = (),
+    interface_dz: float = 0.5,
+) -> Figure:
+    """One window's inversion as PAC shows it, the median of the ensemble alone.
+
+    Left: the picked curves with their uncertainties, the median of the ensemble's curves
+    (`modelled_curves`) and the kept models' 10-90 % at the picked frequencies (`curve_spreads`,
+    their 10th and 90th percentiles by mode number). Middle: the median of the ensemble's Vs with
+    the kept models' 10-90 % (`spread`: depths, 10th, 90th percentiles, and the relative
+    uncertainty U = (P90 - P10) / (2 P50)); right, U on the same depths, then where the kept
+    models place interfaces (`interfaces`: the share of them per `interface_dz` m from the
+    surface down). Below the depth informed (`informed`, m; None: all of it), veiled.
+    """
+    depths, low, high, uncertainty = spread
+    bottom = float(depths[-1] + (depths[1] - depths[0]) / 2) if depths.size > 1 else 1.0
+    fig = plt.figure(figsize=(DOUBLE_COLUMN_CM * CM, 10.5 * CM), dpi=DISP_DPI)
+    grid = fig.add_gridspec(1, 4, width_ratios=(1.3, 1.0, 0.45, 0.45), wspace=0.08)
+    ax_fit = fig.add_subplot(grid[0])
+    ax_vs = fig.add_subplot(grid[1])
+    ax_u = fig.add_subplot(grid[2], sharey=ax_vs)
+    ax_i = fig.add_subplot(grid[3], sharey=ax_vs)
+    small = 7
+
+    # The curves: the models' band, the median of the ensemble's, the picks over them.
+    for i, observed in enumerate(observed_curves):
+        order = np.argsort(observed.fs)
+        fs = np.asarray(observed.fs)[order]
+        band = curve_spreads.get(observed.mode.number)
+        if band is not None:
+            ax_fit.fill_between(
+                fs,
+                band[0][order],
+                band[1][order],
+                color=_MODELLED_SOFT,
+                linewidth=0,
+                label="10-90 % of the models" if i == 0 else "_nolegend_",
+                zorder=1,
+            )
+        ax_fit.errorbar(
+            fs,
+            np.asarray(observed.vs)[order],
+            yerr=None if observed.vs_err is None else np.asarray(observed.vs_err)[order],
+            fmt="o",
+            color=_PICKED,
+            markersize=1.8,
+            elinewidth=0.4,
+            capsize=0,
+            label="picked, ± its uncertainty" if i == 0 else "_nolegend_",
+            zorder=2,
+        )
+    for i, modelled in enumerate(modelled_curves or ()):
+        order = np.argsort(modelled.fs)
+        ax_fit.plot(
+            np.asarray(modelled.fs)[order],
+            np.asarray(modelled.vs)[order],
+            color=_MODELLED,
+            linestyle="--",
+            linewidth=1.0,
+            label="median of the ensemble" if i == 0 else "_nolegend_",
+            zorder=3,
+        )
+    ax_fit.set_xlabel("Frequency [Hz]", fontsize=small)
+    ax_fit.set_ylabel("Phase velocity [m/s]", fontsize=small)
+    ax_fit.set_title("Picked and modelled curve", fontsize=small + 1, loc="left")
+
+    # The profile: the band, the median of the ensemble, what the data inform.
+    ax_vs.fill_betweenx(
+        depths, low, high, color=_VS_SOFT, linewidth=0, label="10-90 % of the models"
+    )
+    tops = np.concatenate(([0.0], np.cumsum(ensemble.thicknesses)[:-1]))
+    ax_vs.step(
+        np.asarray(ensemble.vs_s),
+        tops,
+        where="post",
+        color=_VS,
+        linewidth=1.2,
+        label="median of the ensemble",
+    )
+    ax_u.plot(100 * uncertainty, depths, color=_UNCERTAINTY, linewidth=1.0, label="uncertainty")
+    if interfaces:
+        shares = 100 * np.asarray(interfaces, dtype=float)
+        edges = np.arange(shares.size + 1) * interface_dz
+        ax_i.stairs(
+            shares,
+            edges,
+            orientation="horizontal",
+            color=_INTERFACES,
+            linewidth=1.0,
+            label="interfaces",
+        )
+    if informed is not None and informed < bottom:
+        for ax in (ax_vs, ax_u, ax_i):
+            ax.axhspan(informed, bottom, color=_VEIL, linewidth=0, zorder=0)
+            ax.axhline(informed, color=_INFORMED, linestyle="--", linewidth=0.8, zorder=4)
+        ax_vs.text(
+            0.98,
+            informed,
+            f"informed to {informed:g} m" if informed > 0 else "not informed",
+            transform=ax_vs.get_yaxis_transform(),
+            ha="right",
+            va="bottom",
+            fontsize=small - 1,
+            color=_INFORMED,
+        )
+        ax_vs.fill_between([], [], color=_VEIL, label="not informed by the data")
+    ax_vs.set_ylim(bottom, 0)
+    ax_vs.set_xlabel("Vs [m/s]", fontsize=small)
+    ax_vs.set_ylabel("Depth [m]", fontsize=small)
+    ax_vs.set_title("Vs profile", fontsize=small + 1, loc="left")
+    ax_u.set_xlabel("Uncertainty [%]", fontsize=small)
+    ax_u.set_xlim(0, max(10.0, float(np.nanmax(100 * uncertainty)) * 1.08))
+    ax_u.tick_params(labelleft=False)
+    ax_i.set_xlabel("Interfaces [%]", fontsize=small)
+    ax_i.set_xlim(0, max(10.0, 100 * max(interfaces, default=0.0)) * 1.08)
+    ax_i.tick_params(labelleft=False)
+
+    for ax in (ax_fit, ax_vs, ax_u, ax_i):
+        ax.tick_params(labelsize=small - 1)
+        ax.grid(color="#ecebe6", linewidth=0.5)
+        ax.set_axisbelow(True)
+    # Each legend centred under its plot: the curve's, and the profile's with its uncertainty.
+    ax_fit.legend(
+        loc="upper center",
+        bbox_to_anchor=(0.5, -0.16),
+        fontsize=small - 1,
+        frameon=False,
+        ncol=2,
+    )
+    handles = [
+        *ax_vs.get_legend_handles_labels()[0],
+        *ax_u.get_legend_handles_labels()[0],
+        *ax_i.get_legend_handles_labels()[0],
+    ]
+    labels = [
+        *ax_vs.get_legend_handles_labels()[1],
+        *ax_u.get_legend_handles_labels()[1],
+        *ax_i.get_legend_handles_labels()[1],
+    ]
+    ax_vs.legend(
+        handles,
+        labels,
+        loc="upper center",
+        bbox_to_anchor=(0.95, -0.16),
+        fontsize=small - 1,
+        frameon=False,
+        ncol=2,
+    )
+    fig.subplots_adjust(left=0.08, right=0.98, top=0.92, bottom=0.3)
     return fig

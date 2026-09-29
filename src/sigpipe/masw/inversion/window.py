@@ -10,14 +10,8 @@ from typing import Any
 
 import matplotlib.pyplot as plt
 import numpy as np
-from disba import DispersionError
 from pydantic import BaseModel, ConfigDict
-from scipy.stats import rankdata
 
-from sigpipe.algorithms.inversion.rayleigh.seismic.forward import (
-    fwd_seismic_all_modes,
-    fwd_seismic_phase,
-)
 from sigpipe.algorithms.inversion.rayleigh.seismic.parameters import (
     InversionParameters,
     SavedInversionParameters,
@@ -33,7 +27,7 @@ from sigpipe.dataio.dispersion.loading import load_dispersion_curves
 from sigpipe.dataio.dispersion.plotting import plot_dispersion_image
 from sigpipe.dataio.dispersion.saving import save_dispersion_curves
 from sigpipe.dataio.inversion.forward import MODEL_NAMES, forward_model_all
-from sigpipe.dataio.inversion.plotting import plot_density_curves, plot_posterior_marginals
+from sigpipe.dataio.inversion.plotting import plot_inversion_window, plot_posterior_marginals
 from sigpipe.masw.picks import CURVES_FILE
 from sigpipe.masw.runs import load_image
 from sigpipe.transformers import Invert, Plot, Save
@@ -50,15 +44,10 @@ PARAMETERS_FILE = "SeismicInversion_Parameters_0000.json"
 SPREAD_FILE = "SeismicInversion_DispersionSpread_0000.csv"
 SPREAD_PERCENTILES = (10.0, 50.0, 90.0)
 # The kept models' Vs at each depth, as the same percentiles: the profile's band, the section's
-# uncertainty and the depth informed read from it (measuring.useful_depth); with how far below
-# each depth their Vs stays correlated with its own (the depth's correlation length).
+# uncertainty and the depth informed read from it (measuring.useful_depth).
 VS_SPREAD_FILE = "SeismicInversion_VsSpread_0000.csv"
 VS_SPREAD_DZ = 0.05  # m between its depths
-# The correlation length: measured every CORRELATION_DZ (m), the smallest distance below a depth
-# where the rank correlation of the models' Vs there with the depth's own drops under CORRELATED.
-CORRELATION_DZ = 0.25
-CORRELATED = 0.5
-_SPREAD_HEADER = "depth_m,p10_m/s,p50_m/s,p90_m/s,correlation_below_m"
+_SPREAD_HEADER = "depth_m,p10_m/s,p50_m/s,p90_m/s"
 # The samples file's arrays that are no named value: the layers, and what describes the file.
 _DEPTHS = "profile_depths"
 _VS = "profile_vs"
@@ -119,50 +108,11 @@ def invert_window(
     save_samples(result, out / SAMPLES_FILE)
     save_spread(result, curves, out / SPREAD_FILE)
     ran = load_parameters(out / PARAMETERS_FILE).parameters
-    save_vs_spread(vs_spread(result.profiles, ran.bottom), out / VS_SPREAD_FILE)
+    spread = vs_spread(result.profiles, ran.bottom)
+    save_vs_spread(spread, out / VS_SPREAD_FILE)
 
-    # The median model's M0 at the picked frequencies, and every mode it supports across the
-    # image, drawn over the image.
-    median = result.median
-    try:
-        modeled_curves = DispersionCurves(
-            dispersion_curves=tuple(
-                fwd_seismic_phase(
-                    thickness_per_layer=list(median.thicknesses),
-                    Vs_per_layer=list(median.vs_s),
-                    mode=curve.mode.number,
-                    fs=curve.fs,
-                    Vp_Vs_ratio=VP_VS_RATIO,
-                )
-                for curve in curves
-            )
-        )
-    except DispersionError:
-        # A layer over a slower half-space has no normal mode faster than the half-space: the
-        # median of the samples can lack one where every sample had it. The figure goes without.
-        logger.warning("No mode of the median model at the picked frequencies in %s", folder)
-        modeled_curves = None
-    full_modeled_curves = fwd_seismic_all_modes(
-        thickness_per_layer=list(median.thicknesses),
-        Vs_per_layer=list(median.vs_s),
-        fs=image.fs,
-        Vp_Vs_ratio=VP_VS_RATIO,
-    )
-    figure = plot_dispersion_image(
-        image,
-        picked_curves=curves,
-        modeled_curves=modeled_curves,
-        full_modeled_curves=full_modeled_curves,
-        # Where the checks' flags start: under lbmin the aliasing zone, over lbmax beyond the
-        # window's reach.
-        lbmin=min_resolvable_wavelength(image.acquisition),
-        lbmax=longest_reached_wavelength(image.acquisition),
-        normalize=True,
-        show_errorbars=True,
-    )
-    Plot.savefig(path=out / "SeismicInversion_DispersionImage_0000.png", figure=figure)
-    plt.close(figure)
-
+    # The median of the ensemble's curves at the picked frequencies (as each model's, saved
+    # beside it), drawn over the image, and with the models' 10-90 % and the profile's own.
     forward_modeled = forward_model_all(result, curves, VP_VS_RATIO)
     for model_name in MODEL_NAMES:
         modeled = forward_modeled[model_name]
@@ -174,8 +124,31 @@ def invert_window(
         save_dispersion_curves(
             modeled, path=out / f"SeismicInversion_DispersionCurves_0000_{model_name}.csv"
         )
+    ensemble_curves = forward_modeled["ensemble"]
 
-    figure = plot_density_curves(result, curves, VP_VS_RATIO)
+    figure = plot_dispersion_image(
+        image,
+        picked_curves=curves,
+        modeled_curves=ensemble_curves,
+        # Where the checks' flags start: under lbmin the aliasing zone, over lbmax beyond the
+        # window's reach.
+        lbmin=min_resolvable_wavelength(image.acquisition),
+        lbmax=longest_reached_wavelength(image.acquisition),
+        normalize=True,
+        show_errorbars=True,
+    )
+    Plot.savefig(path=out / "SeismicInversion_DispersionImage_0000.png", figure=figure)
+    plt.close(figure)
+
+    figure = plot_inversion_window(
+        curves,
+        ensemble_curves,
+        _curve_spreads(result),
+        result.ensemble,
+        (spread.depths, spread.low, spread.high, spread.uncertainty()),
+        _useful_depth(spread, result.profiles),
+        _interface_shares(result, ran.bottom),
+    )
     Plot.savefig(path=out / "SeismicInversion_DensityCurves_0000.png", figure=figure)
     plt.close(figure)
 
@@ -187,6 +160,37 @@ def invert_window(
         logger.exception("Could not plot the posterior marginals in %s", folder)
 
     return result
+
+
+def _curve_spreads(result: InversionResult) -> dict[int, tuple[np.ndarray, np.ndarray]]:
+    """The kept models' curves at each mode's picked frequencies, as their 10th and 90th
+    percentiles, by mode number (a frequency no model reaches: NaN)."""
+    spreads: dict[int, tuple[np.ndarray, np.ndarray]] = {}
+    for mode, predicted in result.dpred.items():
+        if not np.isfinite(predicted).any():
+            continue
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", RuntimeWarning)
+            low, high = np.nanpercentile(
+                predicted, (SPREAD_PERCENTILES[0], SPREAD_PERCENTILES[2]), axis=0
+            )
+        spreads[mode] = (low, high)
+    return spreads
+
+
+def _interface_shares(result: InversionResult, bottom: float) -> tuple[float, ...]:
+    """Per 0.5 m from the surface down, the share of the kept models with an interface there,
+    as the checks measure it."""
+    from sigpipe.masw.inversion.measuring import interface_shares  # it imports this module
+
+    return interface_shares(result.profiles, bottom) if result.profiles is not None else ()
+
+
+def _useful_depth(spread: VsSpread, profiles: LayeredSamples) -> float | None:
+    """The depth informed as the checks read it, at their default limit (measuring's)."""
+    from sigpipe.masw.inversion.measuring import useful_depth  # it imports this module
+
+    return useful_depth(spread, profiles, 0.25)
 
 
 def marginals(result: InversionResult) -> dict[str, np.ndarray]:
@@ -304,16 +308,12 @@ def load_spread(folder: Path) -> dict[str, Spread]:
 
 @dataclass(frozen=True, slots=True)
 class VsSpread:
-    """The kept models' Vs at depths from the surface down: their SPREAD_PERCENTILES, and how
-    far around each depth their Vs moves together."""
+    """The kept models' Vs at depths from the surface down: their SPREAD_PERCENTILES."""
 
     depths: np.ndarray  # m, each cell's middle, VS_SPREAD_DZ apart
     low: np.ndarray  # m/s, the 10th percentile
     middle: np.ndarray  # the 50th
     high: np.ndarray  # the 90th
-    # m, the correlation length: how far below each depth the models' Vs stays correlated with
-    # its own (down to their bottom: at least that far); NaN where they all hold one Vs
-    correlation: np.ndarray
 
     def uncertainty(self) -> np.ndarray:
         """U(z), the relative uncertainty of Vs at each depth: (P90 - P10) / (2 P50)."""
@@ -322,41 +322,17 @@ class VsSpread:
 
 def vs_spread(profiles: LayeredSamples, bottom: float, dz: float = VS_SPREAD_DZ) -> VsSpread:
     """The kept models' (`profiles`) Vs in cells `dz` thick down to `bottom` (m), at each cell's
-    middle, as their SPREAD_PERCENTILES, and each depth's correlation length (measured every
-    CORRELATION_DZ, drawn between)."""
+    middle, as their SPREAD_PERCENTILES."""
     depths = (np.arange(max(int(np.ceil(bottom / dz)), 1)) + 0.5) * dz
     low, middle, high = np.percentile(profiles.at(depths), SPREAD_PERCENTILES, axis=0)
-    coarse = (np.arange(max(int(np.ceil(bottom / CORRELATION_DZ)), 1)) + 0.5) * CORRELATION_DZ
-    lengths = correlation_lengths(profiles.at(coarse), CORRELATION_DZ)
-    return VsSpread(depths, low, middle, high, np.interp(depths, coarse, lengths))
-
-
-def correlation_lengths(rasters: np.ndarray, dz: float) -> np.ndarray:
-    """At each depth z of `rasters` (the models' Vs, models x depths `dz` apart), the smallest
-    distance below it (m) where the rank correlation (Spearman: a posterior far from Gaussian,
-    two modes about an interface) of the models' Vs there with their Vs at z drops under
-    CORRELATED; down to the bottom without, the distance to the bottom (at least that). Long:
-    the data do not tell z and the depths below apart. NaN where the models all hold one Vs."""
-    ranks = rankdata(rasters, axis=0)
-    ranks -= ranks.mean(axis=0)
-    scale = np.sqrt((ranks**2).sum(axis=0))
-    alike = scale == 0
-    ranks[:, ~alike] /= scale[~alike]
-    corr = ranks.T @ ranks  # the depths' rank correlations; 0 with a depth all alike
-    lengths = np.full(rasters.shape[1], np.nan)
-    for i in np.flatnonzero(~alike):
-        apart = np.flatnonzero(corr[i, i + 1 :] < CORRELATED)
-        steps = apart[0] + 1 if apart.size else rasters.shape[1] - i
-        lengths[i] = steps * dz
-    return lengths
+    return VsSpread(depths, low, middle, high)
 
 
 def save_vs_spread(spread: VsSpread, path: Path) -> None:
     """`spread` as a row per depth. Written whole, then moved in place: a reader never finds half
     of it (PAC writes it on reading an inversion saved before it was, see load_vs_spread)."""
     lines = [_SPREAD_HEADER]
-    columns = (spread.depths, spread.low, spread.middle, spread.high, spread.correlation)
-    for row in zip(*columns, strict=True):
+    for row in zip(spread.depths, spread.low, spread.middle, spread.high, strict=True):
         lines.append(",".join(f"{value:.6g}" for value in row))
     partial = path.with_name(f".{path.name}.partial")
     partial.write_text("\n".join(lines) + "\n")
@@ -374,7 +350,7 @@ def load_vs_spread(folder: Path) -> VsSpread | None:
         if file.readline().strip() != _SPREAD_HEADER:
             return None
     rows = np.loadtxt(path, delimiter=",", skiprows=1, ndmin=2)
-    return VsSpread(*(rows[:, k].copy() for k in range(5)))
+    return VsSpread(*(rows[:, k].copy() for k in range(4)))
 
 
 def load_profiles(path: Path) -> LayeredSamples:

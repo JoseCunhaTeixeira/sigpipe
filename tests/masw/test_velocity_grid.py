@@ -6,7 +6,6 @@ import numpy as np
 from sigpipe.base.coordinate import Coordinate
 from sigpipe.base.velocity_model import VelocityModel, VelocityModelsSection
 from sigpipe.masw.inversion.section import (
-    correlation_grid,
     informed_levels,
     interface_grid,
     uncertainty_grid,
@@ -141,7 +140,7 @@ def _spread(narrow_to: float, bottom: float = 20.0) -> VsSpread:
     depths = (np.arange(int(bottom / 0.05)) + 0.5) * 0.05
     middle = np.full(depths.size, 300.0)
     half = np.where(depths < narrow_to, 30.0, 225.0)
-    return VsSpread(depths, middle - half, middle, middle + half, np.full(depths.size, 1.0))
+    return VsSpread(depths, middle - half, middle, middle + half)
 
 
 def test_the_uncertainty_is_drawn_from_each_ground_and_smoothed_as_vs() -> None:
@@ -171,6 +170,3 @@ def test_the_uncertainty_is_drawn_from_each_ground_and_smoothed_as_vs() -> None:
     assert np.isnan(smooth[smooth_grid.outside()]).all()
     held = smooth[~smooth_grid.outside()]
     assert np.nanmin(held) >= 0.1 - 1e-6 and np.nanmax(held) <= 0.75 + 1e-6
-    # The correlation length drawn alike: 1 m in every window's column.
-    lengths = correlation_grid(grid, windows)
-    assert np.nanmin(lengths) == np.nanmax(lengths) == 1.0 and np.isnan(lengths[3]).all()

@@ -17,13 +17,12 @@ from sigpipe.masw.inversion.measuring import (
     fit_by_band,
     interface_shares,
     lag1_autocorrelation,
-    one_structure,
     report_depths,
     split_rhat,
     useful_depth,
     vs_at,
 )
-from sigpipe.masw.inversion.window import correlation_lengths, vs_spread
+from sigpipe.masw.inversion.window import vs_spread
 
 RNG = np.random.default_rng(7)
 PARAMETERS = InversionParameters.model_validate(
@@ -40,7 +39,8 @@ def _useful(
     parameters: InversionParameters = PARAMETERS,
 ) -> float | None:
     """The depth informed of two-layer samples, read from their relative uncertainty U(z)."""
-    return useful_depth(vs_spread(_profiles(samples), parameters.bottom), max_uncertainty)
+    profiles = _profiles(samples)
+    return useful_depth(vs_spread(profiles, parameters.bottom), profiles, max_uncertainty)
 
 
 def _profiles(samples: dict[str, np.ndarray]) -> LayeredSamples:
@@ -172,17 +172,33 @@ def test_a_model_informed_to_its_bottom_has_no_useful_depth() -> None:
     assert _useful(samples) is None
 
 
-def test_an_interface_the_models_disagree_on_ends_the_depth_informed() -> None:
-    # A layer resolved to an interface somewhere between 2 and 4 m, over a half-space they agree
-    # on: the depth informed ends where they start to disagree, not at the bottom.
+def test_an_interface_the_models_place_at_depths_apart_does_not_end_the_depth_informed() -> None:
+    # A layer over a half-space they agree on, the interface between them anywhere from 2 to
+    # 4 m: U is high there only because each model's Vs is the layer's or the half-space's.
     samples = {
         "vs1": RNG.normal(250.0, 5.0, 3_000),
         "thick1": RNG.uniform(2.0, 4.0, 3_000),
         "vs2": RNG.normal(800.0, 20.0, 3_000),
     }
 
-    depth = _useful(samples)
-    assert depth is not None and 2.1 <= depth <= 2.35
+    assert _useful(samples) is None
+
+
+def test_a_layer_the_models_disagree_on_ends_the_depth_informed_though_they_agree_below() -> None:
+    # Sharp interfaces at 3 and 6 m around a layer whose Vs they leave anywhere, slower than the
+    # layers either side or between them, over a half-space they agree on: its interfaces do not
+    # explain the stretch where U is high.
+    for middle in (RNG.uniform(100.0, 500.0, 3_000), RNG.uniform(250.0, 800.0, 3_000)):
+        profiles = LayeredSamples(
+            depths=np.column_stack([RNG.normal(3.0, 0.05, 3_000), RNG.normal(6.0, 0.05, 3_000)]),
+            vs=np.column_stack(
+                [RNG.normal(250.0, 5.0, 3_000), middle, RNG.normal(800.0, 20.0, 3_000)]
+            ),
+            n_chains=1,
+        )
+
+        depth = useful_depth(vs_spread(profiles, 10.0), profiles, 0.25)
+        assert depth is not None and 2.9 <= depth <= 3.05
 
 
 def test_an_interface_the_models_place_alike_does_not_end_the_depth_informed() -> None:
@@ -207,49 +223,6 @@ def test_the_limit_sets_how_uncertain_a_vs_still_informs() -> None:
     assert _useful(samples, max_uncertainty=0.25) is None
     depth = _useful(samples, max_uncertainty=0.125)
     assert depth is not None and 2.8 <= depth <= 3.1
-
-
-def test_the_correlation_length_reaches_down_to_where_the_models_part() -> None:
-    # Two blocks of 8 depths each, every model's Vs one value per block, the blocks apart; then
-    # a depth where every model holds the same Vs.
-    top, below = RNG.normal(250.0, 20.0, 2_000), RNG.normal(600.0, 50.0, 2_000)
-    rasters = np.column_stack([top] * 8 + [below] * 8 + [np.full(2_000, 700.0)])
-
-    lengths = correlation_lengths(rasters, 0.25)
-
-    # From each depth down to its block's end: the next block's first depth is apart.
-    np.testing.assert_allclose(lengths[:8], (8 - np.arange(8)) * 0.25)
-    np.testing.assert_allclose(lengths[8:16], (16 - np.arange(8, 16)) * 0.25)
-    assert np.isnan(lengths[16])
-
-
-def test_a_precise_vs_the_data_do_not_resolve_apart_is_one_structure() -> None:
-    # One layer in nine models of ten: Vs pinned to a few percent, the same variable at every
-    # depth down to the bottom.
-    samples = {
-        "vs1": RNG.normal(300.0, 6.0, 3_000),
-        "thick1": np.where(RNG.random(3_000) < 0.9, 5.9, 3.0),
-        "vs2": RNG.normal(300.0, 6.0, 3_000),
-    }
-    samples["vs2"] = np.where(samples["thick1"] > 5.0, samples["vs1"], samples["vs2"])
-    uniform = vs_spread(_profiles(samples), PARAMETERS.bottom)
-    # Two layers resolved apart at 3 m.
-    layered = vs_spread(
-        _profiles(
-            {
-                "vs1": RNG.normal(250.0, 5.0, 3_000),
-                "thick1": RNG.normal(3.0, 0.05, 3_000),
-                "vs2": RNG.normal(400.0, 8.0, 3_000),
-            }
-        ),
-        PARAMETERS.bottom,
-    )
-
-    share = one_structure(uniform)
-    assert share is not None and share > 0.9
-    # From 1 m to the interface at 3 m: 2 m of the 5 below 1 m.
-    parted = one_structure(layered)
-    assert parted is not None and 0.35 <= parted <= 0.45
 
 
 def test_the_fit_is_judged_by_band_of_wavelength() -> None:
