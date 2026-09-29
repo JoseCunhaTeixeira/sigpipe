@@ -47,7 +47,6 @@ class RockPhysicsQuantity:
     label: str  # the section's colour bar
     cmap: str
     dataset: str  # its name in the section's HDF5 file
-    section_figure: str
     section_file: str
 
 
@@ -56,20 +55,18 @@ QUANTITIES: dict[Quantity, RockPhysicsQuantity] = {
         file="PetroInversion_ShearModulus_0000.csv",
         column="mu_hm_pa",
         scale=1e-9,  # Pa to GPa
-        label="Hertz-Mindlin shear modulus $\\mu_{HM}$ [GPa]",
+        label="Shear modulus [GPa]",
         cmap="viridis",
         dataset="mu",
-        section_figure="PetroInversion_ShearModulusSection_0000.png",
         section_file="PetroInversion_ShearModulusSection_0000.hdf5",
     ),
     "vs": RockPhysicsQuantity(
         file="PetroInversion_Vs_0000.csv",
         column="vs_m_s",
         scale=1.0,
-        label="$V_s$ [m/s]",
+        label="Vs [m/s]",
         cmap="terrain",
         dataset="vs",
-        section_figure="PetroInversion_VsSection_0000.png",
         section_file="PetroInversion_VsSection_0000.hdf5",
     ),
 }

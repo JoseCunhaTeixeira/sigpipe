@@ -1,14 +1,18 @@
+from typing import Any
+
 import matplotlib.pyplot as plt
 import numpy as np
 from disba import DispersionError
 from matplotlib import colors
+from matplotlib.collections import LineCollection
 from matplotlib.figure import Figure
+from matplotlib.lines import Line2D
 from matplotlib.ticker import MaxNLocator
 from scipy.stats import gaussian_kde
 
 from sigpipe.algorithms.inversion.rayleigh.seismic.forward import fwd_seismic_phase
 from sigpipe.base.dispersion_curve import DispersionCurves
-from sigpipe.base.inversion import InversionResult
+from sigpipe.base.inversion import InversionResult, LayeredSamples
 from sigpipe.base.velocity_model import VelocityModel
 from sigpipe.dataio.plot_config import CM, DISP_DPI, DOUBLE_COLUMN_CM
 
@@ -247,6 +251,20 @@ _UNCERTAINTY = "#b23200"  # afmhot_r at 0.65, as U's section
 _INTERFACES = "#653e9b"  # Purples at 0.8, as the interfaces' section
 _INFORMED = "#d98a04"
 _VEIL = (0.06, 0.06, 0.08, 0.06)
+# Every kept model under the profile, in the saved figure only: grey, darker the better it fits.
+_EXPLORED = "#8a8a8a"
+# PAC's chain colours, in its order, and its prior bounds' grey.
+_CHAIN_COLOURS = (
+    "#2a78d6",
+    "#eb6834",
+    "#1baf7a",
+    "#eda100",
+    "#e87ba4",
+    "#008300",
+    "#4a3aa7",
+    "#e34948",
+)
+_LIMIT = "#898781"
 
 
 def plot_inversion_window(
@@ -258,6 +276,7 @@ def plot_inversion_window(
     informed: float | None,
     interfaces: tuple[float, ...] = (),
     interface_dz: float = 0.5,
+    explored: tuple[LayeredSamples, np.ndarray] | None = None,
 ) -> Figure:
     """One window's inversion as PAC shows it, the median of the ensemble alone.
 
@@ -268,15 +287,21 @@ def plot_inversion_window(
     uncertainty U = (P90 - P10) / (2 P50)); right, U on the same depths, then where the kept
     models place interfaces (`interfaces`: the share of them per `interface_dz` m from the
     surface down). Below the depth informed (`informed`, m; None: all of it), veiled.
+    Every kept model (`explored`: the models and their misfits) under the profile, thin, grey,
+    darker the better it fits, the best on top, as the figure drew them before; the Vs axis
+    framed on their 10-90 %.
     """
     depths, low, high, uncertainty = spread
     bottom = float(depths[-1] + (depths[1] - depths[0]) / 2) if depths.size > 1 else 1.0
-    fig = plt.figure(figsize=(DOUBLE_COLUMN_CM * CM, 10.5 * CM), dpi=DISP_DPI)
-    grid = fig.add_gridspec(1, 4, width_ratios=(1.3, 1.0, 0.45, 0.45), wspace=0.08)
-    ax_fit = fig.add_subplot(grid[0])
-    ax_vs = fig.add_subplot(grid[1])
-    ax_u = fig.add_subplot(grid[2], sharey=ax_vs)
-    ax_i = fig.add_subplot(grid[3], sharey=ax_vs)
+    fig = plt.figure(figsize=(DOUBLE_COLUMN_CM * CM, 11.5 * CM), dpi=DISP_DPI)
+    # The curve, then the profile with U and the interfaces on its depths: room between the two
+    # for the profile's depth axis.
+    outer = fig.add_gridspec(1, 2, width_ratios=(1.3, 1.9), wspace=0.2)
+    ax_fit = fig.add_subplot(outer[0])
+    grid = outer[1].subgridspec(1, 3, width_ratios=(1.0, 0.45, 0.45), wspace=0.08)
+    ax_vs = fig.add_subplot(grid[0])
+    ax_u = fig.add_subplot(grid[1], sharey=ax_vs)
+    ax_i = fig.add_subplot(grid[2], sharey=ax_vs)
     small = 7
 
     # The curves: the models' band, the median of the ensemble's, the picks over them.
@@ -325,6 +350,34 @@ def plot_inversion_window(
     ax_vs.fill_betweenx(
         depths, low, high, color=_VS_SOFT, linewidth=0, label="10-90 % of the models"
     )
+    if explored is not None:
+        profiles, misfits = explored
+        lines = []
+        for index in range(profiles.vs.shape[0]):
+            boundaries, vs = profiles.model(index)
+            edges = np.concatenate(([0.0], boundaries, [max(bottom, *boundaries, 0.0)]))
+            lines.append(
+                np.column_stack(
+                    (np.repeat(vs, 2), np.column_stack((edges[:-1], edges[1:])).ravel())
+                )
+            )
+        order = np.argsort(misfits)[::-1]  # the best drawn last, on top
+        fit = colors.LogNorm(
+            vmin=max(float(np.min(misfits)), 1e-12),
+            vmax=max(float(np.max(misfits)), float(np.min(misfits)) * 1.001, 1e-12),
+        )
+        greys = plt.get_cmap("Greys_r")
+        ax_vs.add_collection(
+            LineCollection(
+                [lines[i] for i in order],
+                colors=[greys(0.25 + 0.6 * float(fit(misfits[i]))) for i in order],
+                linewidths=0.3,
+                zorder=0.8,  # over the grid, under the band and the median
+            )
+        )
+        ax_vs.plot([], [], color=_EXPLORED, linewidth=0.8, label="each kept model")
+        span = float(np.nanmax(high) - np.nanmin(low)) or 1.0
+        ax_vs.set_xlim(float(np.nanmin(low)) - 0.25 * span, float(np.nanmax(high)) + 0.25 * span)
     tops = np.concatenate(([0.0], np.cumsum(ensemble.thicknesses)[:-1]))
     ax_vs.step(
         np.asarray(ensemble.vs_s),
@@ -333,6 +386,7 @@ def plot_inversion_window(
         color=_VS,
         linewidth=1.2,
         label="median of the ensemble",
+        zorder=3,
     )
     ax_u.plot(100 * uncertainty, depths, color=_UNCERTAINTY, linewidth=1.0, label="uncertainty")
     if interfaces:
@@ -359,8 +413,23 @@ def plot_inversion_window(
             va="bottom",
             fontsize=small - 1,
             color=_INFORMED,
+            bbox={"facecolor": "white", "alpha": 0.75, "edgecolor": "none", "pad": 1.0},
+            zorder=4,
         )
         ax_vs.fill_between([], [], color=_VEIL, label="not informed by the data")
+    else:  # said too when the data inform all of it: no line drawn is no depth left out
+        ax_vs.text(
+            0.98,
+            bottom,
+            "informed to the whole model",
+            transform=ax_vs.get_yaxis_transform(),
+            ha="right",
+            va="bottom",
+            fontsize=small - 1,
+            color=_INFORMED,
+            bbox={"facecolor": "white", "alpha": 0.75, "edgecolor": "none", "pad": 1.0},
+            zorder=4,
+        )
     ax_vs.set_ylim(bottom, 0)
     ax_vs.set_xlabel("Vs [m/s]", fontsize=small)
     ax_vs.set_ylabel("Depth [m]", fontsize=small)
@@ -376,32 +445,90 @@ def plot_inversion_window(
         ax.tick_params(labelsize=small - 1)
         ax.grid(color="#ecebe6", linewidth=0.5)
         ax.set_axisbelow(True)
-    # Each legend centred under its plot: the curve's, and the profile's with its uncertainty.
+    fig.subplots_adjust(left=0.08, right=0.98, top=0.93, bottom=0.3)
+    # Each legend centred under its plots: the curve's; the profile's, a column each: the profile,
+    # its uncertainty and interfaces, the other medians, the best models.
+    under = ax_fit.get_position().y0 - 0.12
     ax_fit.legend(
         loc="upper center",
-        bbox_to_anchor=(0.5, -0.16),
+        bbox_to_anchor=(ax_fit.get_position().x0 + ax_fit.get_position().width / 2, under),
+        bbox_transform=fig.transFigure,
         fontsize=small - 1,
         frameon=False,
         ncol=2,
     )
-    handles = [
-        *ax_vs.get_legend_handles_labels()[0],
-        *ax_u.get_legend_handles_labels()[0],
-        *ax_i.get_legend_handles_labels()[0],
-    ]
-    labels = [
-        *ax_vs.get_legend_handles_labels()[1],
-        *ax_u.get_legend_handles_labels()[1],
-        *ax_i.get_legend_handles_labels()[1],
-    ]
-    ax_vs.legend(
-        handles,
-        labels,
+    found: dict[str, Any] = {}
+    for ax in (ax_vs, ax_u, ax_i):
+        for handle, label in zip(*ax.get_legend_handles_labels(), strict=True):
+            found[label] = handle
+    first = ["each kept model", "10-90 % of the models", "median of the ensemble"]
+    order = [*first, "not informed by the data", "uncertainty", "interfaces"]
+    shown = [label for label in order if label in found]
+    fig.legend(
+        [found[label] for label in shown],
+        shown,
         loc="upper center",
-        bbox_to_anchor=(0.95, -0.16),
+        bbox_to_anchor=((ax_vs.get_position().x0 + ax_i.get_position().x1) / 2, under),
         fontsize=small - 1,
         frameon=False,
-        ncol=2,
+        ncol=3 if len(shown) > 5 else 2,
+        columnspacing=1.2,
+        handlelength=1.6,
     )
-    fig.subplots_adjust(left=0.08, right=0.98, top=0.92, bottom=0.3)
+    return fig
+
+
+def plot_chains(traces: dict[str, np.ndarray], priors: dict[str, tuple[float, float]]) -> Figure:
+    """Each chain's saved samples of each parameter along the run, as PAC's Chains view draws
+    them: a panel a parameter (`traces`, by its label: chains x samples), each chain in its
+    colour (chains that agree overlap, a stuck chain stays flat), its prior's bounds dashed
+    where in view (`priors`, by label)."""
+    labels = list(traces)
+    columns = 2 if len(labels) > 1 else 1
+    rows = max(1, -(-len(labels) // columns))
+    fig, axes = plt.subplots(
+        rows,
+        columns,
+        figsize=(DOUBLE_COLUMN_CM * CM, (3.4 * rows + 1.4) * CM),
+        dpi=DISP_DPI,
+        squeeze=False,
+    )
+    small = 7
+    n_chains = max((chains.shape[0] for chains in traces.values()), default=0)
+    for ax, label in zip(axes.flat, labels, strict=False):
+        chains = np.asarray(traces[label], dtype=float)
+        samples = np.arange(chains.shape[1])
+        for c, chain in enumerate(chains):
+            colour = _CHAIN_COLOURS[c % len(_CHAIN_COLOURS)]
+            ax.plot(samples, chain, color=colour, linewidth=0.5, alpha=0.85)
+        low, high = float(np.nanmin(chains)), float(np.nanmax(chains))
+        pad = (high - low) * 0.06 or abs(high) * 0.05 or 1.0
+        ax.set_ylim(low - pad, high + pad)
+        ax.set_xlim(0, max(1, chains.shape[1] - 1))
+        for bound in priors.get(label, ()):
+            ax.axhline(bound, color=_LIMIT, linestyle=(0, (4, 3)), linewidth=0.8)
+        ax.set_title(label, fontsize=small, loc="left")
+        ax.yaxis.set_major_locator(MaxNLocator(3))
+        ax.tick_params(labelsize=small - 1)
+        ax.grid(color="#ecebe6", linewidth=0.5)
+        ax.set_axisbelow(True)
+    for ax in axes.flat[len(labels) :]:
+        ax.set_visible(False)
+    # The saved sample under each column's lowest panel drawn.
+    for column in range(columns):
+        drawn = [axes[row, column] for row in range(rows) if axes[row, column].get_visible()]
+        if drawn:
+            drawn[-1].set_xlabel("Saved sample", fontsize=small)
+    handles = [
+        Line2D([], [], color=_CHAIN_COLOURS[c % len(_CHAIN_COLOURS)], label=f"chain {c + 1}")
+        for c in range(n_chains)
+    ]
+    fig.legend(
+        handles=handles,
+        loc="lower center",
+        ncol=max(1, n_chains),
+        fontsize=small - 1,
+        frameon=False,
+    )
+    fig.tight_layout(rect=(0, 0.9 * CM / fig.get_figheight(), 1, 1), h_pad=0.8)
     return fig

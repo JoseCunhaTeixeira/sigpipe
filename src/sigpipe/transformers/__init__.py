@@ -19,7 +19,7 @@ from .plotting import Plot
 from .plotting_section import PlotSection
 from .residual_phase import ArrivalResidualPhase
 from .saving import Save
-from .selection import Selection
+from .selection import PlotSelection, Selection
 from .shifting import Shift
 from .slicing import Slice
 from .stacking import Stack
@@ -47,6 +47,7 @@ __all__ = [
     "Pick",
     "Plot",
     "PlotSection",
+    "PlotSelection",
     "Save",
     "Selection",
     "Shift",

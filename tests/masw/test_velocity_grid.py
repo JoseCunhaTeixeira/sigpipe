@@ -56,6 +56,8 @@ def test_each_column_runs_from_its_ground_to_its_models_depth_smoothed_or_not() 
         else:  # within the windows' own floors
             assert grid.floor.min() >= min(plain_floor) - 0.01
             assert grid.floor.max() <= max(plain_floor) + 0.01
+        # Down to the depths with data alone: its last row holds some (smoothed, shallower).
+        assert not np.isnan(grid.vs[:, -1]).all(), smoothing
 
 
 def _line(tops: np.ndarray) -> VelocityModelsSection:

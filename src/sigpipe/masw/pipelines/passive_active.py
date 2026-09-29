@@ -21,6 +21,8 @@ def build_passive_active_pipeline(
         >> ActiveShotCorrelation(method="cross")
         >> Stack(**stage_kwargs(preset, "stacking"))
         >> Save(folder_path=output_folder)
+        # The stacked correlations the image is made of, as PAC's gather view draws them.
+        >> Plot(folder_path=output_folder)
         >> Dispersion(method="phase", **stage_kwargs(preset, "dispersion"))
         >> Plot(folder_path=output_folder, normalize=True)
         >> Save(folder_path=output_folder)

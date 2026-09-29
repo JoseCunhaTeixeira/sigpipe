@@ -62,6 +62,16 @@ def load_manifest(run_id: str, workspace: Workspace) -> RunManifest:
     return RunManifest.model_validate_json((find_run(run_id, workspace) / "run.json").read_text())
 
 
+def window_length(run_folder: Path) -> float | None:
+    """A window's length along the line (m), from its first receiver to its last, as run folder
+    `run_folder`'s manifest (run.json) says; None without one."""
+    path = run_folder / "run.json"
+    if not path.exists():
+        return None
+    manifest = RunManifest.model_validate_json(path.read_text())
+    return (manifest.preset.masw.length - 1) * manifest.profile.receiver_spacing_m
+
+
 def load_image(folder: Path) -> DispersionImage:
     """The dispersion image a window's pipeline saved in `folder`."""
     path = folder / IMAGE_FILE

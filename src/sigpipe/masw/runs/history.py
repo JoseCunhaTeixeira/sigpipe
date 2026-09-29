@@ -34,6 +34,7 @@ STAGE_FILES: dict[Stage, tuple[str, ...]] = {
         "DispersionImage_0000.png",
         "Stream_*.png",
         "Stream_*.hdf5",
+        "Selection_*.png",
         "error.log",
     ),
     "picking": ("DispersionCurves_*.csv", "quality.json"),

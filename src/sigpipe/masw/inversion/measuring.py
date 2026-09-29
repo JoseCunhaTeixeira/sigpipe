@@ -25,6 +25,7 @@ from sigpipe.masw.inversion.window import (
     PARAMETERS_FILE,
     SAMPLES_FILE,
     VsSpread,
+    depth_of,
     load_parameters,
     load_profiles,
     load_samples,
@@ -38,6 +39,8 @@ MODELS = ("ensemble", "median")
 # The depth bins the kept models' interfaces are counted in (m).
 INTERFACE_DZ = 0.5
 LOG_FILE = "SeismicInversion_Log_0000.log"
+# Where PAC's job and the assistant save a window's measures, beside its inversion.
+MEASURES_FILE = "SeismicInversion_Measures_0000.json"
 # The acceptance rates in the log of runs saved before 2026-09-27, which their parameters lack.
 _RATE = re.compile(r"ACCEPTANCE RATE: \d+/\d+ \(([\d.]+) %\)")
 # Depths the chains' agreement is measured at, between a third of the shortest and of the longest
@@ -158,9 +161,8 @@ def measure_inversion(
     samples, n_chains = load_samples(out / SAMPLES_FILE)
     profiles = load_profiles(out / SAMPLES_FILE)
     spread = vs_spread(profiles, ran.bottom)
-    depths_watched = convergence_depths(picked, ran.bottom)
-    at_depths = profiles.at(np.asarray(depths_watched))
-    watched = tuple(f"vs@{depth:g}m" for depth in depths_watched)
+    watched = watched_series(folder, ran.bottom)
+    at_depths = profiles.at(np.asarray([depth_of(name) for name in watched]))
     series = {name: at_depths[:, j] for j, name in enumerate(watched)}
     # The convergence of what was sampled: a value fixed has none to measure.
     fixed = ran.fixed()
@@ -214,6 +216,26 @@ def measure_inversion(
     )
 
 
+def saved_measures(folder: Path) -> InversionMeasures | None:
+    """The measures saved with window folder `folder`'s inversion (PAC's job, the assistant);
+    None without them, or when older than its kept models (an inversion from before they were
+    saved with it)."""
+    path, samples = folder / MEASURES_FILE, folder / SAMPLES_FILE
+    if not path.exists() or not samples.exists():
+        return None
+    if path.stat().st_mtime < samples.stat().st_mtime:
+        return None
+    return InversionMeasures.model_validate_json(path.read_text())
+
+
+def informed_depth(measures: InversionMeasures) -> float | None:
+    """How deep the data inform the model (m), its bottom when all of it; None when `measures`
+    read it by an older rule than USEFUL_REFERENCE's (not shown)."""
+    if measures.useful_reference != USEFUL_REFERENCE:
+        return None
+    return measures.depth_max_m if measures.useful_depth_m is None else measures.useful_depth_m
+
+
 def interface_shares(
     profiles: LayeredSamples, bottom: float, dz: float = INTERFACE_DZ
 ) -> tuple[float, ...]:
@@ -237,6 +259,12 @@ def _picked_m0(folder: Path) -> DispersionCurve:
         for curve in load_dispersion_curves([folder / CURVES_FILE])[0]
         if curve.mode.number == 0
     )
+
+
+def watched_series(folder: Path, bottom: float) -> tuple[str, ...]:
+    """The series of Vs at depths the chains' agreement is judged on ("vs@2.5m", ...): at
+    convergence_depths of window folder `folder`'s picked M0, over models `bottom` m deep."""
+    return tuple(f"vs@{depth:g}m" for depth in convergence_depths(_picked_m0(folder), bottom))
 
 
 def convergence_depths(

@@ -1,7 +1,8 @@
 """The line's velocity section and pseudo-section comparison, from its windows' inversions: PAC's
 views and files. Each inverted window folder holds the five model variants sigpipe's inversion
-saves (MODEL_NAMES), and the curves each predicts; PAC's default view is the smooth median.
-Functions take a run folder and window folders of it (`units`, named xmid_<x>)."""
+saves (MODEL_NAMES), and the curves each predicts; PAC's default view is the median of the
+ensemble (DEFAULT_MODEL). Functions take a run folder and window folders of it (`units`, named
+xmid_<x>)."""
 
 import logging
 import warnings
@@ -12,23 +13,20 @@ from typing import Literal, cast
 
 import matplotlib.pyplot as plt
 import numpy as np
+from matplotlib import colors
+from matplotlib.figure import Figure
 from scipy.ndimage import distance_transform_edt, gaussian_filter1d
 
 from sigpipe.base.dispersion_curve import DispersionCurve, DispersionCurvesSection, Mode
 from sigpipe.base.velocity_model import VelocityModel, VelocityModelsSection
 from sigpipe.dataio.dispersion.loading import load_dispersion_curves
-from sigpipe.dataio.dispersion.section import (
-    plot_pseudo_section_comparison,
-    pseudo_section_comparison_grids,
-)
+from sigpipe.dataio.dispersion.section import pseudo_section_comparison_grids
 from sigpipe.dataio.inversion.forward import MODEL_NAMES
+from sigpipe.dataio.section_plotting import SectionPanel, plot_sections
 from sigpipe.dataio.velocity_model.loading import load_velocity_models
-from sigpipe.dataio.velocity_model.section import (
-    plot_velocity_and_std_section,
-    save_velocity_models_sections,
-)
-from sigpipe.masw.inversion.measuring import INTERFACE_DZ
-from sigpipe.masw.inversion.window import DZ, M0, VsSpread
+from sigpipe.dataio.velocity_model.section import save_velocity_models_sections
+from sigpipe.masw.inversion.measuring import INTERFACE_DZ, informed_depth, saved_measures
+from sigpipe.masw.inversion.window import DZ, M0, VsSpread, load_vs_spread
 from sigpipe.masw.picks import CURVES_FILE
 from sigpipe.transformers import Plot
 
@@ -40,9 +38,13 @@ type ModelName = Literal["best", "smooth_best", "median", "smooth_median", "ense
 # their spread (what the data support; the smooth models' curves are drawn, and fit worse).
 DEFAULT_MODEL: ModelName = "ensemble"
 
+# The figures of the line a run saves, as Visualization shows them: the views not smoothed
+# laterally and by frequency; smoothed, "_lateralsmooth" before ".png" (section_suffix), by
+# wavelength "_wavelength".
 SECTION_FIGURE = "SeismicInversion_VelocitySection_0000.png"
 SECTION_FILE = "SeismicInversion_VelocitySection_0000.hdf5"
 COMPARISON_FIGURE = "SeismicInversion_PseudoSectionComparison_0000_M0.png"
+WAVELENGTH_SUFFIX = "_wavelength"
 # The depths of a section drawn on screen (PAC's canvas is 200 to 320 px high): at the
 # inversion's 1 cm, a modest line has about 4,000, 60 MB of JSON, for no visible difference.
 VIEW_NZ = 200
@@ -147,14 +149,24 @@ def velocity_grid(
     reached = smoothed((tops - bottoms)[:, None], xs, positions, width)[:, 0]
     grid = VelocityGrid(positions, elevations, vs, vs_std, ground, ground - reached)
     empty = grid.outside()
+    smooth_vs = smoothed(vs, xs, positions, width, empty).astype(np.float32)
+    # Its bottom smoothed is shallower than the deepest window's: the depths with data alone.
+    rows = rows_with_data(smooth_vs)
     return VelocityGrid(
         positions=positions,
-        elevations=elevations,
-        vs=smoothed(vs, xs, positions, width, empty).astype(np.float32),
-        vs_std=smoothed(vs_std, xs, positions, width, empty).astype(np.float32),
+        elevations=elevations[rows],
+        vs=smooth_vs[:, rows],
+        vs_std=smoothed(vs_std, xs, positions, width, empty).astype(np.float32)[:, rows],
         ground=grid.ground,
         floor=grid.floor,
     )
+
+
+def rows_with_data(values: np.ndarray) -> slice:
+    """The rows of `values` (positions x elevations) from the first to the last any column
+    holds a value in; all of them when none does."""
+    filled = np.flatnonzero(np.isfinite(values).any(axis=0))
+    return slice(int(filled[0]), int(filled[-1]) + 1) if filled.size else slice(None)
 
 
 def smoothed_positions(xs: np.ndarray, at_least: int = 0) -> np.ndarray:
@@ -421,23 +433,168 @@ def section_suffix(model: ModelName, lateral_smoothing: bool) -> str:
     return ("_" + "_".join(parts)) if parts else ""
 
 
-def save_section(
+@dataclass(slots=True, frozen=True)
+class SectionWindow:
+    """A window's column in the sections: its middle, its ground's elevation, how deep its model
+    reaches and how deep its data inform it (m; None when its measures do not say)."""
+
+    x: float
+    top: float
+    depth: float
+    informed: float | None
+    # Per INTERFACE_DZ from its ground, the share of its kept models with an interface there
+    # (none when its measures do not say).
+    interfaces: tuple[float, ...] = ()
+    # Its kept models' Vs at each depth, as their 10th, 50th and 90th percentiles (None: none).
+    spread: VsSpread | None = None
+
+
+@dataclass(slots=True, frozen=True)
+class VelocitySection:
+    grid: VelocityGrid
+    windows: list[SectionWindow]  # by position
+    # Per column of the grid, the elevation down to which the data inform it (NaN: not known),
+    # smoothed across positions as the grid is.
+    levels: np.ndarray
+    # On the grid, the share of the kept models with an interface (NaN: not known).
+    interfaces: np.ndarray
+    # On the grid, the kept models' relative uncertainty of Vs, U(z) = (P90 - P10) / (2 P50)
+    # (NaN: not known): what the depth informed is read from.
+    uncertainty: np.ndarray
+
+
+def section_window(folder: Path, model: VelocityModel) -> SectionWindow:
+    """Window folder `folder`'s column, its model `model`: what its inversion saved, nothing
+    measured (measures older than its kept models, or reading the depth informed by an older
+    rule, not shown)."""
+    measures = saved_measures(folder)
+    # How deep its models were built (a layered model's own file ends half way into the
+    # half-space); the model's own depth without measures.
+    depth = round(
+        measures.depth_max_m if measures is not None else float(np.sum(model.thicknesses)), 2
+    )
+    informed = None
+    if measures is not None and (known := informed_depth(measures)) is not None:
+        # All of it: the model's own depth, the bottom the section draws.
+        informed = depth if measures.useful_depth_m is None else known
+    return SectionWindow(
+        x=float(model.position.x),
+        top=float(model.position.z),
+        depth=depth,
+        informed=informed,
+        interfaces=measures.interfaces if measures is not None else (),
+        spread=load_vs_spread(folder),
+    )
+
+
+def line_section(
     run_folder: Path,
     units: Sequence[str],
     model: ModelName = DEFAULT_MODEL,
     lateral_smoothing: bool = False,
-) -> Path | None:
-    """The figure of the line's `model` and its spread, in `run_folder`; None with fewer than
-    two windows holding the model."""
-    section = models_section(run_folder, units, model)
-    if section is None:
+    window_m: float | None = None,
+) -> VelocitySection | None:
+    """The section of the model `model` of the window folders of `units` on a grid, and each
+    window's column (section_window), each read once; None with fewer than two windows holding
+    the model. Smoothed along the line (`lateral_smoothing`) over a share of a window's length
+    `window_m` (what a window's model describes); each column down to its models' depth, no
+    half-space carried further."""
+    found = {
+        unit: one for unit in units if (one := window_model(run_folder / unit, model)) is not None
+    }
+    if len(found) < 2:
         return None
-    figure = plot_velocity_and_std_section(section, dz=DZ, lateral_smoothing=lateral_smoothing)
-    suffix = section_suffix(model, lateral_smoothing)
-    path = run_folder / f"SeismicInversion_VelocitySection_0000{suffix}.png"
-    Plot.savefig(path=path, figure=figure)
-    plt.close(figure)
-    return path
+    ordered = sorted(found.items(), key=lambda item: item[1].position.x)
+    section = VelocityModelsSection(velocity_models=tuple(one for _, one in ordered))
+    windows = [section_window(run_folder / unit, one) for unit, one in ordered]
+    grid = velocity_grid(
+        section, lateral_smoothing, window_m=window_m, depths=[one.depth for one in windows]
+    )
+    informed = [
+        (one.x, one.top, None if one.informed is None else min(one.informed, one.depth))
+        for one in windows
+    ]
+    spreads = [(one.x, one.top, one.spread) for one in windows]
+    shares = [(one.x, one.top, one.interfaces) for one in windows]
+    return VelocitySection(
+        grid=grid,
+        windows=windows,
+        levels=informed_levels(grid, informed, lateral_smoothing, window_m),
+        interfaces=interface_grid(grid, shares, lateral_smoothing, window_m),
+        uncertainty=uncertainty_grid(grid, spreads, lateral_smoothing, window_m),
+    )
+
+
+def save_section(
+    run_folder: Path,
+    units: Sequence[str],
+    model: ModelName = DEFAULT_MODEL,
+    window_m: float | None = None,
+) -> Path | None:
+    """The figure of the line's model `model` as Visualization shows it (its Vs, their
+    uncertainty U, where they place interfaces; below the depth the data inform, veiled), in
+    `run_folder`: as the windows' columns (SECTION_FIGURE, the model's section_suffix), and
+    smoothed along the line over a share of a window's length `window_m` ("_lateralsmooth").
+    The first's path; None with fewer than two windows holding the model."""
+    first: Path | None = None
+    for lateral_smoothing in (False, True):
+        section = line_section(run_folder, units, model, lateral_smoothing, window_m)
+        if section is None:
+            return None
+        suffix = section_suffix(model, lateral_smoothing)
+        path = run_folder / f"SeismicInversion_VelocitySection_0000{suffix}.png"
+        figure = section_figure(section)
+        Plot.savefig(path=path, figure=figure)
+        plt.close(figure)
+        first = first or path
+    return first
+
+
+def section_figure(section: VelocitySection) -> Figure:
+    """`section`'s Vs, its uncertainty U and its interfaces stacked, as Visualization's section
+    card draws them (terrain, afmhot_r from 0, Purples on a square-root scale from 0), each
+    veiled below the depth the data inform; U or the interfaces left out when none is known."""
+    grid = section.grid
+    panels = [
+        SectionPanel(
+            grid.positions,
+            grid.elevations,
+            grid.vs,
+            "Vs [m/s]",
+            "terrain",
+            informed=section.levels,
+            floors=grid.floor,
+        )
+    ]
+    uncertainty = 100 * section.uncertainty
+    if np.isfinite(uncertainty).any():
+        panels.append(
+            SectionPanel(
+                grid.positions,
+                grid.elevations,
+                uncertainty,
+                "Vs uncertainty [%]",
+                "afmhot_r",
+                colors.Normalize(vmin=0.0, vmax=max(1.0, float(np.nanmax(uncertainty)))),
+                informed=section.levels,
+                floors=grid.floor,
+            )
+        )
+    interfaces = 100 * section.interfaces
+    if np.isfinite(interfaces).any():
+        panels.append(
+            SectionPanel(
+                grid.positions,
+                grid.elevations,
+                interfaces,
+                "Interfaces [%]",
+                "Purples",
+                colors.PowerNorm(0.5, vmin=0.0, vmax=max(1.0, float(np.nanmax(interfaces)))),
+                informed=section.levels,
+                floors=grid.floor,
+            )
+        )
+    return plot_sections(panels)
 
 
 def save_sections_file(run_folder: Path, units: Sequence[str]) -> Path | None:
@@ -524,17 +681,62 @@ def save_comparison(
     mode: Mode = M0,
     model: ModelName = DEFAULT_MODEL,
 ) -> Path | None:
-    """The figure of the picked curves of `mode` against the curves `model` predicts, along the
-    line, in `run_folder`; None with fewer than two windows holding both."""
-    sections = comparison_sections(run_folder, units, mode, model)
-    if sections is None:
+    """The figures of the picked curves of `mode` against the curves `model` predicts, along
+    the line, as Visualization shows them, in `run_folder`: by frequency and by wavelength
+    (save_comparison_figures). The first's path; None with fewer than two windows holding
+    both."""
+    grids = comparison_grids(run_folder, units, mode, model)
+    if grids is None:
         return None
-    figure = plot_pseudo_section_comparison(*sections)
     suffix = section_suffix(model, lateral_smoothing=False)
-    path = run_folder / f"SeismicInversion_PseudoSectionComparison_0000{suffix}_{mode.label}.png"
-    Plot.savefig(path=path, figure=figure)
-    plt.close(figure)
-    return path
+    stem = f"SeismicInversion_PseudoSectionComparison_0000{suffix}_{mode.label}"
+    return save_comparison_figures(grids, run_folder / stem)
+
+
+def save_comparison_figures(grids: ComparisonGrids, stem: Path) -> Path:
+    """`grids` as Visualization's pseudo-section comparison draws them (picked and modelled on
+    one cividis scale, the residual on bwr around 0), by frequency (`stem`.png) and by
+    wavelength, increasing downward (`stem`_wavelength.png); the first's path."""
+    views = (
+        ("", "Frequency [Hz]", False, grids.fs, grids.observed, grids.predicted, grids.residual),
+        (
+            WAVELENGTH_SUFFIX,
+            "Wavelength [m]",
+            True,
+            grids.lambdas,
+            grids.observed_by_wavelength,
+            grids.predicted_by_wavelength,
+            grids.residual_by_wavelength,
+        ),
+    )
+    paths: list[Path] = []
+    for suffix, label, downward, ys, observed, predicted, residual in views:
+        low = float(np.nanmin([np.nanmin(observed), np.nanmin(predicted)]))
+        high = float(np.nanmax([np.nanmax(observed), np.nanmax(predicted)]))
+        shared = colors.Normalize(vmin=low, vmax=max(high, low + 1.0))
+        bound = float(np.nanmax(np.abs(residual))) if np.isfinite(residual).any() else 1.0
+        panels = [
+            SectionPanel(
+                grids.positions, ys, observed, "Picked phase velocity [m/s]", "cividis", shared
+            ),
+            SectionPanel(
+                grids.positions, ys, predicted, "Modelled phase velocity [m/s]", "cividis", shared
+            ),
+            SectionPanel(
+                grids.positions,
+                ys,
+                residual,
+                "Residual [%]",
+                "bwr",
+                colors.Normalize(vmin=-max(bound, 0.1), vmax=max(bound, 0.1)),
+            ),
+        ]
+        figure = plot_sections(panels, label, downward)
+        path = stem.with_name(f"{stem.name}{suffix}.png")
+        Plot.savefig(path=path, figure=figure)
+        plt.close(figure)
+        paths.append(path)
+    return paths[0]
 
 
 @dataclass(frozen=True, slots=True)

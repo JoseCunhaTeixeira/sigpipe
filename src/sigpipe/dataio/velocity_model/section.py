@@ -1,4 +1,3 @@
-import warnings
 from pathlib import Path
 from typing import Literal
 
@@ -6,10 +5,9 @@ import h5py
 import matplotlib.pyplot as plt
 import numpy as np
 from matplotlib.figure import Figure
-from numpy.lib.stride_tricks import sliding_window_view
 
 from sigpipe.base.velocity_model import VelocityModelsSection
-from sigpipe.dataio.plot_config import CM, DISP_DPI, DOUBLE_COLUMN_CM, HEIGHT_CM, SINGLE_COLUMN_CM
+from sigpipe.dataio.plot_config import CM, DISP_DPI, HEIGHT_CM, SINGLE_COLUMN_CM
 
 _QUANTITY_LABELS = {
     "vs": ("Shear wave velocity $v_{S}$ [m/s]", 0),
@@ -17,41 +15,6 @@ _QUANTITY_LABELS = {
     "rho": ("Density [kg/m$^3$]", 2),
     "vs_std": ("Shear wave velocity std [m/s]", 3),
 }
-
-
-def _nanmedian_filter_axis0(grid: np.ndarray, size: int, left: int) -> np.ndarray:
-    """nanmedian filter along axis 0 only, window width `size`, starting
-    `left` positions before each output position.
-
-    Vectorized equivalent of
-    `scipy.ndimage.generic_filter(grid, nanmedian, size=(size, 1))` with
-    the matching origin (same default edge-replicating "reflect" boundary,
-    called "symmetric" in np.pad) -- generic_filter calls its Python callback
-    once per output pixel, which is far too slow for realistic section grids
-    (seconds for a single smoothing pass). This computes the same result in
-    one vectorized nanmedian call instead.
-    """
-    right = size - 1 - left
-    padded = np.pad(grid, ((left, right), (0, 0)), mode="symmetric")
-    windows = sliding_window_view(padded, size, axis=0)
-    with warnings.catch_warnings():
-        warnings.simplefilter("ignore", category=RuntimeWarning)
-        result: np.ndarray = np.nanmedian(windows, axis=-1)
-        return result
-
-
-def smooth_laterally(grid: np.ndarray) -> np.ndarray:
-    """Smooth a (positions, depths) section grid across positions.
-
-    Three passes of a median filter with shrinking windows (4, 3, 2) along
-    the position axis only -- depths are untouched. The two even windows
-    lean half a position opposite ways, so the edges stay in place; leaning
-    the same way would move every edge one position.
-    """
-    smoothed = grid
-    for size, left in ((4, 2), (3, 1), (2, 0)):
-        smoothed = _nanmedian_filter_axis0(smoothed, size, left)
-    return smoothed
 
 
 def save_velocity_models_sections(
@@ -129,49 +92,6 @@ def plot_velocity_models_section(
 
     ax.set_xlabel("Position [m]")
     ax.set_ylabel("Elevation [m]")
-    fig.tight_layout()
-
-    return fig
-
-
-def plot_velocity_and_std_section(
-    velocity_section: VelocityModelsSection,
-    *,
-    dz: float = 0.01,
-    dx: float | None = None,
-    lateral_smoothing: bool = False,
-) -> Figure:
-    """
-    Vs(x, z) and Vs std(x, z) sections, stacked.
-
-    X-axis: position [m]
-    Y-axis: elevation [m] (decreasing downward)
-    Top: Vs, terrain colormap. Bottom: Vs std, afmhot_r colormap (vmin=0).
-    """
-    xs, zs, vs_s_grid, _vs_p_grid, _rhos_grid, vs_s_std_grid = velocity_section.to_grid(
-        dz=dz, dx=dx
-    )
-
-    if lateral_smoothing:
-        vs_s_grid = smooth_laterally(vs_s_grid)
-        vs_s_std_grid = smooth_laterally(vs_s_std_grid)
-
-    fig, (ax_vs, ax_std) = plt.subplots(
-        2, 1, figsize=(DOUBLE_COLUMN_CM * CM, 10 * CM), dpi=DISP_DPI, sharex=True
-    )
-
-    pcm_vs = ax_vs.pcolormesh(xs, zs, vs_s_grid.T, shading="nearest", cmap="terrain")
-    fig.colorbar(pcm_vs, ax=ax_vs, label="$v_{S}$ [m/s]")
-    ax_vs.set_ylabel("Elevation [m]")
-
-    pcm_std = ax_std.pcolormesh(xs, zs, vs_s_std_grid.T, shading="nearest", cmap="afmhot_r", vmin=0)
-    fig.colorbar(pcm_std, ax=ax_std, label="Std [m/s]")
-    ax_std.set_xlabel("Position [m]")
-    ax_std.set_ylabel("Elevation [m]")
-
-    ax_vs.set_xlim(xs[0], xs[-1])
-    ax_std.set_xlim(xs[0], xs[-1])
-
     fig.tight_layout()
 
     return fig

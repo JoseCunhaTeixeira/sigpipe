@@ -14,13 +14,17 @@ from sigpipe.algorithms.inversion.rayleigh.seismic.parameters import (
 
 from .priors import InversionError
 from .window import (
+    IMAGE_FIGURE,
+    MARGINALS_FIGURE,
     PARAMETERS_FILE,
     SPREAD_FILE,
     VS_SPREAD_FILE,
+    WINDOW_FIGURE,
     Spread,
     VsSpread,
     WindowParameters,
     build_inversion_pipeline,
+    draw_figures,
     invert_window,
     load_parameters,
     load_spread,
@@ -29,9 +33,12 @@ from .window import (
 )
 
 __all__ = [
+    "IMAGE_FIGURE",
+    "MARGINALS_FIGURE",
     "PARAMETERS_FILE",
     "SPREAD_FILE",
     "VS_SPREAD_FILE",
+    "WINDOW_FIGURE",
     "InversionError",
     "InversionParameters",
     "Spread",
@@ -40,6 +47,7 @@ __all__ = [
     "VsSpread",
     "WindowParameters",
     "build_inversion_pipeline",
+    "draw_figures",
     "invert_window",
     "load_parameters",
     "load_spread",

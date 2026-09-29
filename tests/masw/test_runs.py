@@ -17,16 +17,25 @@ from synthetic import N_RECEIVERS, SAMPLING, SOURCES
 from sigpipe.algorithms.picking.dispersion.tracking import pick_modes
 from sigpipe.dataio.stream import loading as stream_loading
 from sigpipe.masw.inversion import (
+    IMAGE_FIGURE,
+    MARGINALS_FIGURE,
     PARAMETERS_FILE,
+    WINDOW_FIGURE,
     InversionParameters,
     WindowParameters,
+    draw_figures,
     invert_window,
     load_parameters,
     load_spread,
     load_vs_spread,
 )
 from sigpipe.masw.inversion.measuring import USEFUL_REFERENCE, measure_inversion
-from sigpipe.masw.inversion.section import SECTION_FIGURE, save_comparison, save_section
+from sigpipe.masw.inversion.section import (
+    COMPARISON_FIGURE,
+    SECTION_FIGURE,
+    save_comparison,
+    save_section,
+)
 from sigpipe.masw.picks import save_pick
 from sigpipe.masw.pipelines.common import stage_kwargs
 from sigpipe.masw.pipelines.preprocessing import build_preprocessing_pipeline
@@ -234,10 +243,28 @@ def test_every_mode_runs_into_pacs_layout(workspace: Folders, profile: str, mode
     assert load_manifest(manifest.run_id, workspace) == manifest
     for window in manifest.windows:
         assert (folder / window.folder / "DispersionImage_0000.hdf5").exists()
+        # Each final step's figure: the image, and the stacked correlations it is made of; no
+        # segment selection by default, and so no figure of one.
+        figures = {path.name for path in (folder / window.folder).glob("*.png")}
+        assert "DispersionImage_0000.png" in figures
+        assert ("Stream_0000.png" in figures) == (mode != "active")
+        assert "Selection_0000.png" not in figures
     assert not list(folder.rglob(".partial"))  # every task's outputs moved into place
-    assert all(
-        (folder / record.folder / "Stream_0000.hdf5").exists() for record in manifest.records
-    )
+    for record in manifest.records:
+        assert (folder / record.folder / "Stream_0000.hdf5").exists()
+        assert (folder / record.folder / "Stream_0000.png").exists()
+
+
+def test_a_passive_run_with_the_fk_selection_draws_every_segments_score(
+    workspace: Folders,
+) -> None:
+    selecting = WINDOWS | {"selection": {"method": "fk", "threshold": 0.0}}
+
+    manifest = run_processing("noise", "passive", selecting, workspace, packages=())
+
+    folder = find_run(manifest.run_id, workspace)
+    assert [window.status for window in manifest.windows] == ["succeeded"] * 3
+    assert all((folder / one.folder / "Selection_0000.png").exists() for one in manifest.windows)
 
 
 def test_a_records_trigger_comes_from_its_file(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -445,8 +472,18 @@ def test_the_shots_wave_is_picked_and_inverted_into_a_section(
     }
     assert measures.depth_max_m == ran.bottom
     assert {"layers", "noise"} <= set(measures.rhat)
+    # Its figures, drawn from its files alone: those of an inversion saved before them too.
+    figures = [folder / units[0] / name for name in (IMAGE_FIGURE, WINDOW_FIGURE, MARGINALS_FIGURE)]
+    assert all(figure.exists() for figure in figures)
+    for figure in figures:
+        figure.unlink()
+    draw_figures(folder / units[0])
+    assert all(figure.exists() and figure.stat().st_size > 10_000 for figure in figures)
 
     assert save_section(folder, units) == folder / SECTION_FIGURE
-    assert save_comparison(folder, units) is not None
+    # Smoothed along the line too, and the comparison by wavelength beside the one by frequency.
+    assert (folder / SECTION_FIGURE.replace(".png", "_lateralsmooth.png")).exists()
+    assert save_comparison(folder, units) == folder / COMPARISON_FIGURE
+    assert (folder / COMPARISON_FIGURE.replace(".png", "_wavelength.png")).exists()
     # A window inverted before the spreads were saved has none.
     assert load_spread(tmp_path) == {} and load_vs_spread(tmp_path) is None

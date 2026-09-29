@@ -28,6 +28,8 @@ from sigpipe.masw.petro import (
 )
 from sigpipe.masw.petro.measuring import measure_petro
 from sigpipe.masw.petro.section import (
+    COMPARISON_STEM,
+    ROCK_PHYSICS_FIGURE,
     SECTION_FIGURE,
     SECTION_FILE,
     comparison_grids,
@@ -38,6 +40,7 @@ from sigpipe.masw.petro.section import (
     save_petro_sections_file,
     save_rock_physics_file,
     save_rock_physics_section,
+    smoothed_name,
 )
 from sigpipe.masw.picks import save_pick
 
@@ -120,9 +123,14 @@ def test_the_line_gives_every_section(run: tuple[Path, list[str]]) -> None:
         "",
         *(str(soil) for column in grid.soil_grid for soil in column),
     }
-    assert smooth.n_grid.shape == (smooth.positions.size, grid.elevations.size)
+    assert smooth.n_grid.shape == (smooth.positions.size, smooth.elevations.size)
+    # Refocused on the depths with data: its bottom smoothed shallower than the deepest window's.
+    assert smooth.elevations.size <= grid.elevations.size
+    assert np.isfinite(smooth.n_grid[:, -1]).any()
     assert smooth.water_table_elevations.shape == smooth.positions.shape
     assert save_petro_section(run_folder, units) == run_folder / SECTION_FIGURE
+    # And smoothed along the line, as Visualization's switch shows it.
+    assert (run_folder / smoothed_name(SECTION_FIGURE)).exists()
     assert save_petro_sections_file(run_folder, units) == run_folder / SECTION_FILE
     with h5py.File(run_folder / SECTION_FILE) as file:
         assert {"x", "z", "soil", "N", "water_table_elevation"} <= set(file.keys())
@@ -132,13 +140,17 @@ def test_the_line_gives_every_section(run: tuple[Path, list[str]]) -> None:
         assert rock is not None and rock.values.shape == (3, rock.elevations.size)
         smooth_rock = rock_physics_grid(run_folder, units, quantity, True, window_m=12.0)
         assert smooth_rock is not None and smooth_rock.positions.size > 3
-        assert smooth_rock.values.shape == (smooth_rock.positions.size, rock.elevations.size)
-        assert save_rock_physics_section(run_folder, units, quantity) == (
-            run_folder / found.section_figure
+        assert smooth_rock.values.shape == (
+            smooth_rock.positions.size,
+            smooth_rock.elevations.size,
         )
+        assert np.isfinite(smooth_rock.values[:, -1]).any()
         assert save_rock_physics_file(run_folder, units, quantity) == (
             run_folder / found.section_file
         )
+    # Every quantity in one figure, as the windows' columns and smoothed.
+    assert save_rock_physics_section(run_folder, units) == run_folder / ROCK_PHYSICS_FIGURE
+    assert (run_folder / smoothed_name(ROCK_PHYSICS_FIGURE)).exists()
 
     comparison = comparison_grids(run_folder, units)
     assert comparison is not None and comparison.positions.tolist() == [6.0, 8.0, 10.0]
@@ -198,8 +210,15 @@ def test_a_line_is_inverted_window_by_window(tmp_path: Path) -> None:
     assert {path.name for path in saved} == {
         SECTION_FIGURE,
         SECTION_FILE,
-        *(found.section_figure for found in QUANTITIES.values()),
+        ROCK_PHYSICS_FIGURE,
+        f"{COMPARISON_STEM}.png",
         *(found.section_file for found in QUANTITIES.values()),
     }
+    # Beside them, each smoothed along the line, and the comparison by wavelength.
+    assert {
+        smoothed_name(SECTION_FIGURE),
+        smoothed_name(ROCK_PHYSICS_FIGURE),
+        f"{COMPARISON_STEM}_wavelength.png",
+    } <= {path.name for path in tmp_path.iterdir()}
     # One window with a model: no section, and nothing raised.
     assert save_line_sections(tmp_path, units[:1]) == ()

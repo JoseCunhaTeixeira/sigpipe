@@ -8,7 +8,7 @@ from sigpipe.base import Pipeline
 from sigpipe.masw.pipelines.common import load_record, stage_kwargs
 from sigpipe.masw.presets import ActivePreset, PassivePreset
 from sigpipe.masw.profiles import Profile, Record
-from sigpipe.transformers import Detrend, Filter, Mute, Save, Shift
+from sigpipe.transformers import Detrend, Filter, Mute, Plot, Save, Shift
 
 
 def build_preprocessing_pipeline(
@@ -42,4 +42,6 @@ def build_preprocessing_pipeline(
         >> (Mute(**muting) if bounded else Mute(method="none"))
         >> Filter(**stage_kwargs(preset, "filtering"))
         >> Save(folder_path=output_folder)
+        # Its figure, as PAC's gather view draws it.
+        >> Plot(folder_path=output_folder)
     )

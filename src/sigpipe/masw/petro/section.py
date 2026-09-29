@@ -11,16 +11,19 @@ from pathlib import Path
 import h5py
 import matplotlib.pyplot as plt
 import numpy as np
+from matplotlib.figure import Figure
 
 from sigpipe.base.dispersion_curve import DispersionCurve, DispersionCurvesSection
 from sigpipe.base.petro_model import PetroModel, PetroModelsSection, SoilType
-from sigpipe.dataio.petro_model.section import plot_petro_models_section
-from sigpipe.dataio.plot_config import CM, DISP_DPI, DOUBLE_COLUMN_CM, HEIGHT_CM
+from sigpipe.dataio.plot_config import SOIL_TYPE_COLORS, n_value_colors
+from sigpipe.dataio.section_plotting import SectionPanel, categories, plot_sections
 from sigpipe.masw.inversion.section import (
     VIEW_NZ,
     ComparisonGrids,
     along_line,
     grids_of,
+    rows_with_data,
+    save_comparison_figures,
     smoothed,
     smoothed_categories,
 )
@@ -34,8 +37,14 @@ from sigpipe.masw.petro.window import (
 )
 from sigpipe.transformers import Plot
 
+# The figures of the line a petrophysical run saves, as Visualization shows them: the views not
+# smoothed laterally and by frequency; smoothed, "_lateralsmooth" before ".png"; by wavelength,
+# "_wavelength".
 SECTION_FIGURE = "PetroInversion_Section_0000.png"
 SECTION_FILE = "PetroInversion_Section_0000.hdf5"
+ROCK_PHYSICS_FIGURE = "PetroInversion_RockPhysicsSection_0000.png"
+COMPARISON_STEM = "PetroInversion_PseudoSectionComparison_0000_M0"
+SMOOTHED_SUFFIX = "_lateralsmooth"
 # The rock physics' sampling step (petro.forward.rock_physics' default), the grid its sections
 # share.
 PROFILE_DZ = 0.01
@@ -114,27 +123,90 @@ def petro_grid(
     smoothed_labels = smoothed_categories(labels, xs, frame.positions, step, frame.empty)
     depths = np.array(tops) - plain.water_table_elevations
     water = frame.ground - smoothed(depths[:, None], xs, frame.positions, frame.window_m)[:, 0]
+    n_grid = smoothed(plain.n_grid, xs, frame.positions, frame.window_m, frame.empty)
+    # Its bottom smoothed is shallower than the deepest window's: the depths with data alone.
+    filled = (np.asarray(smoothed_labels) >= 0) | np.isfinite(n_grid)
+    rows = rows_with_data(np.where(filled, 1.0, np.nan))
     return PetroGrid(
         positions=frame.positions,
-        elevations=kept,
-        soil_grid=[[kinds[k] if k >= 0 else "" for k in column] for column in smoothed_labels],
-        n_grid=smoothed(plain.n_grid, xs, frame.positions, frame.window_m, frame.empty).astype(
-            np.float32
-        ),
+        elevations=kept[rows],
+        soil_grid=[
+            [kinds[k] if k >= 0 else "" for k in column[rows]] for column in smoothed_labels
+        ],
+        n_grid=n_grid[:, rows].astype(np.float32),
         water_table_elevations=water.astype(np.float32),
     )
 
 
-def save_petro_section(run_folder: Path, units: Sequence[str]) -> Path | None:
-    """The figure of the line's soils and N values, in `run_folder`."""
+def smoothed_name(name: str) -> str:
+    """A figure's name smoothed along the line: "_lateralsmooth" before its ".png"."""
+    return name.removesuffix(".png") + SMOOTHED_SUFFIX + ".png"
+
+
+def save_petro_section(
+    run_folder: Path, units: Sequence[str], window_m: float | None = None
+) -> Path | None:
+    """The figure of the line's soils and N values, with the water table, as Visualization shows
+    them, in `run_folder`: one column per window (SECTION_FIGURE) and smoothed along the line
+    over a share of a window's length `window_m` (smoothed_name). The first's path."""
     section = petro_models(run_folder, units)
     if section is None:
         return None
-    figure = plot_petro_models_section(section)
-    path = run_folder / SECTION_FIGURE
-    Plot.savefig(path=path, figure=figure)
-    plt.close(figure)
-    return path
+    for lateral_smoothing, name in ((False, SECTION_FIGURE), (True, smoothed_name(SECTION_FIGURE))):
+        figure = petro_figure(petro_grid(section, lateral_smoothing, window_m))
+        Plot.savefig(path=run_folder / name, figure=figure)
+        plt.close(figure)
+    return run_folder / SECTION_FIGURE
+
+
+def petro_figure(grid: PetroGrid) -> Figure:
+    """The soils over the N values, as Visualization's petrophysical card draws them (the soils'
+    own colours, N's categorical ones), the water table on both."""
+    kinds = list(SOIL_TYPE_COLORS)
+    soils = np.array(
+        [
+            [kinds.index(SoilType(str(soil))) if str(soil) else np.nan for soil in column]
+            for column in grid.soil_grid
+        ],
+        dtype=float,
+    )
+    soil_map, soil_norm, soil_ticks = categories(
+        [str(kind) for kind in kinds], list(SOIL_TYPE_COLORS.values())
+    )
+    rounded = np.round(grid.n_grid)
+    found = sorted({int(n) for n in rounded[np.isfinite(rounded)]})
+    colours = n_value_colors(found)
+    index = {n: i for i, n in enumerate(found)}
+    # Each cell's category; float, empty cells NaN (vectorize would take the first cell's type).
+    n_values = np.vectorize(
+        lambda n: index.get(int(n), np.nan) if np.isfinite(n) else np.nan, otypes=[float]
+    )(rounded)
+    n_map, n_norm, n_ticks = categories([f"{n}" for n in found], [colours[n] for n in found])
+    water = grid.water_table_elevations
+    return plot_sections(
+        [
+            SectionPanel(
+                grid.positions,
+                grid.elevations,
+                soils,
+                "Soil",
+                soil_map,
+                soil_norm,
+                soil_ticks,
+                water_table=water,
+            ),
+            SectionPanel(
+                grid.positions,
+                grid.elevations,
+                n_values,
+                "N",
+                n_map,
+                n_norm,
+                n_ticks,
+                water_table=water,
+            ),
+        ]
+    )
 
 
 def save_petro_sections_file(run_folder: Path, units: Sequence[str]) -> Path | None:
@@ -215,36 +287,39 @@ def rock_physics_grid(
     tops = np.array([entry[1] for entry in entries])
     reach = tops - np.array([float(entry[2][-1]) for entry in entries])
     frame = along_line(plain.positions, tops, reach, plain.elevations, window_m, SMOOTHED_COLUMNS)
+    values = smoothed(plain.values, plain.positions, frame.positions, frame.window_m, frame.empty)
+    # Its bottom smoothed is shallower than the deepest window's: the depths with data alone.
+    rows = rows_with_data(values)
     return RockPhysicsGrid(
         positions=frame.positions,
-        elevations=plain.elevations,
-        values=smoothed(
-            plain.values, plain.positions, frame.positions, frame.window_m, frame.empty
-        ).astype(np.float32),
+        elevations=plain.elevations[rows],
+        values=values[:, rows].astype(np.float32),
     )
 
 
 def save_rock_physics_section(
-    run_folder: Path, units: Sequence[str], quantity: Quantity
+    run_folder: Path, units: Sequence[str], window_m: float | None = None
 ) -> Path | None:
-    """The figure of `quantity` along the line, in `run_folder`."""
-    grid = rock_physics_grid(run_folder, units, quantity)
-    if grid is None:
-        return None
-    found = QUANTITIES[quantity]
-    figure, ax = plt.subplots(figsize=(DOUBLE_COLUMN_CM * CM, HEIGHT_CM * CM), dpi=DISP_DPI)
-    mesh = ax.pcolormesh(  # pyright: ignore[reportUnknownMemberType]
-        grid.positions, grid.elevations, grid.values.T, shading="nearest", cmap=found.cmap
-    )
-    ax.set_xlim(grid.positions[0], grid.positions[-1])
-    figure.colorbar(mesh, ax=ax, label=found.label)  # pyright: ignore[reportUnknownMemberType]
-    ax.set_xlabel("Position [m]")  # pyright: ignore[reportUnknownMemberType]
-    ax.set_ylabel("Elevation [m]")  # pyright: ignore[reportUnknownMemberType]
-    figure.tight_layout()
-    path = run_folder / found.section_figure
-    Plot.savefig(path=path, figure=figure)
-    plt.close(figure)
-    return path
+    """The figure of the rock physics along the line (every quantity of QUANTITIES stacked), as
+    Visualization's card draws it, in `run_folder`: one column per window (ROCK_PHYSICS_FIGURE)
+    and smoothed along the line over a share of a window's length `window_m`
+    (smoothed_name). The first's path; None when no quantity has two windows."""
+    for lateral_smoothing, name in (
+        (False, ROCK_PHYSICS_FIGURE),
+        (True, smoothed_name(ROCK_PHYSICS_FIGURE)),
+    ):
+        panels = [
+            SectionPanel(grid.positions, grid.elevations, grid.values, found.label, found.cmap)
+            for quantity, found in QUANTITIES.items()
+            if (grid := rock_physics_grid(run_folder, units, quantity, lateral_smoothing, window_m))
+            is not None
+        ]
+        if not panels:
+            return None
+        figure = plot_sections(panels)
+        Plot.savefig(path=run_folder / name, figure=figure)
+        plt.close(figure)
+    return run_folder / ROCK_PHYSICS_FIGURE
 
 
 def save_rock_physics_file(
@@ -285,3 +360,12 @@ def comparison_grids(run_folder: Path, units: Sequence[str]) -> ComparisonGrids 
         DispersionCurvesSection(dispersion_curves=tuple(observed)),
         DispersionCurvesSection(dispersion_curves=tuple(predicted)),
     )
+
+
+def save_petro_comparison(run_folder: Path, units: Sequence[str]) -> Path | None:
+    """The figures of the fundamental modes picked along the line against the curves the
+    petrophysical models give back, as Visualization shows them (the seismic comparison's
+    save_comparison_figures), by frequency and by wavelength, in `run_folder`; the first's path,
+    None with fewer than two windows holding both."""
+    grids = comparison_grids(run_folder, units)
+    return None if grids is None else save_comparison_figures(grids, run_folder / COMPARISON_STEM)

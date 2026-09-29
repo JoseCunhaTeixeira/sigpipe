@@ -66,10 +66,16 @@ def selection_fk(
     returned unflipped.
     """
 
+    return select_by_ratio(stream, fk_ratio(stream, vmin, vmax), threshold, flip_negatives)
+
+
+def select_by_ratio(
+    stream: Stream, ratio: float, threshold: float, flip_negatives: bool = False
+) -> Stream | None:
+    """`selection_fk`'s decision on `stream`, its fk_ratio `ratio` measured: kept when
+    |ratio| > `threshold`, space-flipped when `flip_negatives` and `ratio` > 0."""
     if not 0 <= threshold <= 1:
         raise ValueError(f"requires 0 <= threshold <= 1, got {threshold}")
-
-    ratio = fk_ratio(stream, vmin, vmax)
 
     if np.abs(ratio) <= threshold:
         return None

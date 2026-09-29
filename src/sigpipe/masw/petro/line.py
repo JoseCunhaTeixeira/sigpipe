@@ -13,6 +13,7 @@ from pathlib import Path
 
 from sigpipe.base.petro_model import PetroModel
 from sigpipe.masw.petro.section import (
+    save_petro_comparison,
     save_petro_section,
     save_petro_sections_file,
     save_rock_physics_file,
@@ -104,16 +105,23 @@ def _invert_timed(folder: Path, model_name: str, output_folder: Path) -> tuple[P
     return model, time.perf_counter() - start
 
 
-def save_line_sections(run_folder: Path, units: Sequence[str]) -> tuple[Path, ...]:
-    """Every section of the line over the window folders of `units` holding a model: the soils
-    and N values, the shear modulus and Vs, each a figure and an HDF5 file. Best effort: none
-    with fewer than two windows, and one that fails is logged and left out."""
+def save_line_sections(
+    run_folder: Path, units: Sequence[str], window_m: float | None = None
+) -> tuple[Path, ...]:
+    """Every section of the line over the window folders of `units` holding a model, as
+    Visualization shows them: the soils and N values, and the rock physics (the shear modulus
+    and Vs), each a figure as the windows' columns and one smoothed along the line over a share
+    of a window's length `window_m`, and an HDF5 file; the picked curves against those the
+    models give back, by frequency and by wavelength. Best effort: none with fewer than two
+    windows, and one that fails is logged and left out. The paths of the figures as the
+    windows' columns and by frequency, and of the files."""
     saves: list[Callable[[], Path | None]] = [
-        functools.partial(save_petro_section, run_folder, units),
+        functools.partial(save_petro_section, run_folder, units, window_m),
         functools.partial(save_petro_sections_file, run_folder, units),
+        functools.partial(save_rock_physics_section, run_folder, units, window_m),
+        functools.partial(save_petro_comparison, run_folder, units),
     ]
     for quantity in QUANTITIES:
-        saves.append(functools.partial(save_rock_physics_section, run_folder, units, quantity))
         saves.append(functools.partial(save_rock_physics_file, run_folder, units, quantity))
     saved: list[Path] = []
     for save in saves:
