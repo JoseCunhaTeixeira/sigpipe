@@ -3,7 +3,7 @@ the records and traces a run leaves out (PACo's signal QC excludes them).
 """
 
 from .building import Geometry, apply_exclusions, build_windows
-from .models import Exclusions, MASWParameters, MASWWindow
+from .models import Exclusions, MASWParameters, MASWWindow, nearest_offset
 
 __all__ = [
     "Exclusions",
@@ -12,4 +12,5 @@ __all__ = [
     "MASWWindow",
     "apply_exclusions",
     "build_windows",
+    "nearest_offset",
 ]

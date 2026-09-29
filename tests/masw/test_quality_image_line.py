@@ -1,5 +1,5 @@
-"""The measures of a dispersion image and of an M0 pick on synthetic images, and the lateral
-consistency of windows along a line."""
+"""The measures of a dispersion image and of an M0 pick and its curve on synthetic images, and
+the lateral consistency of windows along a line."""
 
 import math
 
@@ -10,11 +10,14 @@ from sigpipe.base.acquisition import LinearAcquisition
 from sigpipe.base.coordinate import Coordinate
 from sigpipe.base.dispersion_curve import VelocityType
 from sigpipe.base.dispersion_image import DispersionImage
+from sigpipe.masw.quality.curve import CurveLimits, measure_curve, pick_of
 from sigpipe.masw.quality.image import (
+    ImageLimits,
     aliased,
     coherent_columns,
     competing_ridges,
     edge_peaks,
+    measure_image,
     noise_floor,
 )
 from sigpipe.masw.quality.line import Series, neighbourhoods, spread
@@ -95,6 +98,77 @@ def test_a_clean_ridges_pick_scores_as_a_plane_wave() -> None:
     assert measures.constant_wavelength is not None and measures.constant_wavelength < 0.2
     assert measure_pick(image, None).n_points == 0
     assert measure_pick(image, None).sharpness is None
+
+
+def test_an_images_measures_say_what_they_cover() -> None:
+    # Coherent below 30 Hz: under half the image's columns, from its lowest frequency, and under
+    # half the usable band within the image (10 to 60 Hz of 10 to 80).
+    heights = np.where(FS < 30, 0.8, 0.05)
+    report = measure_image(_image(_ridge(M0) * heights[:, None]), ImageLimits(), (10.0, 80.0))
+    measures = {measure.name: measure for measure in report.measures}
+
+    assert report.band == (5.0, 29.5) and report.usable == (10.0, 60.0)
+    assert not measures["coherent_columns"].passed
+    assert not measures["band_at_fmin"].passed and measures["band_at_fmax"].passed
+    assert measures["band_share_of_usable"].value == 0.49
+    assert not measures["band_share_of_usable"].passed
+    # The aliased ridges are reported: no limit.
+    assert measures["aliased_ridges"].threshold is None
+    assert all(measure.of == "image" and measure.over for measure in report.measures)
+
+
+def test_the_usable_band_counts_within_the_images_frequencies() -> None:
+    # Usable to 120 Hz, the image to 60: a ridge coherent over all of it uses all it can.
+    report = measure_image(_image(_ridge(M0)), ImageLimits(), usable_band=(5.0, 120.0))
+
+    assert report.band_share == 1.0 and report.usable == (5.0, 60.0)
+    # Nothing coherent: nothing else to measure.
+    (only,) = measure_image(_image(0 * _ridge(M0)), ImageLimits()).measures
+    assert only.name == "coherent_columns" and only.value == 0 and not only.passed
+
+
+def test_a_saved_curve_measures_as_the_pickers_own() -> None:
+    image = _image(_ridge(M0))
+    (m0,) = pick_modes(image)
+    assert m0.curve is not None
+
+    own = measure_curve(image, m0, CurveLimits(), nearest_offset=40.0)
+    saved = measure_curve(image, pick_of(m0.curve, image), CurveLimits(), nearest_offset=40.0)
+    picked = {"sharpness", "prominence", "on_data", "constant_wavelength", "n_points"}
+
+    # The curve's measures alike; the pick's, on the image's rows within the curve's band, on
+    # the data as the picker's own.
+    assert [one.name for one in own.measures] == [one.name for one in saved.measures]
+    for one, other in zip(own.measures, saved.measures, strict=True):
+        assert one.of == other.of == "curve" and one.over and other.over
+        if one.name not in picked:
+            assert one == other
+    assert saved.pick.on_data == own.pick.on_data == 1.0
+    assert saved.pick.band_hz is not None and saved.pick.band_hz[1] < 60
+
+
+def test_the_nearest_shot_against_the_longest_wavelength() -> None:
+    image = _image(_ridge(M0))
+    (m0,) = pick_modes(image)
+
+    far = measure_curve(image, m0, CurveLimits(), nearest_offset=40.0)
+    near = {one.name: one for one in measure_curve(image, m0, CurveLimits(), 1.0).measures}
+
+    assert far.near_limit is not None
+    assert math.isclose(far.near_limit, 0.5 * float(far.wavelengths.max()))
+    assert not near["near_offset"].passed and near["near_offset"].unit == "m"
+    # The uncertainty is reported: no limit.
+    assert near["uncertainty"].threshold is None and near["uncertainty"].passed
+    # No pick: the pick's measures only, none of its points.
+    missing = {one.name: one for one in measure_curve(image, None, CurveLimits()).measures}
+    assert list(missing) == [
+        "sharpness",
+        "prominence",
+        "on_data",
+        "constant_wavelength",
+        "n_points",
+    ]
+    assert not missing["n_points"].passed
 
 
 def test_an_isolated_window_is_an_outlier_and_a_shared_change_is_geology() -> None:

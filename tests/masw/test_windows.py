@@ -11,6 +11,7 @@ from sigpipe.masw.windows import (
     MASWWindow,
     apply_exclusions,
     build_windows,
+    nearest_offset,
 )
 
 RECEIVERS = tuple(Coordinate(float(x), 0.0, 0.0) for x in range(10))
@@ -139,3 +140,20 @@ def test_each_record_leaves_out_its_own_traces_on_active_windows() -> None:
     )
     both = apply_exclusions(two, Exclusions(traces={"a.dat": (1,)}), "per_record")
     assert both is not None and both.record_receivers == [[0, 2, 3, 4, 5]] * 2
+
+
+def test_the_nearest_offset_is_from_the_nearest_shot_to_the_nearest_receiver() -> None:
+    receivers = tuple(Coordinate(float(x), 0.0, 0.0) for x in range(6))
+    window = MASWWindow(
+        xmid=2.5,
+        selected_files=[Path("a.dat"), Path("b.dat")],
+        receiver_indices=list(range(6)),
+        acquisitions=[
+            LinearAcquisition(source=Coordinate(-3.0, 0.0, 0.0), receivers=receivers),
+            LinearAcquisition(source=Coordinate(6.5, 0.0, 0.0), receivers=receivers),
+        ],
+    )
+
+    # 3 m before the first receiver, 1.5 m past the last.
+    assert nearest_offset(window) == 1.5
+    assert nearest_offset(window.model_copy(update={"acquisitions": []})) is None

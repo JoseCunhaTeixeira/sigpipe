@@ -41,6 +41,11 @@ from sigpipe.masw.quality.signal import (
 Source = Literal["shot", "virtual", "none"]
 
 
+def figure(value: float) -> str:
+    """A number as the measures' texts say it: to the hundredth, without trailing zeros."""
+    return f"{round(float(value), 2):g}"
+
+
 class Measure(BaseModel):
     """One measurement against its limit: the value must stay above it (min) or below it (max);
     without one, reported only. `of`: the object it describes (signal, spectrum, ...); `over`:
@@ -272,7 +277,8 @@ def measure_signal(
                 value=int(off.sum()),
                 passed=True,
                 of="spectrum",
-                over=f"{_traces(int(judged.sum()), n_traces)}, {band_hz[0]:g}-{band_hz[1]:g} Hz"
+                over=f"{_traces(int(judged.sum()), n_traces)}, "
+                f"{figure(band_hz[0])}-{figure(band_hz[1])} Hz"
                 + (", their shapes" if source != "none" else ""),
             )
         )
@@ -345,7 +351,7 @@ def measure_signal(
     snr_ok = zeroed or median_snr >= limits.min_snr_db
     within = " within the images'" if image_band is not None else ""
     in_band = (
-        f"in its usable band{within}, {imaged[0]:g}-{imaged[1]:g} Hz"
+        f"in its usable band{within}, {figure(imaged[0])}-{figure(imaged[1])} Hz"
         if imaged is not None
         else f"its whole spectrum, no usable band{within}"
     )
@@ -375,7 +381,7 @@ def measure_signal(
             if zeroed
             else f"{over}; {limits.band_db:g} dB over the noise {noise_where}"
             + (
-                f"; reaching the images' band, {image_band[0]:g}-{image_band[1]:g} Hz"
+                f"; reaching the images' band, {figure(image_band[0])}-{figure(image_band[1])} Hz"
                 if image_band is not None
                 else ""
             ),
@@ -735,7 +741,9 @@ def _traces(count: int, total: int) -> str:
 def _reach(reach_m: float | None, within: np.ndarray) -> str:
     """The reach, when it leaves some traces out."""
     return (
-        f", within {reach_m:g} m of the source" if reach_m is not None and not within.all() else ""
+        f", within {figure(reach_m)} m of the source"
+        if reach_m is not None and not within.all()
+        else ""
     )
 
 

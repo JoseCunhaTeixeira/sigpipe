@@ -1,5 +1,6 @@
 """MASW window parameters and windows, with PAC's field names."""
 
+import math
 from pathlib import Path
 from typing import Self
 
@@ -64,3 +65,18 @@ class MASWWindow(BaseModel):
     # The receivers each record gives the window, when some of its traces are left out: its image
     # is made from those alone (None: every record gives all of receiver_indices).
     record_receivers: list[list[int]] | None = None
+
+
+def nearest_offset(window: MASWWindow) -> float | None:
+    """The distance from the window's nearest shot to its nearest receiver, over the records it
+    uses; None when it has none. G3 reports the curve's longest wavelengths against it (the
+    near field), PAC alike."""
+    distances = [
+        math.dist(
+            (acquisition.source.x, acquisition.source.y, acquisition.source.z),
+            (receiver.x, receiver.y, receiver.z),
+        )
+        for acquisition in window.acquisitions
+        for receiver in acquisition.receivers
+    ]
+    return round(min(distances), 3) if distances else None

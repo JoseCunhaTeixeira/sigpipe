@@ -61,7 +61,7 @@ def measure_pick(image: DispersionImage, m0: PickedMode | None) -> PickMeasures:
         return PickMeasures(n_points=int(frequencies.size))
 
     grid_v = image.vs.astype(float)
-    rows = np.searchsorted(image.fs, frequencies)
+    rows = _nearest_rows(np.asarray(image.fs, dtype=float), frequencies)
     peaks = np.searchsorted(grid_v, velocities)
     above = np.clip(image.fv_map[rows].astype(float) - m0.noise_floor, 0, None)
     perfect = plane_wave_columns(image, frequencies, velocities, m0.noise_floor)
@@ -74,6 +74,14 @@ def measure_pick(image: DispersionImage, m0: PickedMode | None) -> PickMeasures:
         on_data=float(np.mean(np.abs(brightest - velocities) / velocities < _ON_DATA_TOLERANCE)),
         constant_wavelength=_constant_wavelength(frequencies, velocities),
     )
+
+
+def _nearest_rows(fs: np.ndarray, frequencies: np.ndarray) -> np.ndarray:
+    """The image's row nearest each frequency: a pick's lie on its rows, a saved curve's,
+    resampled over wavelength, between them."""
+    above = np.clip(np.searchsorted(fs, frequencies), 1, fs.size - 1)
+    below = above - 1
+    return np.where(frequencies - fs[below] < fs[above] - frequencies, below, above)
 
 
 def _half_width(column: np.ndarray, peak: int, grid_v: np.ndarray) -> float:
