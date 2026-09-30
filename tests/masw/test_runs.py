@@ -182,6 +182,13 @@ REFUSED = [
         id="a window starting after the data",
     ),
     pytest.param(
+        "noise",
+        "passive",
+        {"selection": {"method": "none"}},
+        r"selection cannot be switched off in a passive run: set its parameters instead",
+        id="a passive run without its fk selection",
+    ),
+    pytest.param(
         "shots",
         "active",
         {"masw": {"length": 13}},
@@ -251,8 +258,8 @@ def test_every_mode_runs_into_pacs_layout(workspace: Folders, profile: str, mode
     for window in manifest.windows:
         assert (folder / window.folder / "DispersionImage_0000.hdf5").exists()
         # Each final step's figure: the image, and the stacked correlations it is made of with
-        # their spectra (and the spectra's data); no segment selection by default, and so no
-        # figure of one.
+        # their spectra (and the spectra's data); a passive window's fk segment selection, always
+        # on.
         figures = {path.name for path in (folder / window.folder).glob("*.png")}
         assert "DispersionImage_0000.png" in figures
         assert ("Stream_0000.png" in figures) == (mode != "active")
@@ -262,7 +269,7 @@ def test_every_mode_runs_into_pacs_layout(workspace: Folders, profile: str, mode
         if spectra is not None:
             assert spectra.amplitude.shape == (spectra.positions.size, spectra.freqs.size)
             assert spectra.amplitude.max() == 1.0 and spectra.band is None
-        assert "Selection_0000.png" not in figures
+        assert ("Selection_0000.png" in figures) == (mode == "passive")
     assert not list(folder.rglob(".partial"))  # every task's outputs moved into place
     for record in manifest.records:
         assert (folder / record.folder / "Stream_0000.hdf5").exists()

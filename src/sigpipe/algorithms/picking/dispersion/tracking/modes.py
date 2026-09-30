@@ -88,28 +88,21 @@ def pick_modes(
         guide = parameters.guide if number == 0 else None
         if guide:
             ridge = _guided_ridge(guide, frequencies[span], velocities, start[span], stop[span])
-        else:
-            ridge = lowest_ridge(values[span], start[span], stop[span], parameters.threshold)
-        tracked = _tracked(image, span, ridge, start, stop, parameters, noise_floor)
-        # The pick found, it goes on past its run's ends as far as its ridge does, where the
-        # lowest ridge drops under it onto a dimmer sidelobe or alias: further to the low and
-        # high frequencies, on the same ridge.
-        if not guide and tracked.kept.any():
-            run = np.flatnonzero(tracked.kept)
-            followed = followed_ridge(
-                values[span],
-                velocities,
-                start[span],
-                stop[span],
-                parameters.threshold,
-                parameters.corridor,
-                (int(run[0]), int(run[-1])),
+            tracked = _mode(
+                _tracked(image, span, ridge, start, stop, parameters, noise_floor), parameters
             )
-            if not np.array_equal(followed, ridge):
-                tracked = _tracked(image, span, followed, start, stop, parameters, noise_floor)
-        if tracked.kept.sum() < parameters.min_frequencies:
-            break
-        if float(np.median(tracked.ratio[tracked.kept])) < parameters.mode_min_ratio:
+        else:
+            tracked = _searched(image, span, start, stop, parameters, noise_floor, 0.0)
+            # No mode along the lowest maxima, or one mostly off its columns' brightest values:
+            # searched again, the maxima fainter than a mode skipped where a column holds a
+            # stronger one (noise or an alias under the ridge, not the fundamental mode).
+            on_data = _on_data(values[span], velocities, tracked)
+            if on_data < parameters.min_on_data:
+                floor = parameters.mode_min_ratio * noise_floor
+                above = _searched(image, span, start, stop, parameters, noise_floor, floor)
+                if _on_data(values[span], velocities, above) > on_data:
+                    tracked = above
+        if tracked is None:
             break
 
         kept = tracked.kept
@@ -150,6 +143,61 @@ class _Tracked:
     coherence: np.ndarray
     ratio: np.ndarray  # the coherence over the noise floor
     kept: np.ndarray
+
+
+def _searched(
+    image: DispersionImage,
+    span: slice,
+    start: np.ndarray,
+    stop: np.ndarray,
+    parameters: PickingParameters,
+    noise_floor: float,
+    floor: float,
+) -> _Tracked | None:
+    """The mode along the lowest ridge of `span`'s columns (their maxima under `floor` skipped
+    where one reaches it), or None. The pick found, it goes on past its run's ends as far as its
+    ridge does, where the lowest ridge drops under it onto a dimmer sidelobe or alias: further to
+    the low and high frequencies, on the same ridge."""
+    values = image.fv_map.astype(float)[span]
+    velocities = image.vs.astype(float)
+    ridge = lowest_ridge(values, start[span], stop[span], parameters.threshold, floor)
+    tracked = _tracked(image, span, ridge, start, stop, parameters, noise_floor)
+    if tracked.kept.any():
+        run = np.flatnonzero(tracked.kept)
+        followed = followed_ridge(
+            values,
+            velocities,
+            start[span],
+            stop[span],
+            parameters.threshold,
+            parameters.corridor,
+            (int(run[0]), int(run[-1])),
+            floor,
+        )
+        if not np.array_equal(followed, ridge):
+            tracked = _tracked(image, span, followed, start, stop, parameters, noise_floor)
+    return _mode(tracked, parameters)
+
+
+def _mode(tracked: _Tracked, parameters: PickingParameters) -> _Tracked | None:
+    """`tracked` when it is a mode: enough kept points, their median coherence at the level a
+    mode must reach."""
+    if tracked.kept.sum() < parameters.min_frequencies:
+        return None
+    if float(np.median(tracked.ratio[tracked.kept])) < parameters.mode_min_ratio:
+        return None
+    return tracked
+
+
+def _on_data(values: np.ndarray, velocities: np.ndarray, tracked: _Tracked | None) -> float:
+    """The share of `tracked`'s kept points within 10 % of their column's brightest velocity (as
+    the curve's checks count it); 0 without a mode."""
+    if tracked is None:
+        return 0.0
+    rows = np.flatnonzero(tracked.kept)
+    brightest = velocities[np.argmax(values[rows], axis=1)]
+    picked = velocities[tracked.path[rows]]
+    return float(np.mean(np.abs(brightest - picked) / picked < 0.1))
 
 
 def _tracked(

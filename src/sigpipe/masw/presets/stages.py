@@ -43,7 +43,8 @@ class Stage:
     functions: Mapping[str, Callable[..., object]]  # exposed method -> sigpipe function it runs
     parameters: Mapping[str, Mapping[str, Parameter]] = field(default_factory=dict)  # per method
     default: str = "none"  # the method presets start with
-    none: bool = True  # "none", sigpipe's pass-through, is offered
+    none: bool = True  # "none", sigpipe's pass-through, is a value the stage takes
+    optional: bool = True  # False: always on in a new run; "none" is read in older runs only
     selectable: bool = True  # False: one method, set by the pipeline, and no `method` field
     fixed: frozenset[str] = frozenset()  # parameters the pipeline sets itself
 
@@ -100,14 +101,14 @@ FILTERING = Stage(
     },
 )
 
-# 2 s segments, whitened and normalized one-bit: a 0.1 s segment has a 10 Hz frequency step, and
-# noise bursts outweigh the rest unless whitened.
+# 1 s segments end to end, whitened and normalized one-bit: a segment's length sets its frequency
+# step (1 Hz; 0.1 s, 10 Hz), and noise bursts outweigh the rest unless whitened.
 SLICING = Stage(
     functions=pac_methods(SEGMENTATION_METHODS, "slice"),
     parameters={
         "slice": {
-            "segment_duration": Parameter("s", default=2.0, gt=0),
-            "segment_step": Parameter("s", default=2.0, gt=0),
+            "segment_duration": Parameter("s", default=1.0, gt=0),
+            "segment_step": Parameter("s", default=1.0, gt=0),
         }
     },
     default="slice",
@@ -115,15 +116,19 @@ SLICING = Stage(
     selectable=False,
 )
 
+# Every passive segment is judged by its f-k energy: the segments whose energy runs along the
+# line are rare in a noise record, and the others blur the correlations.
 SELECTION = Stage(
     functions=pac_methods(STREAM_SELECTION_METHODS, "fk"),
     parameters={
         "fk": {
-            "threshold": Parameter(default=0.1, ge=0, le=1),
+            "threshold": Parameter(default=0.2, ge=0, le=1),
             "vmin": Parameter("m/s", null="none", ge=0),
             "vmax": Parameter("m/s", null="none", gt=0),
         }
     },
+    default="fk",
+    optional=False,
     fixed=frozenset({"flip_negatives"}),
 )
 
@@ -145,11 +150,13 @@ NORMALIZATION = Stage(
     default="onebit",  # see SLICING
 )
 
+# Phase-weighted by default (sigpipe's power, 2): each sample weighted by how well its phase agrees
+# across what is stacked, so what the segments or shots share outweighs what one holds alone.
 STACKING = Stage(
     functions=pac_methods(STREAM_STACKING_METHODS, "linear", "phase_weighted", "root"),
     # sigpipe: nu >= 0, n >= 1.
     parameters={"phase_weighted": {"nu": Parameter(ge=0)}, "root": {"n": Parameter(ge=1)}},
-    default="linear",
+    default="phase_weighted",
     none=False,
 )
 
@@ -169,9 +176,9 @@ DISPERSION = Stage(
     selectable=False,
 )
 
-# The active mode's shot images of a window, stacked. The nth root keeps what every shot sees and
-# damps what only a few do: on p2, long windows (24 receivers) passed G3 more often (17 against 13
-# of 27), short ones (11) kept shorter wavelengths (30 against 35 m). Linear stays the default.
+# The active mode's shot images of a window, stacked: linearly by default (on p2's 7-receiver
+# windows, 89 of 90 pass G3 against 79 with the nth root). The nth root keeps what every shot sees
+# and damps what only a few do.
 IMAGE_STACKING = Stage(
     functions=pac_methods(DISPERSION_IMAGE_STACKING_METHODS, "linear", "root"),
     # As sigpipe checks it: n of at least 1.

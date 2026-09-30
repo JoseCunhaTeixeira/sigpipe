@@ -17,15 +17,21 @@ import numpy as np
 
 
 def lowest_ridge(
-    image: np.ndarray, start: np.ndarray, stop: np.ndarray, threshold: float
+    image: np.ndarray,
+    start: np.ndarray,
+    stop: np.ndarray,
+    threshold: float,
+    floor: float = 0.0,
 ) -> np.ndarray:
     """Per frequency, the velocity index of the lowest ridge between `start` and `stop`, included.
 
     Scans each column up from `start` and stops at the first local maximum that reaches
-    `threshold` times the column's maximum in that range. A column still rising where `stop` cuts
-    it has its ridge above: `stop` is taken (malw-pipe's ceiling rule). A column still falling
-    where `start` cuts it has its ridge below: `start` is taken. Either way the pick will show as
-    pinned. A column with no local maximum above the threshold falls back on its brightest value.
+    `threshold` times the column's maximum in that range and, when one does, `floor`: a faint
+    maximum under a ridge that stands above the noise is noise or an alias, not the fundamental
+    mode. A column still rising where `stop` cuts it has its ridge above: `stop` is taken
+    (malw-pipe's ceiling rule). A column still falling where `start` cuts it has its ridge below:
+    `start` is taken. Either way the pick will show as pinned. A column with no local maximum
+    above the threshold falls back on its brightest value.
     """
     n_f = image.shape[0]
     ridge = np.empty(n_f, dtype=int)
@@ -36,7 +42,7 @@ def lowest_ridge(
         ridge[i] = low + brightest
         if brightest in (0, column.size - 1):
             continue
-        ridge[i] = low + int(_maxima(column, threshold)[0])
+        ridge[i] = low + int(_maxima(column, threshold, floor)[0])
     return ridge
 
 
@@ -48,6 +54,7 @@ def followed_ridge(
     threshold: float,
     jump: float,
     stretch: tuple[int, int],
+    floor: float = 0.0,
 ) -> np.ndarray:
     """Per frequency, the velocity index of the ridge to track: `lowest_ridge`, followed past
     `stretch` (its first and last column, a pick's) towards both ends of the band.
@@ -58,7 +65,7 @@ def followed_ridge(
     Any other step beyond `jump` ends the following (the ridge broke, or rose onto another
     branch, or a brighter one appeared under it): from there on, the lowest ridge.
     """
-    lowest = lowest_ridge(image, start, stop, threshold)
+    lowest = lowest_ridge(image, start, stop, threshold, floor)
     log_v = np.log(velocities)
     reach = math.log1p(jump)
     ridge = lowest.copy()
@@ -71,7 +78,7 @@ def followed_ridge(
                 break
             if log_v[previous] - log_v[here] > reach:
                 low = int(start[i])
-                maxima = low + _maxima(image[i, low : int(stop[i]) + 1], threshold)
+                maxima = low + _maxima(image[i, low : int(stop[i]) + 1], threshold, floor)
                 distances = np.abs(log_v[maxima] - log_v[previous])
                 if not (distances <= reach).any():
                     break
@@ -85,12 +92,16 @@ def followed_ridge(
     return ridge
 
 
-def _maxima(column: np.ndarray, threshold: float) -> np.ndarray:
-    """The indices of `column`'s inner local maxima that reach `threshold` times its maximum,
-    from the slowest."""
+def _maxima(column: np.ndarray, threshold: float, floor: float = 0.0) -> np.ndarray:
+    """The indices of `column`'s inner local maxima that reach `threshold` times its maximum
+    and `floor`, from the slowest; those above the threshold alone when none reaches `floor` (a
+    column all under the noise keeps its own ridges)."""
     inner = column[1:-1]
-    level = threshold * column.max()
-    return np.flatnonzero((inner >= level) & (inner >= column[:-2]) & (inner >= column[2:])) + 1
+    peaks = (inner >= column[:-2]) & (inner >= column[2:])
+    above = peaks & (inner >= max(threshold * column.max(), floor))
+    if not above.any():
+        above = peaks & (inner >= threshold * column.max())
+    return np.flatnonzero(above) + 1
 
 
 def corridor(

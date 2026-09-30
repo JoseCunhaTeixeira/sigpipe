@@ -41,6 +41,14 @@ class PickingParameters(BaseModel):
         description="A mode is kept if its kept points' median coherence reaches this multiple of "
         "the noise floor, 1/sqrt(N).",
     )
+    min_on_data: float = Field(
+        default=0.6,
+        ge=0,
+        le=1,
+        description="A mode whose kept points sit within 10 % of their column's brightest velocity "
+        "less often than this, or no mode, is searched again with the maxima fainter than a mode "
+        "skipped where a column holds a stronger one: noise or an alias under the ridge.",
+    )
     point_min_ratio: float = Field(
         default=1.0,
         gt=0,

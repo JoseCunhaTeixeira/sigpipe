@@ -56,7 +56,7 @@ def method_defaults(mode: str, profile: Profile) -> dict[str, dict[str, dict[str
         if not stage.selectable:
             continue
         methods[name] = {}
-        for method in [*(["none"] if stage.none else []), *stage.functions]:
+        for method in [*(["none"] if stage.none and stage.optional else []), *stage.functions]:
             try:
                 preset = make_preset(mode, {name: {"method": method}})
             except PresetError:
@@ -124,6 +124,12 @@ def _sigpipe_rules(values: dict[str, Any], profile: Profile) -> list[str]:
     """
     name, nyquist = profile.name, profile.nyquist_hz
     problems: list[str] = _masw_rules(values["masw"], profile) + _muting_rules(values, profile)
+    mode = ProcessingMode(values["mode"])
+    problems += [
+        f"{stage_name} cannot be switched off in a {mode.value} run: set its parameters instead."
+        for stage_name, stage in STAGES[mode].items()
+        if not stage.optional and values[stage_name].get("method") == "none"
+    ]
 
     filtering = values["filtering"]
     kept: tuple[float, float] = (0.0, nyquist)  # the band the filter and the whitening keep

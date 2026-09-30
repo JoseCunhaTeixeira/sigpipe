@@ -223,6 +223,44 @@ def test_a_mode_needs_a_ridge_above_the_noise_floor(height: float, labels: list[
     assert [mode.label for mode in pick_modes(_ridge_image(height))] == labels
 
 
+def _two_ridges(lower: tuple[float, float], upper: tuple[float, float]) -> DispersionImage:
+    """Two noise-free ridges, each (its velocity over M0's, its peak in noise floors)."""
+    vs = np.arange(1.0, 1_001.0)
+    noise_floor = 1 / math.sqrt(len(ACQUISITION.receivers))
+
+    def ridge(factor: float, height: float) -> np.ndarray:
+        velocities = factor * m0(RIDGE_FREQUENCIES)[:, None]
+        return height * noise_floor * np.exp(-0.5 * ((vs - velocities) / (0.1 * velocities)) ** 2)
+
+    return DispersionImage(
+        fv_map=np.maximum(ridge(*lower), ridge(*upper)),
+        fs=RIDGE_FREQUENCIES,
+        vs=vs,
+        type=VelocityType.PHASE,
+        acquisition=ACQUISITION,
+    )
+
+
+def test_faint_maxima_under_a_ridge_above_the_noise_are_skipped() -> None:
+    # Under a ridge at 3 noise floors, a fainter one at 1.2 (noise or an alias, at 0.4 of its
+    # velocity): along the lowest maxima, no mode; the ridge above them is M0.
+    (mode,) = pick_modes(_two_ridges((0.4, 1.2), (1.0, 3.0)))
+
+    np.testing.assert_allclose(
+        mode.velocities[mode.kept], m0(mode.frequencies[mode.kept]), rtol=0.05
+    )
+
+
+def test_a_fundamental_mode_at_a_modes_level_stays_under_a_brighter_one() -> None:
+    # M0 at 1.8 noise floors, over the level a mode must reach, under M1 at 3: M0 is picked, not
+    # skipped for the brighter mode above it.
+    (mode,) = pick_modes(_two_ridges((1.0, 1.8), (1.8, 3.0)))
+
+    np.testing.assert_allclose(
+        mode.velocities[mode.kept], m0(mode.frequencies[mode.kept]), rtol=0.05
+    )
+
+
 def test_points_below_the_noise_floor_are_dropped() -> None:
     # A faint mode: 1.6 times the noise floor, but 0.9 times from 30 to 40 Hz. Those points are
     # above half the mode's median coherence, so only the noise floor drops them.
