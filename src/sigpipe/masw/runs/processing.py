@@ -1,6 +1,7 @@
 """Processing a profile with a preset, in worker processes: each record preprocessed once, then
 one sigpipe pipeline per MASW window on the preprocessed records."""
 
+import hashlib
 import json
 import os
 import secrets
@@ -19,8 +20,16 @@ import matplotlib
 from sigpipe.masw.pipelines import build_image_pipeline, build_preprocessing_pipeline, record_folder
 from sigpipe.masw.presets import ActivePreset, PassivePreset, make_preset, resolve_preset
 from sigpipe.masw.profiles import Profile, Record, load_profile, summarize
-from sigpipe.masw.runs.models import RecordOutcome, RunError, RunManifest, WindowOutcome
+from sigpipe.masw.profiles.loading import RECEIVER_POSITIONS_FILE, SOURCE_POSITIONS_FILE
+from sigpipe.masw.runs.models import (
+    InputFile,
+    RecordOutcome,
+    RunError,
+    RunManifest,
+    WindowOutcome,
+)
 from sigpipe.masw.runs.stopping import Stopped, check, commit, finished, staging, undo
+from sigpipe.masw.runs.writing import write_atomic
 from sigpipe.masw.windows import (
     Exclusions,
     Geometry,
@@ -134,15 +143,18 @@ def write_manifest(
     exclusions: Exclusions | None = None,
     packages: Sequence[str] = (),
     stopped: bool = False,
+    inputs: Sequence[InputFile] = (),
 ) -> RunManifest:
     """The run's manifest, run.json: what was processed, with what, and how it went, with the
-    versions of sigpipe and of `packages` (the application's); `stopped`: on request, with the
+    versions of sigpipe and of `packages` (the application's) and the profile's files it read
+    (`inputs`, as the run recorded them first; none, read now); `stopped`: on request, with the
     windows that had finished."""
     manifest = RunManifest(
         run_id=run_id,
         profile=summarize(profile),
         preset=preset,
         versions=package_versions(packages),
+        inputs=tuple(inputs) or input_files(profile),
         started_at=started_at,
         finished_at=datetime.now(UTC),
         n_positions=count_positions(profile, preset.masw),
@@ -151,8 +163,29 @@ def write_manifest(
         exclusions=exclusions or Exclusions(),
         stopped=stopped,
     )
-    (run_folder / "run.json").write_text(manifest.model_dump_json(indent=2))
+    write_atomic(run_folder / "run.json", manifest.model_dump_json(indent=2))
     return manifest
+
+
+def input_files(profile: Profile) -> tuple[InputFile, ...]:
+    """The files of `profile` a run reads, with their size and SHA-256: its records, then its
+    position files."""
+    folder = profile.folder
+    paths = [record.path for record in profile.records] + [
+        folder / name
+        for name in (RECEIVER_POSITIONS_FILE, SOURCE_POSITIONS_FILE)
+        if (folder / name).exists()
+    ]
+    return tuple(_input_file(path, folder) for path in paths)
+
+
+def _input_file(path: Path, folder: Path) -> InputFile:
+    digest = hashlib.sha256()
+    with path.open("rb") as file:
+        while chunk := file.read(1 << 20):
+            digest.update(chunk)
+    name = path.relative_to(folder).as_posix() if path.is_relative_to(folder) else path.name
+    return InputFile(name=name, bytes=path.stat().st_size, sha256=digest.hexdigest())
 
 
 def new_run_folder(profile_folder: Path) -> tuple[str, Path]:
@@ -256,7 +289,7 @@ def process_windows(
                     WindowOutcome(xmid=built.xmid, folder=folder.name, status="failed", error=error)
                 )
                 continue
-            (folder / "window.json").write_text(window.model_dump_json(indent=2))
+            write_atomic(folder / "window.json", window.model_dump_json(indent=2))
             if missing := [path.name for path in window.selected_files if path.name in failed]:
                 error = f"record {missing[0]} failed preprocessing: {failed[missing[0]]}"
                 (folder / "error.log").write_text(error + "\n")

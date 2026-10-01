@@ -15,7 +15,10 @@ Vp/Vs), and every layer 1 to 10 m thick. The curve sets how many layers it resol
 least a third of its shortest wavelength, down to half its longest). Values given by the user
 or the loop are kept when they pass, and changed with a note when they do not: no layer thinner
 than the first range's or the curve's thinnest, whichever is thinner, and the half-space no
-deeper than the longest wavelength reaches."""
+deeper than the longest wavelength reaches.
+
+Values locked (PACo's: those the user gave for a run, which nothing changes) stay as given even
+where a check fails, the note saying what the check asks; the fewest layers are kept still."""
 
 import math
 from collections.abc import Iterable, Mapping, Sequence
@@ -41,6 +44,8 @@ VS_OVER_VR = 1.09
 MIN_LAYERS = 3
 # The keys of the fixed layering: given, they mean it.
 FIXED_KEYS = ("n_layers", "vs_layers", "thickness_layers")
+# A note's verbs for a scale: made, and asked.
+SCALES = ("scaled by", "scales by")
 
 
 class InversionError(ValueError):
@@ -134,13 +139,18 @@ class Derived:
 
 
 def derive_inversion(
-    curve: DispersionCurve, rules: PriorRules, given: Mapping[str, Any] | None = None
+    curve: DispersionCurve,
+    rules: PriorRules,
+    given: Mapping[str, Any] | None = None,
+    locked: Mapping[str, Any] | None = None,
 ) -> Derived:
     """The parameters to invert `curve` with: `given` (InversionParameters' fields, from the
     user or the loop) where they pass the checks, the rest derived from the curve. The layers
-    chosen by the data unless given (or the fixed layering named, or the rules' own)."""
+    chosen by the data unless given (or the fixed layering named, or the rules' own). Those of
+    `locked` (fields of `given`) stay as given where a check fails, with a note."""
+    locked = locked or {}
     if layering_of(given or {}, rules) == "free":
-        return _derive_free(curve, rules, given or {})
+        return _derive_free(curve, rules, given or {}, locked)
     given = broadcast_layers(given or {}, rules.n_layers)
     velocities = np.asarray(curve.vs, dtype=float)
     wavelengths = velocities / np.asarray(curve.fs, dtype=float)
@@ -171,14 +181,20 @@ def derive_inversion(
         )
     if n_layers > resolved:
         # A count given (by the user, or the loop) is changed with a note; the default is
-        # fitted to the curve, as every derived bound is.
+        # fitted to the curve, as every derived bound is. A count locked, or the layers locked
+        # one by one, stays.
+        kept = "n_layers" in locked or any(
+            isinstance(locked.get(key), list | tuple) and len(locked[key]) > 1
+            for key in ("vs_layers", "thickness_layers")
+        )
         if "n_layers" in given:
             notes.append(
                 f"n_layers {n_layers}: the curve resolves {resolved} (layers of at least "
-                f"{thinnest:.2f} m down to {deepest:.2f} m); set to {resolved}."
+                f"{thinnest:.2f} m down to {deepest:.2f} m); {_ending(kept, str(resolved))}"
             )
-        n_layers = resolved
-        _recount(given, n_layers, notes)
+        if not kept:
+            n_layers = resolved
+            _recount(given, n_layers, notes)
 
     # The margins where the curve needs them: a Vs given that does not bracket the curve is set
     # to them, and the wide ranges widen to them.
@@ -199,19 +215,22 @@ def derive_inversion(
             for i, layer in enumerate(ranges)
         ]
         first, half_space = vs_layers[0], vs_layers[-1]
+        kept = "vs_layers" in locked
         # The values given, said in the notes: the user reads what they typed was changed.
         if first["vs_min"] > vr_min:
             notes.append(
                 f"vs_min {first['vs_min']:g} m/s of the top layer above the curve's slowest "
-                f"velocity ({vr_min:.0f} m/s): set to {floor} m/s."
+                f"velocity ({vr_min:.0f} m/s): {_ending(kept, f'{floor} m/s')}"
             )
-            first["vs_min"] = float(floor)
+            if not kept:
+                first["vs_min"] = float(floor)
         if half_space["vs_max"] < VS_OVER_VR * vr_max:
             notes.append(
                 f"vs_max {half_space['vs_max']:g} m/s of the half-space below {VS_OVER_VR} times "
-                f"the curve's fastest velocity ({vr_max:.0f} m/s): set to {ceiling} m/s."
+                f"the curve's fastest velocity ({vr_max:.0f} m/s): {_ending(kept, f'{ceiling} m/s')}"
             )
-            half_space["vs_max"] = float(ceiling)
+            if not kept:
+                half_space["vs_max"] = float(ceiling)
 
     # The first inversion's range, the same for every layer whatever the curve: wide, for the
     # loop to narrow to what the data inform.
@@ -230,26 +249,27 @@ def derive_inversion(
         thickness_layers = [
             {**derived_thickness, **dict(layer)} for layer in given["thickness_layers"]
         ]
+        kept = "thickness_layers" in locked
         thin = [i for i, layer in enumerate(thickness_layers) if layer["thickness_min"] < floor]
         thin_given = _values(thickness_layers[i]["thickness_min"] for i in thin)
-        for index in thin:
+        for index in thin if not kept else ():
             thickness_layers[index]["thickness_min"] = floor
         if thin:
             notes.append(
                 f"thickness_min {thin_given} m thinner than the thinnest allowed ({floor:g} m) "
-                f"in {_layers(thin)}: set to {floor:g} m."
+                f"in {_layers(thin)}: {_ending(kept, f'{floor:g} m')}"
             )
         total = sum(float(layer["thickness_max"]) for layer in thickness_layers)
         if round(total, 2) > round(deepest, 2):
             scale = deepest / total
-            for layer in thickness_layers:
+            for layer in thickness_layers if not kept else ():
                 layer["thickness_max"] = round(float(layer["thickness_max"]) * scale, 2)
                 # A range scaled under its own minimum keeps a width.
                 if layer["thickness_min"] >= layer["thickness_max"]:
                     layer["thickness_min"] = round(min(floor, layer["thickness_max"] / 2), 2)
             notes.append(
                 f"thickness_max puts the half-space as deep as {total:g} m, below the "
-                f"{deepest:.2f} m the curve reaches: scaled by {scale:.2f}."
+                f"{deepest:.2f} m the curve reaches: {_ending(kept, f'{scale:.2f}', SCALES)}"
             )
 
     values = {
@@ -280,8 +300,14 @@ def layering_of(given: Mapping[str, Any], rules: PriorRules) -> str:
     return "fixed" if any(key in given for key in FIXED_KEYS) else rules.layering
 
 
-def _derive_free(curve: DispersionCurve, rules: PriorRules, given: Mapping[str, Any]) -> Derived:
-    """The free layering's bounds from the curve, those `given` kept where they pass."""
+def _derive_free(
+    curve: DispersionCurve,
+    rules: PriorRules,
+    given: Mapping[str, Any],
+    locked: Mapping[str, Any],
+) -> Derived:
+    """The free layering's bounds from the curve, those `given` kept where they pass, and those
+    `locked` kept where they fail, with a note."""
     velocities = np.asarray(curve.vs, dtype=float)
     wavelengths = velocities / np.asarray(curve.fs, dtype=float)
     vr_min, vr_max = float(velocities.min()), float(velocities.max())
@@ -301,26 +327,30 @@ def _derive_free(curve: DispersionCurve, rules: PriorRules, given: Mapping[str, 
         if value is not None
     }
     free = {**derived, **asked}
+    kept = dict(cast(Mapping[str, Any], locked.get("free") or {}))
     notes: list[str] = []
     if free["vs_min"] > vr_min:
         notes.append(
             f"free.vs_min {free['vs_min']:g} m/s above the curve's slowest velocity "
-            f"({vr_min:.0f} m/s): set to {floor} m/s."
+            f"({vr_min:.0f} m/s): {_ending('vs_min' in kept, f'{floor} m/s')}"
         )
-        free["vs_min"] = float(floor)
+        if "vs_min" not in kept:
+            free["vs_min"] = float(floor)
     if free["vs_max"] < VS_OVER_VR * vr_max:
         notes.append(
             f"free.vs_max {free['vs_max']:g} m/s below {VS_OVER_VR} times the curve's fastest "
-            f"velocity ({vr_max:.0f} m/s): set to {ceiling} m/s."
+            f"velocity ({vr_max:.0f} m/s): {_ending('vs_max' in kept, f'{ceiling} m/s')}"
         )
-        free["vs_max"] = float(ceiling)
+        if "vs_max" not in kept:
+            free["vs_max"] = float(ceiling)
     if free["depth_max"] > deepest:
         notes.append(
             f"free.depth_max {free['depth_max']:g} m below the {deepest:g} m the curve reaches: "
-            f"set to {deepest:g} m."
+            f"{_ending('depth_max' in kept, f'{deepest:g} m')}"
         )
-        free["depth_max"] = deepest
-    if free["depth_min"] >= free["depth_max"]:
+        if "depth_max" not in kept:
+            free["depth_max"] = deepest
+    if free["depth_min"] >= free["depth_max"] and "depth_min" not in kept:
         free["depth_min"] = round(free["depth_max"] / 2, 2)
     values = {
         **{key: value for key, value in given.items() if key not in ("free", *FIXED_KEYS)},
@@ -408,6 +438,13 @@ def _recount(given: dict[str, Any], n_layers: int, notes: list[str]) -> None:
         else:
             del given[key]
             notes.append(f"{key}: given layer by layer, derived again for {n_layers} layers.")
+
+
+def _ending(kept: bool, value: str, verbs: tuple[str, str] = ("set to", "sets")) -> str:
+    """How a note on a value that fails a check ends: changed to `value`, or kept as given (it is
+    locked), saying what the check asks."""
+    made, asks = verbs
+    return f"kept as given (the check {asks} {value})." if kept else f"{made} {value}."
 
 
 def _values(values: Iterable[float]) -> str:

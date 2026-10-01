@@ -324,3 +324,45 @@ def test_the_free_bounds_given_are_kept_where_they_pass() -> None:
     assert len(derived.notes) == 3 and derived.notes[-1].startswith("free.depth_max 40 m")
     # Checked as given: no layer of the fixed layering added to it.
     assert checkable({"free": {"max_layers": 5}}, 4) == {"free": {"max_layers": 5}}
+
+
+def test_values_the_user_locked_stay_as_given_the_note_saying_the_check() -> None:
+    # PACo's lock: settings the user gave are never changed; a value that fails a check stays
+    # as given, and the note says what the check would set.
+    given = {"vs_layers": [{"vs_min": 100.0, "vs_max": 180.0}] * 3}
+
+    derived = derive_inversion(CURVE, RULES, given, locked=given)
+
+    assert derived.parameters.vs_layers[-1].vs_max == 180.0
+    assert derived.notes == (
+        "vs_max 180 m/s of the half-space below 1.09 times the curve's fastest velocity (300 "
+        "m/s): kept as given (the check sets 450 m/s).",
+    )
+    # Unlocked, the same value is changed, as before.
+    assert derive_inversion(CURVE, RULES, given).parameters.vs_layers[-1].vs_max == 450.0
+    free = {"free": {"vs_max": 200.0}}
+    kept = derive_inversion(CURVE, PriorRules(layering="free"), free, locked=free)
+    assert kept.parameters.free is not None and kept.parameters.free.vs_max == 200.0
+    assert kept.notes[0].endswith("kept as given (the check sets 450 m/s).")
+
+
+def test_a_locked_count_and_locked_thicknesses_stay_as_given() -> None:
+    thick = {"n_layers": 3, "thickness_layers": [{"thickness_min": 0.5, "thickness_max": 30.0}] * 2}
+
+    derived = derive_inversion(CURVE, RULES, thick, locked=thick)
+    many = derive_inversion(CURVE, RULES, {"n_layers": 30}, locked={"n_layers": 30})
+
+    assert [
+        (layer.thickness_min, layer.thickness_max) for layer in derived.parameters.thickness_layers
+    ] == [(0.5, 30.0)] * 2
+    assert derived.notes == (
+        "thickness_min 0.5 m thinner than the thinnest allowed (1 m) in layers 1, 2: kept as given "
+        "(the check sets 1 m).",
+        "thickness_max puts the half-space as deep as 60 m, below the 15.00 m the curve reaches: "
+        "kept as given (the check scales by 0.25).",
+    )
+    assert many.parameters.n_layers == 30
+    assert many.notes[0].endswith("kept as given (the check sets 15).")
+    # The fewest layers are kept still.
+    few = derive_inversion(CURVE, RULES, {"n_layers": 2}, locked={"n_layers": 2})
+    assert few.parameters.n_layers == 3

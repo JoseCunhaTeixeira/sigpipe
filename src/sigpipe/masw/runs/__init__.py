@@ -15,11 +15,12 @@ from .finding import (
     window_length,
     xmid_of,
 )
-from .models import RecordOutcome, RunError, RunManifest, WindowOutcome
+from .models import InputFile, RecordOutcome, RunError, RunManifest, WindowOutcome
 from .processing import package_versions, run_processing, start_worker
 from .stopping import Stopped
 
 __all__ = [
+    "InputFile",
     "RecordOutcome",
     "RunError",
     "RunManifest",

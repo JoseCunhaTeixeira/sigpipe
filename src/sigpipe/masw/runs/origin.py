@@ -15,6 +15,7 @@ from pathlib import Path
 from typing import Literal
 
 from sigpipe.base.dispersion_curve import Mode
+from sigpipe.masw.runs.writing import write_atomic
 
 EDITS_FILE = "picks_edited.json"
 AUTO_FILE = "picks_auto.json"
@@ -32,12 +33,12 @@ def mark_edited(window: Path, mode: Mode) -> None:
     """Record that a person changed `mode`'s curve in window folder `window`, now."""
     now = datetime.now(UTC).isoformat()
     modes = {**_edits(window), mode.label: now}
-    (window / EDITS_FILE).write_text(json.dumps({"edited_at": now, "modes": modes}))
+    write_atomic(window / EDITS_FILE, json.dumps({"edited_at": now, "modes": modes}))
 
 
 def mark_auto(window: Path) -> None:
     """Record that PAC's automatic picking picked window folder `window`'s M0, now."""
-    (window / AUTO_FILE).write_text(json.dumps({"picked_at": datetime.now(UTC).isoformat()}))
+    write_atomic(window / AUTO_FILE, json.dumps({"picked_at": datetime.now(UTC).isoformat()}))
 
 
 def edited_at(window: Path, mode: Mode | None = None) -> datetime | None:

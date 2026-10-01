@@ -1,6 +1,7 @@
 """A synthetic line from its records to its velocity section: profiles, presets fitted to them,
 runs in each mode, picks, and the inversion of two windows."""
 
+import hashlib
 import json
 import shutil
 import threading
@@ -250,6 +251,16 @@ def test_every_mode_runs_into_pacs_layout(workspace: Folders, profile: str, mode
 
     assert manifest.preset.mode == mode
     assert set(manifest.versions) == {"sigpipe"}
+    # Its inputs by name and content: every record, then the position files.
+    names = [one.name for one in manifest.inputs]
+    assert names[: len(manifest.records)] == [record.name for record in manifest.records]
+    assert set(names[len(manifest.records) :]) <= {
+        "receiver_positions.yaml",
+        "source_positions.yaml",
+    }
+    first = workspace.input_dir / profile / manifest.inputs[0].name
+    assert manifest.inputs[0].sha256 == hashlib.sha256(first.read_bytes()).hexdigest()
+    assert manifest.inputs[0].bytes == first.stat().st_size
     assert [window.status for window in manifest.windows] == ["succeeded"] * 3
     assert [window.xmid for window in manifest.windows] == [2.5, 5.5, 8.5]
     folder = find_run(manifest.run_id, workspace)
@@ -384,9 +395,10 @@ def test_a_run_made_with_a_removed_stage_still_loads(
     path = find_run(manifest.run_id, workspace) / "run.json"
     older = json.loads(path.read_text())
     older["preset"] |= removed
+    del older["inputs"]  # written before the inputs were recorded
     path.write_text(json.dumps(older))
 
-    assert load_manifest(manifest.run_id, workspace) == manifest
+    assert load_manifest(manifest.run_id, workspace) == manifest.model_copy(update={"inputs": ()})
 
 
 def test_one_chain_is_refused_and_a_window_inverted_with_one_still_reads() -> None:

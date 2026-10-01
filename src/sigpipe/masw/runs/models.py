@@ -34,6 +34,17 @@ class RecordOutcome(BaseModel):
     error: str | None = None  # "<type>: <message>"; the traceback is in <folder>/error.log
 
 
+class InputFile(BaseModel):
+    """A file of the profile the run read: its name in the profile's folder, its size and the
+    SHA-256 of its content, to tell whether the run's inputs changed since."""
+
+    model_config = ConfigDict(frozen=True)
+
+    name: str
+    bytes: int
+    sha256: str
+
+
 class WindowOutcome(BaseModel):
     model_config = ConfigDict(frozen=True)
 
@@ -53,6 +64,9 @@ class RunManifest(BaseModel):
     profile: ProfileSummary
     preset: Preset  # resolved: every value the pipelines received
     versions: dict[str, str]
+    # The records and position files read, as they were when the run started; empty for a
+    # run.json written before they were recorded.
+    inputs: tuple[InputFile, ...] = ()
     started_at: datetime
     finished_at: datetime
     n_positions: int  # windows the line allows, before shot selection
