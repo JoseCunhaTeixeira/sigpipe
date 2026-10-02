@@ -53,6 +53,9 @@ class WindowOutcome(BaseModel):
     status: Literal["succeeded", "failed"]
     duration_s: float | None = None
     error: str | None = None  # "<type>: <message>"; the traceback is in <folder>/error.log
+    # Its image taken from the cache (caching.py): made before, by the same code, from the same
+    # records with the same settings.
+    cached: bool = False
 
 
 class RunManifest(BaseModel):

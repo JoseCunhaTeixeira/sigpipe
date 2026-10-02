@@ -21,6 +21,7 @@ from sigpipe.masw.pipelines import build_image_pipeline, build_preprocessing_pip
 from sigpipe.masw.presets import ActivePreset, PassivePreset, make_preset, resolve_preset
 from sigpipe.masw.profiles import Profile, Record, load_profile, summarize
 from sigpipe.masw.profiles.loading import RECEIVER_POSITIONS_FILE, SOURCE_POSITIONS_FILE
+from sigpipe.masw.runs.caching import CACHE, image_key
 from sigpipe.masw.runs.models import (
     InputFile,
     RecordOutcome,
@@ -28,7 +29,7 @@ from sigpipe.masw.runs.models import (
     RunManifest,
     WindowOutcome,
 )
-from sigpipe.masw.runs.stopping import Stopped, check, commit, finished, staging, undo
+from sigpipe.masw.runs.stopping import STAGING, Stopped, check, commit, finished, staging, undo
 from sigpipe.masw.runs.writing import write_atomic
 from sigpipe.masw.windows import (
     Exclusions,
@@ -264,19 +265,22 @@ def process_windows(
     `records_folder` (those of `run_folder` by default: trial windows read a run's records),
     without the records and traces of `exclusions`.
 
-    A window that uses a record that failed fails at once, with the record's error. `stop`,
-    once set, stops them at once: the windows not finished undone (a folder this call made,
-    removed), Stopped raised with the outcomes of those that finished.
+    A window that uses a record that failed fails at once, with the record's error. An image
+    the cache holds (caching.CACHE, when its caller set one) is taken from it, and each image
+    made is kept in it. `stop`, once set, stops them at once: the windows not finished undone
+    (a folder this call made, removed), Stopped raised with the outcomes of those that finished.
     """
     records_folder = records_folder or run_folder / RECORDS_FOLDER
     exclusions = exclusions or Exclusions()
+    cache = CACHE.get()
+    hashes: dict[Path, str] = {}  # the records' content, hashed once in the call
     failed = {record.name: record.error for record in records if record.status == "failed"}
     outcomes: list[WindowOutcome] = []
     one_thread_each()  # the workers are the cores the run takes
     with ProcessPoolExecutor(
         max_workers=workers, initializer=start_worker, initargs=(run_folder,)
     ) as executor:
-        futures: dict[Future[float], tuple[float, Path, bool]] = {}
+        futures: dict[Future[float], tuple[float, Path, bool, str | None]] = {}
         for built in windows:
             folder = run_folder / f"xmid_{built.xmid:.2f}"  # PAC's window folder name
             created = not folder.exists()
@@ -299,18 +303,35 @@ def process_windows(
                     )
                 )
                 continue
+            key = image_key(preset, window, records_folder, hashes) if cache is not None else None
+            if cache is not None and key is not None and cache.take(key, staging(folder)):
+                commit(folder)
+                outcomes.append(
+                    WindowOutcome(
+                        xmid=window.xmid, folder=folder.name, status="succeeded", cached=True
+                    )
+                )
+                continue
             future = executor.submit(
                 _process_window, preset, window, records_folder, staging(folder)
             )
-            futures[future] = (window.xmid, folder, created)
+            futures[future] = (window.xmid, folder, created, key)
 
         if on_progress is not None:
             on_progress(len(outcomes), len(windows))
         try:
             for future in finished(executor, futures, stop):
-                xmid, folder, _ = futures.pop(future)
+                xmid, folder, _, key = futures.pop(future)
+                staged = folder / STAGING
+                made = (
+                    [path.name for path in staged.iterdir() if path.is_file()]
+                    if staged.is_dir()
+                    else []
+                )
                 commit(folder)
                 duration_s, error = _finish(future, folder)
+                if cache is not None and key is not None and error is None:
+                    cache.keep(key, folder, made)
                 outcomes.append(
                     WindowOutcome(
                         xmid=xmid,
@@ -323,10 +344,12 @@ def process_windows(
                 if on_progress is not None:
                     on_progress(len(outcomes), len(windows))
         except Stopped:
-            for _, folder, created in futures.values():
+            for _, folder, created, _ in futures.values():
                 undo(folder, created)
             raise Stopped(tuple(sorted(outcomes, key=lambda outcome: outcome.xmid))) from None
 
+    if cache is not None:
+        cache.trim()
     return tuple(sorted(outcomes, key=lambda outcome: outcome.xmid))
 
 
