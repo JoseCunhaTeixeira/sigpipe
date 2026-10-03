@@ -15,15 +15,9 @@ Raw waveforms go in; dispersion curves and inverted velocity models come out. Ea
 - **Correlation & stacking** — cross-correlation, bidirectional correlation, active-shot correlation, linear/root/phase-weighted stacking.
 - **Beamforming** — cross-beamforming and f-k based receiver selection.
 - **Dispersion analysis** — phase-shift and FTAN dispersion imaging; curve picking within bounds (`maximum`), inside a hand-drawn polygon (`lasso`) or automatically, mode after mode (`tracking`).
-- **Seismic inversion** — Bayesian inversion of Rayleigh-wave dispersion curves into 1D Vs profiles. Markov chains (MCMC) try many layered models and keep them in proportion to how well they fit the curve; [`disba`](https://github.com/keurfonluu/disba) computes each model's curve. The layers can be:
-  - *chosen by the data* (the default): the number of layers is sampled too, so the result uses as many layers as the curve supports (reversible-jump MCMC with parallel tempering);
-  - *given*: you set the number of layers and each one's Vs and thickness ranges (DREAM(ZS)).
-
-  See [References](#references).
-
-  The inversion also estimates how noisy the picks really are, and by default a layer's Vs may be at most 20 % lower than the one above (a stiff layer over a much softer one gives false fits).
+- **Seismic inversion** — Bayesian inversion (MCMC) of Rayleigh-wave dispersion curves into 1D Vs profiles, each model's curve computed by [`disba`](https://github.com/keurfonluu/disba). The number of layers is chosen by the data (reversible-jump MCMC with parallel tempering) or given (DREAM(ZS)); the picks' noise is estimated with the model. See [References](#references).
 - **Petrophysical inversion** — AI inversion of Rayleigh-wave dispersion curves to 1D soil models (via [`silex`](https://github.com/josecunhateixeira/silex)).
-- **Forward modeling** — 1D velocity or soil models to Rayleigh dispersion curves, via a fixed Vp/Vs ratio or real rock physics (via [`santiludo`](https://github.com/JoseCunhaTeixeira/santiludo)) respectively, dispatched by model type through a single `Forward` transformer.
+- **Forward modeling** — 1D velocity or soil models to Rayleigh dispersion curves (soil models through rock physics, via [`santiludo`](https://github.com/JoseCunhaTeixeira/santiludo)), with one `Forward` transformer.
 - **I/O & plotting** — saving/loading and plotting for every data type above, plus section views across multiple acquisitions.
 - **MASW** (`sigpipe.masw`) — a line's records to its velocity section: profiles, windows along the line, the processing settings, runs on disk, picks, inversion per window and sections of the line, and the measures of their quality. [PAC](https://github.com/JoseCunhaTeixeira/PAC) (the web application) and [PACo](https://github.com/JoseCunhaTeixeira/PACo) (its AI agent) are built on it.
 
@@ -43,8 +37,8 @@ src/sigpipe/
 └── masw/          # MASW on a line: profiles, windows, presets (the settings schema),
                    # pipelines, runs, picks, inversion (per window, sections), quality measures
 
-experiments/       # Example/exploratory pipelines (active, passive, passive_ship)
-run.py             # Entry point running experiments.active_find
+experiments/       # example.py, a worked example pipeline
+run.py             # Runs experiments/example.py
 ```
 
 ## Installation
@@ -71,25 +65,23 @@ A pipeline is built by chaining `Transformer` instances with `>>` and running th
 
 ```python
 from sigpipe.transformers import (
-    Load,
+    Apodize,
+    Correlate,
     Detrend,
-    Mute,
-    BidirectionalCorrelate,
-    Stack,
-    Pick,
+    Filter,
+    Load,
+    Normalize,
     Plot,
-    Save,
+    Slice,
+    Stack,
+    Whiten,
 )
+from sigpipe.transformers.dispersion import Dispersion
+from sigpipe.transformers.picking import Pick
+from sigpipe.transformers.saving import Save
 
 pipeline = (
-    Load(
-        file_paths=file_paths,
-        data_type="seismic",
-        acquisition=acquisition,
-        sort=True,
-        receivers_to_load=[0, 1, 2, 3, 4, 5, 6],  # Load all 7 traces
-    )
-    >> Detrend(method="constant")
+    Load(file_paths=file_paths, data_type="seismic", acquisition=acquisition, sort=True)
     >> Detrend(method="linear")
     >> Filter(method="iir", fmin=10_000, fmax=20_000, order=4)
     >> Slice(segment_duration=0.002, segment_step=0.002)
@@ -98,19 +90,11 @@ pipeline = (
     >> Apodize(method="hanning", frac=0.1)
     >> Correlate(method="cross", virtual_source_index=0)
     >> Stack(method="phase_weighted", nu=2)
-    >> Plot(folder_path=saving_dir, normalize=True)
-    >> Save(folder_path=saving_dir)
-    >> Pad(n=1_000, taper=25)
     >> Dispersion(method="phase", fmin=0, fmax=2_000_000, vmin=0, vmax=7_000)
     >> Pick(
         method="maximum",
-        fmins=[20_000],
-        fmaxs=[200_000],
-        vmins=[0],
-        vmaxs=[2_500],
-        lbdmins=[0.0065],
-        lbdmaxs=[0.1],
-        labels=["M0"],
+        fmins=[20_000], fmaxs=[200_000], vmins=[0], vmaxs=[2_500],
+        lbdmins=[0.0065], lbdmaxs=[0.1], labels=["M0"],
     )
     >> Plot(folder_path=saving_dir)
     >> Save(folder_path=saving_dir)
@@ -181,25 +165,13 @@ if __name__ == "__main__":  # the run's worker processes need this guard
 
 ## Development
 
-Install dev dependencies (pytest, ruff, pre-commit) alongside the project:
-
 ```bash
-uv sync
+uv sync                     # the project and its dev tools (pytest, ruff, pre-commit)
+uv run pytest               # the tests
+uv run pre-commit install   # ruff and hygiene checks on every commit
 ```
 
-Run the test suite:
-
-```bash
-uv run pytest
-```
-
-Enable pre-commit hooks (ruff lint/format + basic hygiene checks) to run automatically on `git commit`:
-
-```bash
-uv run pre-commit install
-```
-
-CI runs linting, formatting checks, and the test suite on every push and pull request to `main` (see [.github/workflows/ci.yml](.github/workflows/ci.yml)).
+CI runs the lint, format and test checks on every push and pull request to `main` ([ci.yml](.github/workflows/ci.yml)).
 
 ## References
 
