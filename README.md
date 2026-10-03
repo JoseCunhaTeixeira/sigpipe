@@ -93,8 +93,13 @@ pipeline = (
     >> Dispersion(method="phase", fmin=0, fmax=2_000_000, vmin=0, vmax=7_000)
     >> Pick(
         method="maximum",
-        fmins=[20_000], fmaxs=[200_000], vmins=[0], vmaxs=[2_500],
-        lbdmins=[0.0065], lbdmaxs=[0.1], labels=["M0"],
+        fmins=[20_000],
+        fmaxs=[200_000],
+        vmins=[0],
+        vmaxs=[2_500],
+        lbdmins=[0.0065],
+        lbdmaxs=[0.1],
+        labels=["M0"],
     )
     >> Plot(folder_path=saving_dir)
     >> Save(folder_path=saving_dir)
