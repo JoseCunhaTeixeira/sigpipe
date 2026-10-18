@@ -5,6 +5,7 @@ from typing import Literal
 
 import numpy as np
 import pytest
+from matplotlib.path import Path as PolygonPath
 
 from sigpipe.algorithms.picking.dispersion.lasso import pick_lasso
 from sigpipe.base.acquisition import LinearAcquisition
@@ -96,6 +97,27 @@ def test_the_lasso_picks_the_ridge_inside_it(image: DispersionImage) -> None:
     # Picked again, the mode's curve is replaced.
     again = pick_lasso(picked, polygon, Mode("M", 0))
     assert again.dispersion_curves is not None and len(again.dispersion_curves) == 1
+
+
+def test_the_lassos_curve_stays_inside_it() -> None:
+    # A ridge above the lasso's top edge from 16 to 24 Hz: its picks hug the edge, and the
+    # smoothing would carry some of them past it.
+    ridge = np.select([FS < 16, FS < 24, FS < 32], [285.0, 430.0, 365.0], 385.0)
+    image = DispersionImage(
+        fv_map=np.exp(-(((VS[None, :] - ridge[:, None]) / 15.0) ** 2)).astype(np.float32),
+        fs=FS,
+        vs=VS,
+        type=VelocityType.PHASE,
+        acquisition=ACQUISITION,
+    )
+    polygon = [(10.0, 230.0), (10.0, 420.0), (40.0, 400.0), (40.0, 230.0)]
+
+    picked = pick_lasso(image, polygon, Mode("M", 0))
+
+    assert picked.dispersion_curves is not None
+    (curve,) = picked.dispersion_curves
+    assert len(curve.fs) > 2
+    assert PolygonPath(polygon).contains_points(np.column_stack([curve.fs, curve.vs])).all()
 
 
 def test_a_lasso_too_small_is_refused(image: DispersionImage) -> None:

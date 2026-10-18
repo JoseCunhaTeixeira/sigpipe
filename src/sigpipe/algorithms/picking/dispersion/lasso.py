@@ -20,8 +20,8 @@ def pick_lasso(
 ) -> DispersionImage:
     """`image` with the curve of `mode` picked inside `polygon`, its (frequency, velocity)
     vertices: at each frequency, the velocity of the energy maximum inside it; the curve
-    cleaned (outliers replaced, then smoothed) and resampled over wavelength. It replaces the
-    mode's curve, if `image` had one."""
+    cleaned (outliers replaced, then smoothed) and resampled over wavelength, its points kept
+    inside the lasso. It replaces the mode's curve, if `image` had one."""
     if len(polygon) < 3:
         raise ValueError("polygon must have at least 3 points")
 
@@ -70,7 +70,7 @@ def pick_lasso(
         clean_picks(f_picked_arr, np.asarray(v_picked[1:]), polyorder=3), dtype=np.float32
     )
 
-    new_curve = resample_wavelength(
+    resampled = resample_wavelength(
         DispersionCurve(
             fs=f_picked_arr,
             vs=v_picked_arr,
@@ -79,6 +79,19 @@ def pick_lasso(
             acquisition=image.acquisition,
             vs_err=lorentzian_uncertainty(f_picked_arr, v_picked_arr, image.acquisition),
         )
+    )
+    # Where the ridge runs past the lasso's edge, its picks hug the edge and the smoothing can
+    # carry some of them across: the curve keeps the points inside the lasso.
+    inside = Path(poly).contains_points(np.column_stack([resampled.fs, resampled.vs]))
+    if np.count_nonzero(inside) < 2:
+        raise ValueError("too few of the curve's points stay inside the lasso to pick a curve")
+    new_curve = DispersionCurve(
+        fs=resampled.fs[inside],
+        vs=resampled.vs[inside],
+        mode=resampled.mode,
+        acquisition=resampled.acquisition,
+        vs_err=resampled.vs_err[inside] if resampled.vs_err is not None else None,
+        type=resampled.type,
     )
 
     existing = [curve for curve in image.dispersion_curves or () if curve.mode != mode]
