@@ -1,5 +1,6 @@
 import matplotlib.pyplot as plt
 import numpy as np
+from matplotlib.axes import Axes
 from matplotlib.collections import LineCollection, PolyCollection
 from matplotlib.figure import Figure
 
@@ -14,11 +15,20 @@ _SOURCE = "#2a78d6"
 
 
 def plot_stream(stream: Stream, normalize: bool = True) -> Figure:
-    """`stream`'s traces as PAC's gather view draws them: wiggles at their receivers' positions
-    along the line (their offsets when the line runs along y), positive lobes filled, each
-    trace scaled to its own largest value (`normalize`; else the gather's), the whole of it, at
-    most GATHER_SAMPLES samples a trace; time down. A shot off the receivers is a star above its
-    position (a virtual source or a passive record's stand-in, on a receiver, none)."""
+    """`stream`'s gather on a figure of its own, as draw_stream draws it."""
+    fig, ax = plt.subplots(
+        figsize=(DOUBLE_COLUMN_CM * CM, 11.0 * CM), dpi=DISP_DPI, layout="constrained"
+    )
+    draw_stream(ax, stream, normalize)
+    return fig
+
+
+def draw_stream(ax: Axes, stream: Stream, normalize: bool = True) -> None:
+    """`stream`'s traces on `ax` as PAC's gather view draws them: wiggles at their receivers'
+    positions along the line (their offsets when the line runs along y), positive lobes filled,
+    each trace scaled to its own largest value (`normalize`; else the gather's), the whole of it,
+    at most GATHER_SAMPLES samples a trace; time down. A shot off the receivers is a star above
+    its position (a virtual source or a passive record's stand-in, on a receiver, none)."""
     full = np.asarray(stream.xt, dtype=np.float32)
     peaks = np.max(np.abs(full), axis=1, keepdims=True) if normalize else np.max(np.abs(full))
     full = full / (peaks + 1e-12)
@@ -32,10 +42,6 @@ def plot_stream(stream: Stream, normalize: bool = True) -> Figure:
     gaps = np.diff(np.sort(xs))
     gap = float(np.min(gaps[gaps > 0])) if (gaps > 0).any() else 1.0
     half = 0.9 * gap
-
-    fig, ax = plt.subplots(
-        figsize=(DOUBLE_COLUMN_CM * CM, 11.0 * CM), dpi=DISP_DPI, layout="constrained"
-    )
     wiggles = [np.column_stack((x + half * trace, ts)) for x, trace in zip(xs, xt, strict=True)]
     lobes = [
         np.column_stack(
@@ -63,4 +69,3 @@ def plot_stream(stream: Stream, normalize: bool = True) -> Figure:
     ax.set_xlabel("Position [m]", fontsize=7)
     ax.set_ylabel("Time [s]", fontsize=7)
     ax.tick_params(labelsize=6)
-    return fig
