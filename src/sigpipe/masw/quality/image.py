@@ -1,6 +1,6 @@
 """Measures of a dispersion image before picking (PACo's image QC, G2, judges them; PAC measures
 its own runs' alike, measure_image): the noise floor, the coherent columns, peaks on the grid's
-edges, competing ridges, and aliased ones."""
+edges, competing ridges, aliased ones, and the background off the ridge with its stripes."""
 
 import math
 from dataclasses import dataclass
@@ -15,6 +15,10 @@ from sigpipe.algorithms.picking.dispersion.curve import (
 )
 from sigpipe.base.dispersion_image import DispersionImage
 from sigpipe.masw.quality.measures import Measure, figure
+
+# How far from a column's peak (relative, in velocity) its background starts: past the ridge's
+# width on any window long enough to pick.
+BACKGROUND_SEPARATION = 0.25
 
 
 def noise_floor(image: DispersionImage) -> float:
@@ -83,6 +87,25 @@ def aliased(image: DispersionImage, coherent: np.ndarray, floor: float = 0.0) ->
     fs = np.asarray(image.fs, dtype=float)
     peaks = vs[_above(image, floor).argmax(axis=1)]
     return coherent & (peaks < shortest * fs)
+
+
+def background(
+    image: DispersionImage, coherent: np.ndarray, separation: float, floor: float = 0.0
+) -> np.ndarray:
+    """For each coherent column, the median level of the image farther than `separation`
+    (relative, in velocity) from its peak, over that peak, looking above `floor` only; NaN for
+    the other columns. A clean image is quiet off its ridge: noise, a hard mute's edges or a
+    lateral change under the window raise it, unevenly from column to column (stripes)."""
+    vs = np.asarray(image.vs, dtype=float)
+    above = _above(image, floor)
+    levels = np.full(image.fv_map.shape[0], np.nan)
+    for row in np.flatnonzero(coherent):
+        column = above[row]
+        best = int(column.argmax())
+        away = (vs >= floor) & (np.abs(vs - vs[best]) > separation * vs[best])
+        if column[best] > 0 and away.any():
+            levels[row] = float(np.median(image.fv_map[row][away]) / column[best])
+    return levels
 
 
 def _above(image: DispersionImage, floor: float) -> np.ndarray:
@@ -247,6 +270,28 @@ def measure_image(
             over=f"the {int(competing.sum())} columns with a second ridge: under 2 dx f",
         )
     )
+    # Reported: how quiet the image is off its ridge, and how evenly along its frequencies.
+    levels = background(image, coherent, BACKGROUND_SEPARATION, limits.vmin_floor)[coherent]
+    known = levels[~np.isnan(levels)]
+    if known.size:
+        jumps = np.abs(np.diff(known))
+        measures += [
+            Measure(
+                name="background",
+                value=round(float(np.median(known)), 3),
+                passed=True,
+                of="image",
+                over=f"the {n_coherent} coherent columns: the median level farther than "
+                f"{BACKGROUND_SEPARATION:.0%} from each one's peak, over that peak",
+            ),
+            Measure(
+                name="stripes",
+                value=round(float(np.median(jumps)), 4) if jumps.size else 0.0,
+                passed=True,
+                of="image",
+                over="that level's jumps between neighbouring coherent columns: stripes",
+            ),
+        ]
     band_share: float | None = None
     # The usable band where the image can use it: beyond its frequencies, nothing to compare.
     within = (

@@ -14,6 +14,7 @@ from sigpipe.masw.quality.curve import CurveLimits, measure_curve, pick_of
 from sigpipe.masw.quality.image import (
     ImageLimits,
     aliased,
+    background,
     coherent_columns,
     competing_ridges,
     edge_peaks,
@@ -98,6 +99,27 @@ def test_a_clean_ridges_pick_scores_as_a_plane_wave() -> None:
     assert measures.constant_wavelength is not None and measures.constant_wavelength < 0.2
     assert measure_pick(image, None).n_points == 0
     assert measure_pick(image, None).sharpness is None
+
+
+def test_the_background_off_the_ridge_and_its_stripes() -> None:
+    # A clean ridge over the noise floor; noise all over it; every other column noisier.
+    clean = _image(_ridge(M0))
+    noisy = _image(_ridge(M0) + np.random.default_rng(0).uniform(0.0, 0.3, (FS.size, VS.size)))
+    striped = _image(_ridge(M0) + np.where(np.arange(FS.size) % 2 == 0, 0.3, 0.0)[:, None])
+
+    levels = background(clean, coherent_columns(clean, 0.3), separation=0.25)
+
+    # Off the ridge a clean image holds its floor alone, over the ridge's peak.
+    assert abs(float(np.nanmedian(levels)) - FLOOR / (FLOOR + 0.8)) < 0.01
+
+    def measured(image: DispersionImage) -> dict[str, float | None]:
+        return {one.name: one.value for one in measure_image(image, ImageLimits()).measures}
+
+    quiet, loud, banded = measured(clean), measured(noisy), measured(striped)
+    assert quiet["background"] is not None and loud["background"] is not None
+    assert quiet["background"] < loud["background"]
+    assert quiet["stripes"] is not None and banded["stripes"] is not None
+    assert quiet["stripes"] < 0.01 < banded["stripes"]
 
 
 def test_an_images_measures_say_what_they_cover() -> None:
