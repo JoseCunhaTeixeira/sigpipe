@@ -2,6 +2,8 @@ from enum import StrEnum
 
 import matplotlib.pyplot as plt
 import numpy as np
+from matplotlib.axes import Axes
+from matplotlib.collections import QuadMesh
 from matplotlib.figure import Figure
 
 from sigpipe.base.dispersion_curve import DispersionCurves, VelocityType
@@ -37,7 +39,52 @@ def plot_dispersion_image(
     unity: FrequencyUnity = FrequencyUnity.HZ,
 ) -> Figure:
     """
-    Plot a frequency-velocity dispersion image.
+    Plot a frequency-velocity dispersion image on a figure of its own, as
+    draw_dispersion_image draws it.
+    """
+    fig, ax = plt.subplots(
+        figsize=(SINGLE_COLUMN_CM * CM, HEIGHT_CM * CM),
+        dpi=DISP_DPI,
+    )
+    mesh = draw_dispersion_image(
+        ax,
+        dispersion_image,
+        picked_curves=picked_curves,
+        modeled_curves=modeled_curves,
+        full_modeled_curves=full_modeled_curves,
+        thickness=thickness,
+        lbmin=lbmin,
+        lbmax=lbmax,
+        normalize=normalize,
+        show_legend=show_legend,
+        show_errorbars=show_errorbars,
+        unity=unity,
+    )
+    if show_cbar:
+        fig.colorbar(mesh, ax=ax, pad=0.02, aspect=40)
+    fig.tight_layout()
+    return fig
+
+
+def draw_dispersion_image(
+    ax: Axes,
+    dispersion_image: DispersionImage,
+    *,
+    picked_curves: DispersionCurves | None = None,
+    modeled_curves: DispersionCurves | None = None,
+    full_modeled_curves: DispersionCurves | None = None,
+    thickness: float | None = None,
+    lbmin: float | None = None,
+    lbmax: float | None = None,
+    normalize: bool = False,
+    show_legend: bool = False,
+    show_errorbars: bool = False,
+    unity: FrequencyUnity = FrequencyUnity.HZ,
+) -> QuadMesh:
+    """
+    Draw a frequency-velocity dispersion image on `ax`, a panel of a larger
+    figure; its mesh returned, for a colorbar. `normalize` scales each
+    frequency's row from its least value to its largest, as PAC shows it.
 
     `picked_curves`/`modeled_curves` are drawn at their own frequencies
     (dots+line for picked, dots only for modeled). `full_modeled_curves` is
@@ -53,10 +100,6 @@ def plot_dispersion_image(
         thickness=thickness,
         unity=unity,
     )
-    fig, ax = plt.subplots(
-        figsize=(SINGLE_COLUMN_CM * CM, HEIGHT_CM * CM),
-        dpi=DISP_DPI,
-    )
     mesh = ax.pcolormesh(
         fs_plot,
         dispersion_image.vs,
@@ -66,8 +109,6 @@ def plot_dispersion_image(
         vmin=0.0 if normalize else None,
         vmax=1.0 if normalize else None,
     )
-    if show_cbar:
-        fig.colorbar(mesh, ax=ax, pad=0.02, aspect=40)
     for bound in (lbmin, lbmax):
         if bound is not None:
             ax.plot(
@@ -164,8 +205,7 @@ def plot_dispersion_image(
     ax.set_ylim(dispersion_image.vs[0], dispersion_image.vs[-1])
     if show_legend is True:
         ax.legend(frameon=False, fontsize=6)
-    fig.tight_layout()
-    return fig
+    return mesh
 
 
 def plot_dispersion_curves(
