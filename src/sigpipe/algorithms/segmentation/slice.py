@@ -8,7 +8,9 @@ def slice_segments(
     segment_step: float,
 ) -> list[Stream]:
     """The segments of `stream`, `segment_duration` seconds long, one every `segment_step`
-    seconds, as long as they fit in the record."""
+    seconds, as long as they fit in the record: each the same number of samples, its start the
+    sample nearest its time, so that they stack whatever the step (0.375 s at 500 Hz is 187.5
+    samples)."""
     if segment_duration <= 0:
         raise ValueError(f"requires segment_duration > 0 s, got {segment_duration} s")
     if segment_step <= 0:
@@ -22,41 +24,21 @@ def slice_segments(
         raise ValueError(
             f"requires segment_duration <= record duration, got {segment_duration} s and {record_duration} s"
         )
+    dt = float(stream.ts[1] - stream.ts[0])
+    length = round(segment_duration / dt)  # samples after a segment's first
     segments: list[Stream] = []
     t = 0.0
     while t + segment_duration <= record_duration + 1e-12:
-        segments.append(segment_slice(stream, t, t + segment_duration))
+        start = round(t / dt)
+        if start + length >= len(stream.ts):
+            break
+        segments.append(
+            Stream(
+                xt=stream.xt[:, start : start + length + 1].copy(),
+                ts=stream.ts[start : start + length + 1],
+                sampling_freq=stream.sampling_freq,
+                acquisition=stream.acquisition,
+            )
+        )
         t += segment_step
     return segments
-
-
-def segment_slice(
-    stream: Stream,
-    t_slice_start: float,
-    t_slice_end: float,
-) -> Stream:
-    """Slice data between t_slice_start and t_slice_end.
-
-    Args:
-        stream (Stream): recording data
-        t_slice_start (float): starting time
-        t_slice_end (float): ending time
-
-    Returns:
-        Stream: sliced data
-    """
-    if not 0 <= t_slice_start < t_slice_end <= stream.ts[-1]:
-        raise ValueError(
-            f"requires 0 s < t_slice_start < t_slice_end <= record duration, got {t_slice_start}, {t_slice_end}, {stream.ts[-1]}"
-        )
-    dt = stream.ts[1] - stream.ts[0]
-    i_start = round(t_slice_start / dt)
-    i_end = round(t_slice_end / dt)
-    ts_slice = stream.ts[i_start : i_end + 1]
-    xt_slice = stream.xt[:, i_start : i_end + 1].copy()
-    return Stream(
-        xt=xt_slice,
-        ts=ts_slice,
-        sampling_freq=stream.sampling_freq,
-        acquisition=stream.acquisition,
-    )
