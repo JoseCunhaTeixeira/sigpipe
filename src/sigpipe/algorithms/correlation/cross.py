@@ -1,7 +1,8 @@
 from typing import Literal
 
 import numpy as np
-from scipy.signal import correlate
+from scipy.fft import irfft, rfft
+from scipy.fftpack import next_fast_len
 
 from sigpipe.base.stream import Stream
 
@@ -21,21 +22,17 @@ def correlate_cross(
         raise ValueError(f"part must be 'causal', 'acausal' or 'both, got {part.lower()!r}")
 
     ts_out = np.arange(stream.nt) / stream.sampling_freq
-    xt_out_causal = np.zeros((stream.nx, len(ts_out)), dtype=np.float32)
-    xt_out_acausal = np.zeros((stream.nx, len(ts_out)), dtype=np.float32)
-
-    trace_source = stream.xt[virtual_source_index, :]
-    for i_receiver, trace_receiver in enumerate(stream.xt):
-        correl = correlate(trace_receiver, trace_source, mode="full")
-        mid = correl.size // 2
-        causal = correl[mid:]
-        acausal = correl[: mid + 1][::-1]
-        if len(causal) != len(ts_out) or len(acausal) != len(ts_out):
-            raise ValueError(
-                f"causal and acaucal lengths must be the same as ts_out, got {len(causal)}, {len(acausal)} and {len(ts_out)}"
-            )
-        xt_out_causal[i_receiver, :] = causal
-        xt_out_acausal[i_receiver, :] = acausal
+    # Every trace against the virtual source's at once, through their spectra: scipy's
+    # correlate(trace, source, "full") at each lag, the causal lags 0 to nt-1 and the acausal 0
+    # to -(nt-1), padded so that no lag wraps onto another.
+    nt = stream.nt
+    n = next_fast_len(2 * nt - 1)
+    spectra = np.asarray(rfft(np.asarray(stream.xt, dtype=np.float64), n=n, axis=1))
+    full = np.asarray(irfft(spectra * np.conj(spectra[virtual_source_index])[None, :], n=n, axis=1))
+    xt_out_causal = full[:, :nt].astype(np.float32)
+    xt_out_acausal = np.concatenate((full[:, :1], full[:, : n - nt : -1]), axis=1).astype(
+        np.float32
+    )
 
     acquisition_out = type(stream.acquisition)(
         source=stream.acquisition.receivers[virtual_source_index],

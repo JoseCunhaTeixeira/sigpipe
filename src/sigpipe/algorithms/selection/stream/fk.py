@@ -1,3 +1,5 @@
+from collections.abc import Sequence
+
 import numpy as np
 from numpy.fft import fft, fftfreq
 from scipy.fft import rfft, rfftfreq
@@ -11,6 +13,11 @@ def fk_ratio(stream: Stream, vmin: float | None = None, vmax: float | None = Non
     """How lopsided `stream`'s f-k energy is between positive and negative wavenumbers, in the
     velocity band between `vmin` and `vmax` (each when given): from -1 (all negative) to 1 (all
     positive), 0 when balanced. What `selection_fk` keeps a segment by."""
+    return fk_ratios(stream, [(vmin, vmax)])[0]
+
+
+def fk_ratios(stream: Stream, bands: Sequence[tuple[float | None, float | None]]) -> list[float]:
+    """fk_ratio in each of `bands` (vmin, vmax), from one f-k spectrum."""
     if stream.nx < 2:
         raise ValueError(
             f"At least 2 receivers are required to define a wavenumber axis, got {stream.nx}"
@@ -34,19 +41,22 @@ def fk_ratio(stream: Stream, vmin: float | None = None, vmax: float | None = Non
     # band_mask has shape (nk_fft, n_freq); True = inside the band (kept).
     abs_k = np.abs(ks)[:, None]  # (nk_fft, 1)
     f_row = fs[None, :]  # (1, n_freq)
-    band_mask = np.ones((abs_k.shape[0], f_row.shape[1]), dtype=bool)
-    if vmin is not None:
-        band_mask &= f_row >= vmin * abs_k
-    if vmax is not None:
-        band_mask &= f_row <= vmax * abs_k
-    kf_band = kf * band_mask  # zeros everything out of band
+    ratios: list[float] = []
+    for vmin, vmax in bands:
+        band_mask = np.ones((abs_k.shape[0], f_row.shape[1]), dtype=bool)
+        if vmin is not None:
+            band_mask &= f_row >= vmin * abs_k
+        if vmax is not None:
+            band_mask &= f_row <= vmax * abs_k
+        kf_band = kf * band_mask  # zeros everything out of band
 
-    # Split into positive / negative wavenumbers
-    energy_pos = kf_band[ks > 0].sum()
-    energy_neg = kf_band[ks < 0].sum()
+        # Split into positive / negative wavenumbers
+        energy_pos = kf_band[ks > 0].sum()
+        energy_neg = kf_band[ks < 0].sum()
 
-    eps = 1e-12
-    return float((energy_pos - energy_neg) / (energy_pos + energy_neg + eps))
+        eps = 1e-12
+        ratios.append(float((energy_pos - energy_neg) / (energy_pos + energy_neg + eps)))
+    return ratios
 
 
 def selection_fk(

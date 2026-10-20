@@ -88,18 +88,53 @@ def phase_shift(
     vs = np.linspace(vmin, vmax, nv)
     if vs.size == 0:
         raise ValueError("velocity range produced an empty array")
-    fv_map = np.zeros((len(fs), len(vs)), dtype=np.float32)
     xf_norm = xf / (np.abs(xf) + 1e-12)
     two_pi = 2 * np.pi
-    for v_i, v in enumerate(vs):
-        dphi = two_pi * offsets[:, None] * fs / (v + 1e-12)
-        fv_map[:, v_i] = np.abs(np.sum(xf_norm * np.exp(1j * dphi), axis=0))
+    grid = regular_grid(offsets)
+    if grid is None:
+        fv_map = np.zeros((len(fs), len(vs)), dtype=np.float32)
+        for v_i, v in enumerate(vs):
+            dphi = two_pi * offsets[:, None] * fs / (v + 1e-12)
+            fv_map[:, v_i] = np.abs(np.sum(xf_norm * np.exp(1j * dphi), axis=0))
+    else:
+        # The same sum by Horner's rule over the grid's steps (an empty step holds no trace):
+        # two exponentials a frequency and velocity, where the sum takes one a trace.
+        steps, x0, dx = grid
+        held = np.zeros((int(steps.max()) + 1, len(fs)), dtype=np.complex128)
+        np.add.at(held, steps, xf_norm)
+        per_metre = two_pi * fs[:, None] / (vs[None, :] + 1e-12)
+        step = np.exp(1j * per_metre * dx)
+        summed = np.repeat(held[-1][:, None], len(vs), axis=1)
+        for row in held[-2::-1]:
+            summed *= step
+            summed += row[:, None]
+        summed *= np.exp(1j * per_metre * x0)
+        fv_map = np.abs(summed).astype(np.float32)
     fv_map /= len(np.unique(offsets))
     return (
         fs.astype(np.float32),
         vs.astype(np.float32),
         fv_map.astype(np.float32),
     )
+
+
+def regular_grid(
+    offsets: np.ndarray, most_steps: int = 4
+) -> tuple[np.ndarray, float, float] | None:
+    """`offsets` as steps of a regular grid: each one's step from the nearest, the nearest and
+    the step, when every offset lies on it (two may share a step, a step may hold none) within
+    `most_steps` times as many steps as offsets; None otherwise."""
+    distinct = np.unique(offsets)
+    x0 = float(distinct[0])
+    if distinct.size == 1:
+        return np.zeros(offsets.size, dtype=int), x0, 1.0
+    dx = float(np.diff(distinct).min())
+    steps = np.rint((offsets - x0) / dx).astype(int)
+    if steps.max() + 1 > most_steps * offsets.size:
+        return None
+    if not np.allclose(x0 + steps * dx, offsets, rtol=0.0, atol=1e-6 * max(1.0, abs(x0) + dx)):
+        return None
+    return steps, x0, dx
 
 
 def compute_frequency_vector(nt: int, sampling_freq: float) -> np.ndarray:
