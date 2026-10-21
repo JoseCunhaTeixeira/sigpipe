@@ -54,7 +54,7 @@ class InversionError(ValueError):
 
 
 class PriorRules(BaseModel):
-    """The rules the bounds follow: provisional, measured on the demo profiles (rule 9)."""
+    """The rules the bounds follow, measured on PAC's test lines."""
 
     model_config = ConfigDict(frozen=True, extra="forbid")
 

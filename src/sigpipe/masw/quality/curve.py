@@ -66,7 +66,7 @@ class PickLimits(BaseModel):
 
 class CurveLimits(BaseModel):
     """How a picked curve is measured, and its limits (PACo's G3 judges against them, PAC
-    measures its own runs' alike): provisional, measured on the demo profiles."""
+    measures its own runs' alike), measured on PAC's test lines."""
 
     model_config = ConfigDict(frozen=True, extra="ignore")
 

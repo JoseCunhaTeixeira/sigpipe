@@ -24,7 +24,7 @@ BAND_NAMES = {3: ("short", "middle", "long")}
 
 class ModelLimits(BaseModel):
     """How an inverted model is measured, and its limits (PACo's G5 judges against them, PAC
-    measures its own runs' alike): provisional, measured on the demo profiles."""
+    measures its own runs' alike), measured on PAC's test lines."""
 
     # The limits older runs saved are read too.
     model_config = ConfigDict(frozen=True, extra="ignore")

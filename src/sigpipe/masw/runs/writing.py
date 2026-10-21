@@ -1,4 +1,4 @@
-"""Writing a run safely (S5 of PACo's agent guidelines): a file replaced whole or not at all, and
+"""Writing a run safely: a file replaced whole or not at all, and
 one application writing a run at a time.
 
 The run's lock is a lock file in its folder, `.run.lock`. PACo's tools hold it exclusively,

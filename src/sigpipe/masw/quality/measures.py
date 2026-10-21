@@ -64,7 +64,7 @@ class Measure(BaseModel):
 
 
 class SignalLimits(BaseModel):
-    """How a signal is measured, and its limits: provisional, measured on the demo profiles."""
+    """How a signal is measured, and its limits, measured on PAC's test lines."""
 
     model_config = ConfigDict(frozen=True, extra="ignore")
 

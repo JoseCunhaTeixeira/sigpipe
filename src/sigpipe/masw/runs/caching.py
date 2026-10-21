@@ -1,4 +1,4 @@
-"""A cache of the windows' images (S8 of PACo's agent guidelines): a window's image costs seconds
+"""A cache of the windows' images: a window's image costs seconds
 to make, and a line makes the same ones again (the trials of its windows' length and muting,
 the same profile run again, a comparison of settings).
 

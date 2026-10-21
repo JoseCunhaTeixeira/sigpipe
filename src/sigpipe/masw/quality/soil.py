@@ -11,7 +11,7 @@ from sigpipe.masw.quality.model import BAND_NAMES
 
 
 class SoilLimits(BaseModel):
-    """How a soil column is measured, and its limits (G5's, provisional)."""
+    """How a soil column is measured, and its limits (G5's)."""
 
     model_config = ConfigDict(frozen=True, extra="ignore")
 

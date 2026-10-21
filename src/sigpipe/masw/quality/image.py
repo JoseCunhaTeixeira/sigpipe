@@ -117,7 +117,7 @@ def _above(image: DispersionImage, floor: float) -> np.ndarray:
 
 class ImageLimits(BaseModel):
     """How a dispersion image is measured, and its limits (PACo's G2 judges against them, PAC
-    measures its own runs' alike): provisional, measured on the demo profiles."""
+    measures its own runs' alike), measured on PAC's test lines."""
 
     model_config = ConfigDict(frozen=True, extra="ignore")
 
