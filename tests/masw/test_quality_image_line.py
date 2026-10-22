@@ -169,16 +169,15 @@ def test_a_saved_curve_measures_as_the_pickers_own() -> None:
     assert saved.pick.band_hz is not None and saved.pick.band_hz[1] < 60
 
 
-def test_the_nearest_shot_against_the_longest_wavelength() -> None:
+def test_the_nearest_shot_is_reported() -> None:
     image = _image(_ridge(M0))
     (m0,) = pick_modes(image)
 
-    far = measure_curve(image, m0, CurveLimits(), nearest_offset=40.0)
     near = {one.name: one for one in measure_curve(image, m0, CurveLimits(), 1.0).measures}
 
-    assert far.near_limit is not None
-    assert math.isclose(far.near_limit, 0.5 * float(far.wavelengths.max()))
-    assert not near["near_offset"].passed and near["near_offset"].unit == "m"
+    # Reported, never judged: no limit, whatever its distance.
+    assert (near["near_offset"].value, near["near_offset"].unit) == (1.0, "m")
+    assert near["near_offset"].threshold is None and near["near_offset"].passed
     # The uncertainty is reported: no limit.
     assert near["uncertainty"].threshold is None and near["uncertainty"].passed
     # No pick: the pick's measures only, none of its points.

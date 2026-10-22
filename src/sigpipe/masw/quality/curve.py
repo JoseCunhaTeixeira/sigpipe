@@ -99,12 +99,6 @@ class CurveLimits(BaseModel):
         "needs over 4/3 for its 3 layers, each at least a third of the shortest wavelength, "
         "down to half the longest. More points on a narrow span do not help.",
     )
-    near_offset_wavelengths: float = Field(
-        default=0.5,
-        gt=0,
-        description="The nearest shot's offset, as a share of the longest wavelength kept, at "
-        "least: closer, the long wavelengths may read slow (near field). Reported, not applied.",
-    )
 
 
 @dataclass(frozen=True)
@@ -125,7 +119,6 @@ class CurveReport:
     air: float = 0.0  # share of the points in the air wave's band
     trend: float = float("nan")  # velocity against wavelength, rank correlation
     uncertainty: float | None = None  # median over the velocity, over the points with one
-    near_limit: float | None = None  # the nearest shot's offset should reach it, m
 
 
 def pick_of(curve: DispersionCurve, image: DispersionImage) -> PickedMode:
@@ -331,20 +324,17 @@ def measure_curve(
             over=f"the {known.size} of its points with one: over the velocity",
         ),
     ]
-    near_limit: float | None = None
+    # Reported, never judged: a window stacking the shots next to it (the line's choice) has its
+    # nearest within half its longest wavelength, whatever its own data.
     if nearest_offset is not None and n_points:
-        near_limit = limits.near_offset_wavelengths * float(lengths.max())
         measures.append(
             Measure(
                 name="near_offset",
                 value=round(nearest_offset, 2),
-                threshold=round(near_limit, 2),
-                bound="min",
-                passed=nearest_offset >= near_limit,
+                passed=True,
                 unit="m",
                 of="curve",
-                over=f"the window's nearest shot, against {limits.near_offset_wavelengths:g} of "
-                "the longest wavelength",
+                over="the window's nearest shot, from its nearest receiver",
             )
         )
     return CurveReport(
@@ -362,7 +352,6 @@ def measure_curve(
         air=air,
         trend=trend,
         uncertainty=uncertainty,
-        near_limit=near_limit,
     )
 
 
