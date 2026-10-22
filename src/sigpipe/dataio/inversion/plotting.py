@@ -66,17 +66,27 @@ def plot_posterior_marginals(
                 ax.axis("off")
                 continue
 
+            # Values without a density (two that move together, as the Vs at two depths one
+            # layer spans): the samples themselves.
             if i == j:
-                kde = gaussian_kde(samples[name_i])
-                xs = grids_1d[name_i]
-                ax.plot(xs, kde(xs), color="tab:blue", linewidth=1)
+                try:
+                    kde = gaussian_kde(samples[name_i])
+                except np.linalg.LinAlgError:
+                    ax.hist(samples[name_i], bins=n_grid // 4, color="tab:blue")
+                else:
+                    xs = grids_1d[name_i]
+                    ax.plot(xs, kde(xs), color="tab:blue", linewidth=1)
                 ax.set_yticks([])
             else:
-                kde = gaussian_kde(np.vstack([samples[name_j], samples[name_i]]))
-                X, Y = np.meshgrid(grids_1d[name_j], grids_1d[name_i])
-                density = kde(np.vstack([X.ravel(), Y.ravel()])).reshape(X.shape)
-                levels = _hdi_levels(density, hdi_probs)
-                ax.contourf(X, Y, density, levels=[*levels, density.max()], cmap="Blues")
+                try:
+                    kde = gaussian_kde(np.vstack([samples[name_j], samples[name_i]]))
+                except np.linalg.LinAlgError:
+                    ax.scatter(samples[name_j], samples[name_i], s=2, color="tab:blue")
+                else:
+                    X, Y = np.meshgrid(grids_1d[name_j], grids_1d[name_i])
+                    density = kde(np.vstack([X.ravel(), Y.ravel()])).reshape(X.shape)
+                    levels = _hdi_levels(density, hdi_probs)
+                    ax.contourf(X, Y, density, levels=[*levels, density.max()], cmap="Blues")
 
             # Three ticks an axis, whole numbers for a count of layers.
             ax.xaxis.set_major_locator(MaxNLocator(3, integer=name_j == "Layers"))
