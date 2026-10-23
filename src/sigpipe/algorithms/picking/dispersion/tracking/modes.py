@@ -191,7 +191,8 @@ def _mode(tracked: _Tracked, parameters: PickingParameters) -> _Tracked | None:
 
 def _on_data(values: np.ndarray, velocities: np.ndarray, tracked: _Tracked | None) -> float:
     """The share of `tracked`'s kept points within 10 % of their column's brightest velocity (as
-    the curve's checks count it); 0 without a mode."""
+    the curve's checks count it), over the whole column: a pick held where the search starts, on
+    the flank of an alias under it, lies off it; 0 without a mode."""
     if tracked is None:
         return 0.0
     rows = np.flatnonzero(tracked.kept)

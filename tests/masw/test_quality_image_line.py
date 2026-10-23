@@ -13,7 +13,6 @@ from sigpipe.base.dispersion_image import DispersionImage
 from sigpipe.masw.quality.curve import CurveLimits, measure_curve, pick_of
 from sigpipe.masw.quality.image import (
     ImageLimits,
-    aliased,
     background,
     coherent_columns,
     competing_ridges,
@@ -78,13 +77,18 @@ def test_a_second_ridge_competes() -> None:
     assert not competing_ridges(_image(_ridge(M0)), coherent, ratio=0.7, separation=0.15).any()
 
 
-def test_a_ridge_below_twice_the_spacing_in_wavelength_is_aliased() -> None:
-    # M0 / 10 is 18 m/s at 30 Hz: a 0.6 m wavelength, under the 2 m the 1 m spacing resolves.
-    slow = _image(_ridge(M0 / 10))
-    fast = _image(_ridge(M0))
+def test_a_ridges_alias_does_not_compete() -> None:
+    # Receivers 1 m apart alias the ridge to 1 / (1 / v + 1 / f), under one spacing in
+    # wavelength, as bright as the ridge: here brighter, from 20 Hz (below, it lies within a step
+    # of the grid of one spacing). The picker never searches there: it picks the ridge.
+    alias = _ridge(1 / (1 / M0 + 1 / FS), 0.85) * (FS >= 20)[:, None]
+    image = _image(np.maximum(_ridge(M0), alias))
+    coherent = coherent_columns(image, level=0.3)
 
-    assert aliased(slow, coherent_columns(slow, 0.3))[FS > 30].all()
-    assert not aliased(fast, coherent_columns(fast, 0.3)).any()
+    assert not competing_ridges(image, coherent, ratio=0.7, separation=0.15).any()
+    (m0,) = pick_modes(image)
+    kept = m0.kept
+    assert np.allclose(m0.velocities[kept], M0[np.isin(FS, m0.frequencies[kept])], rtol=0.02)
 
 
 def test_a_clean_ridges_pick_scores_as_a_plane_wave() -> None:
@@ -134,8 +138,6 @@ def test_an_images_measures_say_what_they_cover() -> None:
     assert not measures["band_at_fmin"].passed and measures["band_at_fmax"].passed
     assert measures["band_share_of_usable"].value == 0.49
     assert not measures["band_share_of_usable"].passed
-    # The aliased ridges are reported: no limit.
-    assert measures["aliased_ridges"].threshold is None
     assert all(measure.of == "image" and measure.over for measure in report.measures)
 
 

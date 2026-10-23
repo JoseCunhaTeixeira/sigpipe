@@ -4,6 +4,9 @@ within its size, the entries used longest ago removed first."""
 
 import os
 from pathlib import Path
+from typing import Any
+
+import pytest
 
 from sigpipe.masw.runs import find_run, run_processing
 from sigpipe.masw.runs.caching import Cache, image_key, using
@@ -77,3 +80,29 @@ def test_the_cache_keeps_to_its_size_the_oldest_used_going_first(tmp_path: Path)
     # An entry trimmed is not there to take, and the folder keeps what it held.
     assert not cache.take("bb2", into)
     assert [path.name for path in into.iterdir()] == [IMAGE]
+
+
+def test_a_trim_skips_what_another_process_removes_meanwhile(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # Another process (a backend tidying after its conversation) removes an entry's file while
+    # this one sizes the cache: that entry is no longer counted, the others are trimmed.
+    source = tmp_path / "made"
+    source.mkdir()
+    (source / IMAGE).write_bytes(b"x" * 100)
+    cache = Cache(tmp_path / "cache", max_bytes=0)
+    for key in ("aa1", "bb2"):
+        cache.keep(key, source, [IMAGE])
+    gone = cache.folder / "aa" / "aa1" / IMAGE
+    stat = Path.stat
+
+    def removed(path: Path, **kwargs: Any) -> os.stat_result:  # noqa: ANN401
+        if path == gone:
+            raise FileNotFoundError(path)
+        return stat(path, **kwargs)
+
+    monkeypatch.setattr(Path, "stat", removed)
+    cache.trim()
+    monkeypatch.undo()
+
+    assert not (cache.folder / "bb" / "bb2").exists()

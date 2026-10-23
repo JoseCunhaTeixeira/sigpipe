@@ -1,6 +1,6 @@
 """Measures of a dispersion image before picking (PACo's image QC, G2, judges them; PAC measures
 its own runs' alike, measure_image): the noise floor, the coherent columns, peaks on the grid's
-edges, competing ridges, aliased ones, and the background off the ridge with its stripes."""
+edges, competing ridges, and the background off the ridge with its stripes."""
 
 import math
 from dataclasses import dataclass
@@ -11,7 +11,7 @@ from scipy.signal import find_peaks
 
 from sigpipe.algorithms.picking.dispersion.curve import (
     max_resolvable_wavelength,
-    min_resolvable_wavelength,
+    shortest_picked_wavelength,
 )
 from sigpipe.base.dispersion_image import DispersionImage
 from sigpipe.masw.quality.measures import Measure, figure
@@ -37,15 +37,16 @@ def edge_peaks(
     image: DispersionImage, coherent: np.ndarray, edge_share: float, floor: float = 0.0
 ) -> tuple[int, int]:
     """How many coherent columns peak within `edge_share` of the grid's lowest velocity, and,
-    looking above `floor` only (below it lie artifacts), within `edge_share` of its highest,
-    among the columns where the window tells that velocity from an infinite one: a window of
-    aperture L resolves slowness to about 1 / (f L), so below f = vmax / L a peak at vmax is
-    energy with no moveout (noise common to every trace), not a ridge beyond the grid."""
+    looking only where a ridge can lie (from `floor` up, at wavelengths of a receiver spacing or
+    more), within `edge_share` of its highest, among the columns where the window tells that
+    velocity from an infinite one: a window of aperture L resolves slowness to about 1 / (f L),
+    so below f = vmax / L a peak at vmax is energy with no moveout (noise common to every
+    trace), not a ridge beyond the grid."""
     vs = np.asarray(image.vs, dtype=float)
     fs = np.asarray(image.fs, dtype=float)
     span = vs.max() - vs.min()
     peaks = vs[image.fv_map[coherent].argmax(axis=1)] if coherent.any() else np.array([])
-    above = _above(image, floor)[coherent]
+    above = np.where(_searched(image, floor), image.fv_map, 0.0)[coherent]
     peaks_above = vs[above.argmax(axis=1)] if coherent.any() else np.array([])
     aperture = max_resolvable_wavelength(image.acquisition) or 0.0
     resolved = (fs * aperture > vs.max())[coherent]
@@ -62,57 +63,57 @@ def competing_ridges(
     floor: float = 0.0,
 ) -> np.ndarray:
     """For each coherent column, whether a second local maximum reaches `ratio` of the highest
-    while lying at least `separation` (relative) away from it in velocity; peaks below `floor`
-    are artifacts, not ridges."""
+    while lying at least `separation` (relative) away from it in velocity, both where a ridge can
+    lie: from `floor` up (below lie artifacts) and at wavelengths of a receiver spacing or more
+    (below lie the ridges' aliases)."""
     vs = np.asarray(image.vs, dtype=float)
-    above = _above(image, floor)
+    searched = _searched(image, floor)
+    above = np.where(searched, image.fv_map, 0.0)
     result = np.zeros(image.fv_map.shape[0], dtype=bool)
     for row in np.flatnonzero(coherent):
-        column = above[row]
-        best = int(column.argmax())
-        peaks, _ = find_peaks(column, height=ratio * column[best])
-        others = [peak for peak in peaks if abs(vs[peak] - vs[best]) >= separation * vs[best]]
+        best = int(above[row].argmax())
+        # The maxima of the whole column: where the search starts, an alias's flank is no peak.
+        peaks, _ = find_peaks(image.fv_map[row], height=ratio * above[row][best])
+        others = [
+            peak
+            for peak in peaks
+            if searched[row][peak] and abs(vs[peak] - vs[best]) >= separation * vs[best]
+        ]
         result[row] = bool(others)
     return result
-
-
-def aliased(image: DispersionImage, coherent: np.ndarray, floor: float = 0.0) -> np.ndarray:
-    """Coherent columns whose peak (above `floor`) lies below the aliasing limit v = 2 dx f (the
-    shortest wavelength the receivers resolve, times f): a second ridge there is the alias of
-    the first, not a mode. None of them when the receivers' positions are unknown."""
-    shortest = min_resolvable_wavelength(image.acquisition)
-    if shortest is None:
-        return np.zeros_like(coherent)
-    vs = np.asarray(image.vs, dtype=float)
-    fs = np.asarray(image.fs, dtype=float)
-    peaks = vs[_above(image, floor).argmax(axis=1)]
-    return coherent & (peaks < shortest * fs)
 
 
 def background(
     image: DispersionImage, coherent: np.ndarray, separation: float, floor: float = 0.0
 ) -> np.ndarray:
     """For each coherent column, the median level of the image farther than `separation`
-    (relative, in velocity) from its peak, over that peak, looking above `floor` only; NaN for
-    the other columns. A clean image is quiet off its ridge: noise, a hard mute's edges or a
-    lateral change under the window raise it, unevenly from column to column (stripes)."""
+    (relative, in velocity) from its peak, over that peak, looking only where a ridge can lie
+    (from `floor` up, at wavelengths of a receiver spacing or more); NaN for the other columns. A
+    clean image is quiet off its ridge: noise, a hard mute's edges or a lateral change under the
+    window raise it, unevenly from column to column (stripes)."""
     vs = np.asarray(image.vs, dtype=float)
-    above = _above(image, floor)
+    searched = _searched(image, floor)
+    above = np.where(searched, image.fv_map, 0.0)
     levels = np.full(image.fv_map.shape[0], np.nan)
     for row in np.flatnonzero(coherent):
         column = above[row]
         best = int(column.argmax())
-        away = (vs >= floor) & (np.abs(vs - vs[best]) > separation * vs[best])
+        away = searched[row] & (np.abs(vs - vs[best]) > separation * vs[best])
         if column[best] > 0 and away.any():
             levels[row] = float(np.median(image.fv_map[row][away]) / column[best])
     return levels
 
 
-def _above(image: DispersionImage, floor: float) -> np.ndarray:
-    """The image with the velocities below `floor` zeroed: where a correlation's zero lag or a
-    mute's edge puts energy no surface wave has."""
+def _searched(image: DispersionImage, floor: float) -> np.ndarray:
+    """By column and velocity, where a ridge can lie, as the picker searches: from `floor` up
+    (below, a correlation's zero lag or a mute's edge puts energy no surface wave has) and at
+    wavelengths of one receiver spacing or more. Under one spacing lie the aliases of the
+    ridges above it, at 1 / (1 / v + n / (f dx)): on evenly spaced receivers as bright as the
+    ridge itself."""
     vs = np.asarray(image.vs, dtype=float)
-    return np.where(vs[None, :] >= floor, image.fv_map, 0.0)
+    fs = np.asarray(image.fs, dtype=float)
+    shortest = shortest_picked_wavelength(image.acquisition) or 0.0
+    return (vs[None, :] >= floor) & (vs[None, :] >= shortest * fs[:, None])
 
 
 class ImageLimits(BaseModel):
@@ -173,7 +174,6 @@ class ImageReport:
     low: int = 0  # coherent columns peaking at the grid's lowest velocity
     high: int = 0  # ...at its highest (among those the window resolves)
     competing: np.ndarray | None = None  # bool, by column: a second ridge
-    aliased: np.ndarray | None = None  # bool, by column: that ridge below 2 dx f
     band_share: float | None = None  # the coherent band over the usable band within the image
     usable: tuple[float, float] | None = None  # the records' usable band within the image
 
@@ -185,9 +185,8 @@ def measure_image(
 ) -> ImageReport:
     """`image`'s measures against `limits`, each saying what it covers: its coherent columns,
     those peaking on the grid's edges, the coherent band against the image's ends, the columns
-    with a second ridge (and those of them aliased, reported), and, with the records'
-    `usable_band`, the coherent band over the part of it the image spans. One definition for
-    PACo's G2 and PAC's views."""
+    with a second ridge, and, with the records' `usable_band`, the coherent band over the part
+    of it the image spans. One definition for PACo's G2 and PAC's views."""
     fs = np.asarray(image.fs, dtype=float)
     vs = np.asarray(image.vs, dtype=float)
     coherent = coherent_columns(image, limits.coherent_level)
@@ -256,18 +255,8 @@ def measure_image(
             passed=competing_share <= limits.max_competing_columns,
             of="image",
             over=f"the {n_coherent} coherent columns: a second peak {limits.competing_ratio:.0%} "
-            f"of the first at least, {limits.competing_separation:.0%} away",
-        )
-    )
-    # Reported: which of the second ridges lie below the aliasing limit.
-    alias = aliased(image, competing, limits.vmin_floor)
-    measures.append(
-        Measure(
-            name="aliased_ridges",
-            value=round(int(alias.sum()) / max(int(competing.sum()), 1), 3),
-            passed=True,
-            of="image",
-            over=f"the {int(competing.sum())} columns with a second ridge: under 2 dx f",
+            f"of the first at least, {limits.competing_separation:.0%} away, both at wavelengths "
+            "of a receiver spacing or more",
         )
     )
     # Reported: how quiet the image is off its ridge, and how evenly along its frequencies.
@@ -282,7 +271,8 @@ def measure_image(
                 passed=True,
                 of="image",
                 over=f"the {n_coherent} coherent columns: the median level farther than "
-                f"{BACKGROUND_SEPARATION:.0%} from each one's peak, over that peak",
+                f"{BACKGROUND_SEPARATION:.0%} from each one's peak, over that peak, at "
+                "wavelengths of a receiver spacing or more",
             ),
             Measure(
                 name="stripes",
@@ -321,7 +311,6 @@ def measure_image(
         low=low,
         high=high,
         competing=competing,
-        aliased=alias,
         band_share=band_share,
         usable=within if band_share is not None else None,
     )

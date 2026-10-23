@@ -75,12 +75,17 @@ class Cache:
             # Kept meanwhile by another process: the same files.
 
     def trim(self) -> None:
-        """The entries used longest ago removed, until the cache holds at most `max_bytes`."""
-        entries = [
-            (entry.stat().st_mtime, _size(entry), entry)
-            for entry in self.folder.glob("*/*")
-            if entry.is_dir() and not entry.name.startswith(".")
-        ]
+        """The entries used longest ago removed, until the cache holds at most `max_bytes`; one
+        another process removes meanwhile (a backend tidying after its conversation) left
+        uncounted."""
+        entries: list[tuple[float, int, Path]] = []
+        for entry in self.folder.glob("*/*"):
+            if not entry.is_dir() or entry.name.startswith("."):
+                continue
+            try:
+                entries.append((entry.stat().st_mtime, _size(entry), entry))
+            except FileNotFoundError:
+                continue
         total = sum(size for _, size, _ in entries)
         for _, size, entry in sorted(entries):
             if total <= self.max_bytes:
