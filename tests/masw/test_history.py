@@ -3,15 +3,21 @@ aside in its replaced/ folder and in the log's past (the log only grows), and th
 windows' and stages' history kept."""
 
 import json
+from datetime import UTC, datetime
 from pathlib import Path
 
 from sigpipe.masw.runs.history import (
     ATTEMPTS_FOLDER,
+    CHANGES_FILE,
     LOG_FILE,
     LOG_VERSION,
     REPLACED_FOLDER,
+    Change,
     forget,
     log_entries,
+    read_changes,
+    record_change,
+    set_aside,
 )
 from sigpipe.masw.runs.stopping import commit, staging
 
@@ -152,3 +158,71 @@ def test_the_log_says_what_came_after_each_reset(tmp_path: Path) -> None:
     with (run / LOG_FILE).open("a") as log:
         log.write("\n" + json.dumps({"event": "given", "family": "picking"}) + "\n")
     assert log_entries(run)[-1] == {"event": "given", "family": "picking"}
+
+
+def test_a_change_in_pac_sets_aside_what_it_replaces(tmp_path: Path) -> None:
+    run = _run(tmp_path)
+    window = run / "xmid_5.00"
+
+    # A curve picked again: the curves file copied aside (it holds every mode), still in place.
+    curves = set_aside(window, "picking", copy=True)
+    assert curves is not None and curves.startswith(f"{REPLACED_FOLDER}/")
+    assert curves.endswith("_picking")
+    assert (window / curves / "DispersionCurves_0000.csv").read_text() == "picks"
+    assert (window / curves / "quality.json").exists()
+    assert (window / "DispersionCurves_0000.csv").exists()
+    # A window inverted again: its models moved aside, the archived attempts left to forget.
+    models = set_aside(window, "inversion")
+    assert models is not None and models.endswith("_inversion")
+    assert {path.name for path in (window / models).iterdir()} == {
+        "SeismicInversion_Samples_0000.npz",
+        "SeismicInversion_Model_0000_best.csv",
+    }
+    assert not any(window.glob("SeismicInversion_*"))
+    assert (window / ATTEMPTS_FOLDER / "1_inversion").is_dir()
+    # Nothing to set aside: none.
+    assert set_aside(window, "inversion") is None
+
+
+def test_each_windows_changes_are_its_own_record(tmp_path: Path) -> None:
+    run = _run(tmp_path)
+    window = run / "xmid_5.00"
+    lasso = Change(
+        at=datetime(2026, 10, 24, 12, 4, tzinfo=UTC),
+        stage="picking",
+        how="lasso",
+        mode="M0",
+        inputs={"polygon": [[5.0, 300.0], [30.0, 300.0], [30.0, 200.0]]},
+        result={"n_points": 12, "band_hz": [5.0, 30.0]},
+        aside="replaced/x_picking",
+        later=("inversion",),
+    )
+    inverted = Change(
+        at=datetime(2026, 10, 24, 12, 9, tzinfo=UTC), stage="inversion", how="inversion"
+    )
+    record_change(window, lasso)
+    record_change(window, inverted)
+    with (window / CHANGES_FILE).open("a") as file:
+        file.write('{"at": "2026-10-24T12:10')  # the last line, while written
+
+    assert read_changes(window) == (lasso, inverted)
+    assert read_changes(run / "xmid_6.50") == ()
+    assert read_changes(window)[0].actor == "user"
+
+
+def test_new_results_can_set_aside_the_old_ones(tmp_path: Path) -> None:
+    run = _run(tmp_path)
+    window = run / "xmid_5.00"
+    output = staging(window)
+    (output / "SeismicInversion_Samples_0000.npz").write_text("new models")
+
+    kept = commit(window, replacing=("SeismicInversion_*",), aside="inversion")
+
+    assert (window / "SeismicInversion_Samples_0000.npz").read_text() == "new models"
+    assert not (window / "SeismicInversion_Model_0000_best.csv").exists()
+    # The old models, kept where the history says.
+    assert kept is not None and kept.endswith("_inversion")
+    assert (window / kept / "SeismicInversion_Samples_0000.npz").read_text() == "models"
+    assert (window / kept / "SeismicInversion_Model_0000_best.csv").exists()
+    # Nothing to commit: nothing set aside.
+    assert commit(window, aside="inversion") is None

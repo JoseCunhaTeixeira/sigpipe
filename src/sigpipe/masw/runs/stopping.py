@@ -6,7 +6,8 @@ finished, undo the others and raise Stopped.
 Nothing half-written is ever left: a task writes into a staging folder inside the folder its
 outputs go to, and its outputs are moved into place only once it finished. Undoing a task removes
 its staging folder, and its folder too when the task's call created it; outputs a task replaces
-stay as they were until its own are complete."""
+stay as they were until its own are complete, and can then be set aside rather than deleted
+(the run history's replaced/ folder)."""
 
 from __future__ import annotations
 
@@ -15,6 +16,8 @@ import threading
 from collections.abc import Iterable, Iterator
 from concurrent.futures import FIRST_COMPLETED, Future, ProcessPoolExecutor, wait
 from pathlib import Path
+
+from sigpipe.masw.runs.history import Stage, set_aside
 
 # A task's outputs while it runs, inside the folder they go to once it finished.
 STAGING = ".partial"
@@ -82,14 +85,17 @@ def staging(folder: Path) -> Path:
     return path
 
 
-def commit(folder: Path, replacing: Iterable[str] = ()) -> None:
+def commit(folder: Path, replacing: Iterable[str] = (), aside: Stage | None = None) -> str | None:
     """A finished task's outputs moved from `folder`'s staging folder into `folder`, replacing
     those of the same names, and first every file of `folder` matching `replacing` (glob
     patterns: the task's kind of outputs, so that none an older task wrote and this one did
-    not is left beside its own)."""
+    not is left beside its own): deleted, or, with `aside` (the task's stage), its results set
+    aside in the folder's replaced/<time>_<stage>/ (the run history's `set_aside`). Where they
+    were set aside, in `folder`; None when nothing was."""
     path = folder / STAGING
     if not path.exists():
-        return
+        return None
+    kept = set_aside(folder, aside) if aside is not None else None
     for pattern in replacing:
         for old in folder.glob(pattern):
             if old.is_file():
@@ -102,6 +108,7 @@ def commit(folder: Path, replacing: Iterable[str] = ()) -> None:
             target.unlink()
         entry.replace(target)
     path.rmdir()
+    return kept
 
 
 def undo(folder: Path, created: bool) -> None:

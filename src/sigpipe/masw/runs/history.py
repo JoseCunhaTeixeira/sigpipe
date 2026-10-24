@@ -1,13 +1,16 @@
 """A window's history in a run: each stage's results at the top of its folder, in PAC's layout;
 the results of the stage's earlier attempts (the assistant's retries) in
-attempts/<n>_<stage>/; and the QC log's lines about them, one per state of an attempt, in the
-run's qc_log.jsonl (PACo's). A stage done again from outside the QC loop, by hand in PAC or by
-the assistant asked to, starts the window's history of it afresh: `forget` sets aside what came
-before, so that nothing of an older result is left beside the new one, and nothing is lost.
+attempts/<n>_<stage>/; the QC log's lines about them, one per state of an attempt, in the
+run's qc_log.jsonl (PACo's); and the changes made to them outside the QC log, in PAC's pages, a
+line each in the window's own history.jsonl (`Change`). A stage done again from outside the QC
+loop, by hand in PAC or by the assistant asked to, starts the window's history of it afresh:
+`forget` sets aside what came before, so that nothing of an older result is left beside the new
+one, and nothing is lost; a change in PAC sets aside what it replaces (`set_aside`).
 
 The log only grows: a line is never changed nor removed. Forgetting appends a `reset` event,
 and the log's readers (`log_entries`) leave out the lines of a unit's stage logged before its
-latest reset."""
+latest reset; what was done stays in the log's past, and each window's changes in its own
+record."""
 
 import fcntl
 import json
@@ -17,6 +20,8 @@ from contextlib import contextmanager
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, Literal, cast
+
+from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 type Stage = Literal["preprocessing", "phase_shift", "picking", "inversion", "petro_inversion"]
 STAGES: tuple[Stage, ...] = (
@@ -37,6 +42,9 @@ LOG_VERSION = 2
 type Actor = Literal["agent", "gate", "user"]
 # Held while the QC log is written, by every writer.
 LOCK_FILE = ".qc_log.lock"
+# A unit's own record of the changes made to its results outside the QC log (in PAC's pages):
+# one JSON line a change, in its folder.
+CHANGES_FILE = "history.jsonl"
 
 # What each stage writes in a window's folder; the picking redraws the image's figure.
 STAGE_FILES: dict[Stage, tuple[str, ...]] = {
@@ -93,17 +101,19 @@ def forget(
     keep: Sequence[str] = (),
     folder: Path | None = None,
     actor: Actor = "user",
+    into: Path | None = None,
 ) -> None:
     """Window `unit`'s history at `stage`, and with `later` at the stages after it that use its
     results, forgotten by `actor`: the results of its earlier attempts (attempts/<n>_<stage>/)
     and with `results` the results at the top of its folder (but those matching `keep`) set
-    aside in its replaced/<time>_<stage>/; the QC log's lines of them left behind by a reset
-    event; the line's figures and sections made from them removed (made again from the windows).
-    `folder`: the unit's, when not a window's (a record's, in records/)."""
+    aside in its replaced/<time>_<stage>/ (`into`: the folder a change set aside what it
+    replaced in already); the QC log's lines of them left behind by a reset event; the line's
+    figures and sections made from them removed (made again from the windows). `folder`: the
+    unit's, when not a window's (a record's, in records/)."""
     stages = downstream(stage) if later else (stage,)
     window = folder if folder is not None else run_folder / unit
     archives = window / ATTEMPTS_FOLDER
-    aside = window / REPLACED_FOLDER / f"{datetime.now(UTC):%Y%m%d-%H%M%S-%f}_{stage}"
+    aside = into if into is not None else _aside(window, stage)
     for one in stages:
         for archive in sorted(archives.glob(f"*_{one}")):
             _set_aside(archive, aside / ATTEMPTS_FOLDER / archive.name)
@@ -176,3 +186,78 @@ def _set_aside(path: Path, target: Path) -> None:
     """`path` moved to `target`, its folders made."""
     target.parent.mkdir(parents=True, exist_ok=True)
     shutil.move(path, target)
+
+
+def _aside(folder: Path, stage: Stage) -> Path:
+    """Where what replaces a unit's results of `stage` now sets them aside, in its folder."""
+    return folder / REPLACED_FOLDER / f"{datetime.now(UTC):%Y%m%d-%H%M%S-%f}_{stage}"
+
+
+class Change(BaseModel):
+    """One change of a unit's results made outside the QC log, in PAC's pages: when, by whom, at
+    which stage and how (its method: a curve's "lasso", "box", "auto" or "delete"; a model's
+    "inversion"; a soil column's "petro"), a curve's mode, what the method took (`inputs`), what
+    it made (`result`, its summary), where the results it replaced were set aside (`aside`, in
+    the unit's folder; None when it replaced none), and the later stages whose results, made of
+    the older ones, were set aside with them (`later`)."""
+
+    model_config = ConfigDict(frozen=True)
+
+    version: int = 1
+    at: datetime
+    actor: Actor = "user"
+    stage: Stage
+    how: str
+    mode: str | None = None
+    inputs: dict[str, Any] = Field(default_factory=dict[str, Any])
+    result: dict[str, Any] = Field(default_factory=dict[str, Any])
+    aside: str | None = None
+    later: tuple[Stage, ...] = ()
+
+
+def record_change(folder: Path, change: Change) -> None:
+    """`change` appended to the record of the unit in `folder` (a window's, or a record's)."""
+    with (folder / CHANGES_FILE).open("a") as file:
+        fcntl.flock(file, fcntl.LOCK_EX)
+        try:
+            file.write(change.model_dump_json() + "\n")
+        finally:
+            fcntl.flock(file, fcntl.LOCK_UN)
+
+
+def read_changes(folder: Path) -> tuple[Change, ...]:
+    """The changes made to the results of the unit in `folder` outside the QC log, in order; a
+    line that does not read (the last, while it is written) skipped."""
+    path = folder / CHANGES_FILE
+    if not path.exists():
+        return ()
+    changes: list[Change] = []
+    for line in path.read_text().splitlines():
+        try:
+            changes.append(Change.model_validate_json(line))
+        except ValidationError:
+            continue
+    return tuple(changes)
+
+
+def set_aside(folder: Path, stage: Stage, *, copy: bool = False) -> str | None:
+    """The results of `stage` at the top of the unit's `folder` set aside in its
+    replaced/<time>_<stage>/, before a change replaces them: moved, or copied (`copy`: a curves
+    file holds every mode, and one changes). That folder's path in `folder`; None when it holds
+    none."""
+    files = [
+        path
+        for pattern in STAGE_FILES[stage]
+        for path in sorted(folder.glob(pattern))
+        if path.is_file()
+    ]
+    if not files:
+        return None
+    aside = _aside(folder, stage)
+    aside.mkdir(parents=True)
+    for path in files:
+        if copy:
+            shutil.copy2(path, aside / path.name)
+        else:
+            shutil.move(path, aside / path.name)
+    return aside.relative_to(folder).as_posix()

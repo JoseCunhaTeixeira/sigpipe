@@ -41,6 +41,8 @@ class PetroOutcome:
     error_type: str | None = None
     message: str | None = None
     traceback: str | None = None
+    # Where the soil column it replaced was set aside, in the window's folder; None: it had none.
+    aside: str | None = None
 
 
 def invert_line_petro(
@@ -75,9 +77,13 @@ def invert_line_petro(
                 unit = futures.pop(future)
                 try:
                     model, duration_s = future.result()
-                    # Its new results replace all its old ones.
-                    commit(run_folder / unit, replacing=STAGE_FILES["petro_inversion"])
-                    outcome = PetroOutcome(unit, model, duration_s)
+                    # Its new results replace all its old ones, set aside.
+                    aside = commit(
+                        run_folder / unit,
+                        replacing=STAGE_FILES["petro_inversion"],
+                        aside="petro_inversion",
+                    )
+                    outcome = PetroOutcome(unit, model, duration_s, aside=aside)
                 except Exception as error:
                     undo(run_folder / unit, created=False)
                     outcome = PetroOutcome(
