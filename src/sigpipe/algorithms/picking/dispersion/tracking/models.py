@@ -94,6 +94,16 @@ class PickingParameters(BaseModel):
         description="A step between consecutive kept points steeper than this |d ln v / d ln f| "
         "ends the run: the ridge broke.",
     )
+    max_low_fall: float | None = Field(
+        default=0.05,
+        gt=0,
+        lt=1,
+        description="Where the pick's wavelengths are longer than the window, a point more than "
+        "this share slower than the fastest point above it there is dropped, from the lowest up "
+        "until one is not: a mode does not slow down toward its lowest frequencies (the near "
+        "field, or a ridge the window no longer resolves); at shorter wavelengths a bump or a "
+        "rise stays. null: no cut.",
+    )
     fmin: float | None = Field(
         default=None,
         ge=0,

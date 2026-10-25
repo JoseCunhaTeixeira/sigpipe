@@ -175,6 +175,73 @@ def test_a_short_gap_in_the_ridge_is_bridged_a_wide_one_ends_it() -> None:
     assert kept.min() >= 36
 
 
+def _slowing_below(frequency: float, fall: float) -> Dispersion:
+    """M0 down to `frequency`; below it, slower toward 0 Hz by `fall` of its velocity there a Hz:
+    what the near field, or a ridge the window no longer resolves, makes of a pick's low end."""
+    at = float(m0(np.array(frequency)))
+    return lambda frequencies: np.where(
+        frequencies < frequency, at * (1 - fall * (frequency - frequencies)), m0(frequencies)
+    )
+
+
+def test_a_pick_slowing_down_toward_its_lowest_frequencies_loses_that_end() -> None:
+    image = _shot([(_slowing_below(5.0, 0.06), 1.0)], noise=0.3)
+
+    (mode,) = pick_modes(image)
+    (everything,) = pick_modes(image, PickingParameters(max_low_fall=None))
+
+    # Below 5 Hz, at wavelengths over the 47 m window, it slows 6 % a Hz: where over 5 % slower
+    # than the fastest point above, it is cut; without the cut, the pick goes on down.
+    assert mode.frequencies[mode.kept].min() >= 3.5
+    assert everything.frequencies[everything.kept].min() < 2
+    # Above, the pick is the one without the cut.
+    above = mode.kept & (mode.frequencies >= 5)
+    assert everything.kept[above].all()
+    assert mode.velocities[above] == pytest.approx(everything.velocities[above])
+
+
+def test_a_long_gentle_slowing_at_the_low_end_is_cut_too() -> None:
+    # Below 6 Hz it slows 4 % an octave toward 0 Hz: no octave falls 5 %, two do, and the lowest
+    # points, over 5 % slower than at 6 Hz, are cut.
+    top = float(m0(np.array(6.0)))
+
+    def gentle(frequencies: np.ndarray) -> np.ndarray:
+        return np.where(
+            frequencies < 6, top * (np.maximum(frequencies, 0.5) / 6) ** 0.06, m0(frequencies)
+        )
+
+    image = _shot([(gentle, 1.0)], noise=0.3)
+    (mode,) = pick_modes(image)
+    (everything,) = pick_modes(image, PickingParameters(max_low_fall=None))
+
+    assert mode.frequencies[mode.kept].min() >= 2.5
+    assert everything.frequencies[everything.kept].min() < 2
+
+
+def test_a_slowing_at_wavelengths_within_the_window_stays() -> None:
+    # From 12 down to 5 Hz it slows 3 % a Hz, at wavelengths of 22 to 41 m, within the 47 m
+    # window: kept as picked (the checks flag an inverse trend).
+    law = _slowing_below(12.0, 0.03)
+    (mode,) = pick_modes(_shot([(law, 1.0)], noise=0.3))
+    band = (mode.frequencies >= 5) & (mode.frequencies <= 12)
+
+    assert mode.kept[band].all()
+    assert mode.velocities[band] == pytest.approx(law(mode.frequencies[band]), rel=0.05)
+
+
+def test_a_bump_higher_up_stays() -> None:
+    # From 30 to 45 Hz the velocity rises 17 %, then falls again, as a stiff layer between
+    # softer ones may make it: far over 5 %, but the low end does not slow down, nothing is cut.
+    def bumped(frequencies: np.ndarray) -> np.ndarray:
+        return m0(frequencies) + 60 * np.exp(-0.5 * ((frequencies - 45) / 7) ** 2)
+
+    (mode,) = pick_modes(_shot([(bumped, 1.0)], noise=0.3))
+    band = (mode.frequencies >= 5) & (mode.frequencies <= 60)
+
+    assert mode.kept[band].all()
+    assert mode.velocities[band] == pytest.approx(bumped(mode.frequencies[band]), rel=0.05)
+
+
 @pytest.mark.parametrize("spacings", [1.0, 2.0])
 def test_the_search_stays_between_its_shortest_and_longest_wavelengths(spacings: float) -> None:
     parameters = PickingParameters(max_wavelength=1.0, min_wavelength=spacings)

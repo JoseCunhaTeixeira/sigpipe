@@ -238,6 +238,12 @@ def _tracked(
         kept = _continuous_run(
             frequencies, velocities[path], kept, parameters.max_gap_hz, parameters.break_slope
         )
+    # Where it slows down toward its lowest frequencies, at wavelengths longer than the window,
+    # its low end is dropped.
+    if parameters.max_low_fall is not None:
+        receivers = image.acquisition.receivers
+        length = abs(receivers[-1].x - receivers[0].x)
+        kept = _low_end(frequencies, velocities[path], kept, parameters.max_low_fall, length)
     return _Tracked(high, path, pinned, coherence, ratio, kept)
 
 
@@ -305,6 +311,29 @@ def _continuous_run(
     within = np.zeros_like(kept)
     within[first : last + 1] = kept[first : last + 1]
     return within
+
+
+def _low_end(
+    frequencies: np.ndarray,
+    velocities: np.ndarray,
+    kept: np.ndarray,
+    fall: float,
+    length: float,
+) -> np.ndarray:
+    """`kept` without its low-frequency end where the pick slows down toward low frequencies,
+    where its wavelengths are longer than the window (`length`, m): from the lowest kept point
+    up, each more than `fall` slower than the fastest kept point above it there is dropped, until
+    one is not. A mode's velocity rises toward its lowest frequencies; one that falls there is the
+    near field, or a ridge the window no longer resolves. At shorter wavelengths nothing is cut:
+    a bump or a rise stays."""
+    indices = np.flatnonzero(kept & (velocities >= length * frequencies))
+    trimmed = kept.copy()
+    for position, index in enumerate(indices.tolist()):
+        above = indices[position + 1 :]
+        if not above.size or velocities[index] >= (1 - fall) * velocities[above].max():
+            break
+        trimmed[index] = False
+    return trimmed
 
 
 def _longest_run(mask: np.ndarray) -> slice | None:
