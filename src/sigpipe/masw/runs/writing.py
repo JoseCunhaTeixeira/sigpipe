@@ -7,7 +7,6 @@ curve picked while PAC inverts the run) but exclude PACo, and PACo excludes them
 that finds the run held waits up to `wait_s`, then is refused with who holds it. A thread
 holding the run takes it again freely (a tool calling another that writes the same run)."""
 
-import fcntl
 import os
 import threading
 import time
@@ -16,6 +15,7 @@ from contextlib import contextmanager
 from pathlib import Path
 from typing import TextIO
 
+from sigpipe.masw.runs.locking import lock_file, unlock_file
 from sigpipe.masw.runs.models import RunError
 
 RUN_LOCK = ".run.lock"
@@ -59,11 +59,10 @@ def run_lock(
             holding[key] -= 1
         return
     with (run_folder / RUN_LOCK).open("a+") as lock:
-        mode = fcntl.LOCK_SH if shared else fcntl.LOCK_EX
         deadline = time.monotonic() + wait_s
         while True:
             try:
-                fcntl.flock(lock, mode | fcntl.LOCK_NB)
+                lock_file(lock, shared=shared, wait=False)
                 break
             except BlockingIOError:
                 if time.monotonic() >= deadline:
@@ -83,7 +82,7 @@ def run_lock(
             holding.pop(key, None)
             if not shared:
                 _say(lock, "")
-            fcntl.flock(lock, fcntl.LOCK_UN)
+            unlock_file(lock)
 
 
 def _say(lock: TextIO, owner: str) -> None:

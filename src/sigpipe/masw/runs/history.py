@@ -12,7 +12,6 @@ and the log's readers (`log_entries`) leave out the lines of a unit's stage logg
 latest reset; what was done stays in the log's past, and each window's changes in its own
 record."""
 
-import fcntl
 import json
 import shutil
 from collections.abc import Generator, Sequence
@@ -22,6 +21,8 @@ from pathlib import Path
 from typing import Any, Literal, cast
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
+
+from sigpipe.masw.runs.locking import lock_file, unlock_file
 
 type Stage = Literal["preprocessing", "phase_shift", "picking", "inversion", "petro_inversion"]
 STAGES: tuple[Stage, ...] = (
@@ -84,11 +85,11 @@ def log_lock(run_folder: Path) -> Generator[None]:
     """The run's QC log held for one writer at a time, across processes: appending a line and
     rewriting the log without some never interleave."""
     with (run_folder / LOCK_FILE).open("a") as lock:
-        fcntl.flock(lock, fcntl.LOCK_EX)
+        lock_file(lock)
         try:
             yield
         finally:
-            fcntl.flock(lock, fcntl.LOCK_UN)
+            unlock_file(lock)
 
 
 def forget(
@@ -218,11 +219,11 @@ class Change(BaseModel):
 def record_change(folder: Path, change: Change) -> None:
     """`change` appended to the record of the unit in `folder` (a window's, or a record's)."""
     with (folder / CHANGES_FILE).open("a") as file:
-        fcntl.flock(file, fcntl.LOCK_EX)
+        lock_file(file)
         try:
             file.write(change.model_dump_json() + "\n")
         finally:
-            fcntl.flock(file, fcntl.LOCK_UN)
+            unlock_file(file)
 
 
 def read_changes(folder: Path) -> tuple[Change, ...]:

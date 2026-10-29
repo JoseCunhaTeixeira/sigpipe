@@ -33,3 +33,28 @@ jobs:
 
       - name: Run tests
         run: uv run pytest
+
+  # What Windows does its own way: the locks on files PAC and PACo share a run with.
+  windows:
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v4
+        with:
+          enable-cache: true
+
+      - name: Set up Python
+        run: uv python install 3.14
+
+      - name: Install dependencies
+        run: uv sync --locked
+
+      - name: Import the runs
+        run: uv run python -c "import sigpipe.masw.runs"
+
+      - name: Run the locks' tests
+        run: uv run pytest tests/masw/test_locking.py tests/masw/test_writing.py tests/masw/test_history.py
