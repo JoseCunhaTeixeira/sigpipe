@@ -57,7 +57,7 @@ def test_a_ridge_is_coherent_where_it_rises_above_the_noise_floor() -> None:
 
 def test_peaks_on_the_grids_top_count_only_where_the_window_resolves_velocity() -> None:
     # From 40 Hz the ridge sits just past the grid's top: its energy peaks on the edge. The
-    # window (23 m) tells 1,000 m/s from infinity only above 1,000 / 23 = 43.5 Hz.
+    # window (23 m) tells 1000 m/s from infinity only above 1000 / 23 = 43.5 Hz.
     image = _image(_ridge(np.where(FS >= 40, 1_010.0, M0)))
     coherent = coherent_columns(image, level=0.3)
 

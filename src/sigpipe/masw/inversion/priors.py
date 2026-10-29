@@ -1,14 +1,14 @@
 """An inversion's parameters derived from the curve it inverts (the checks before S4 of PACo's QC
 workflow, its docs/qc_workflow.md), or checked against it.
 
-The layers chosen by the data (the free layering, the rules' default): Vs from 100 to 2,000 m/s,
+The layers chosen by the data (the free layering, the rules' default): Vs from 100 to 2000 m/s,
 widened where the curve needs it (as slow as 0.8 of its slowest velocity, as fast as 1.5 of its
 fastest), interfaces from a third of its shortest wavelength (thinner is not resolved) down to
 half its longest (deeper is not resolved), at most `max_layers` layers. Values given are kept
 when they pass, changed with a note when they do not.
 
 The layers given (the fixed layering). The first inversion starts wide, for
-the loop to narrow to what the data inform: Vs 100 to 1,000 m/s for the layers and to 2,000 m/s
+the loop to narrow to what the data inform: Vs 100 to 1000 m/s for the layers and to 2000 m/s
 for the half-space, widened when the curve needs it (the top layer as slow as the curve's
 slowest velocity, the half-space as fast as its fastest: Vs is about 1.09 Vr at the inversion's
 Vp/Vs), and every layer 1 to 10 m thick. The curve sets how many layers it resolves (each at
@@ -31,7 +31,7 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError
 from sigpipe.algorithms.inversion.rayleigh.seismic.parameters import InversionParameters
 from sigpipe.base.dispersion_curve import DispersionCurve
 
-# The default steps against the default ranges: 20 m/s for Vs over 100-1,000 m/s, 1 m for
+# The default steps against the default ranges: 20 m/s for Vs over 100-1000 m/s, 1 m for
 # thicknesses over 1-10 m. Derived bounds keep the same proportions.
 VS_STEP_SHARE = 20 / 900
 THICKNESS_STEP_SHARE = 1 / 9

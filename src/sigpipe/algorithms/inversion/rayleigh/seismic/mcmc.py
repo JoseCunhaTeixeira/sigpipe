@@ -140,8 +140,8 @@ def _fixed(
     )
     steps = np.mean([chain.steps for chain in sampled.chains], axis=0)
     log = (
-        f"DREAM(ZS), {settings.n_chains} chains of {settings.n_iterations:,} iterations "
-        f"({settings.n_burnin_iterations:,} burn-in), {settings.n_layers} layers given; "
+        f"DREAM(ZS), {settings.n_chains} chains of {_grouped(settings.n_iterations)} iterations "
+        f"({_grouped(settings.n_burnin_iterations)} burn-in), {settings.n_layers} layers given; "
         f"acceptance {', '.join(f'{rate:g} %' for rate in acceptance)}; crossover "
         f"probabilities {', '.join(f'{p:.2f}' for p in sampled.crossover)}; noise factor, "
         f"median {float(np.median(samples['noise'])):.3g}.\n"
@@ -205,8 +205,9 @@ def _free(
     layers = np.concatenate([chain.layers for chain in chains])
     noise = np.concatenate([chain.noise for chain in chains])
     lines = [
-        f"Transdimensional, {settings.n_chains} chains of {settings.n_iterations:,} iterations "
-        f"({settings.n_burnin_iterations:,} burn-in), each with {TEMPERATURES - 1} hotter "
+        f"Transdimensional, {settings.n_chains} chains of {_grouped(settings.n_iterations)} "
+        f"iterations ({_grouped(settings.n_burnin_iterations)} burn-in), each with "
+        f"{TEMPERATURES - 1} hotter "
         f"copies up to {HOTTEST:g}; Vs {free.vs_min:g}-{free.vs_max:g} m/s, interfaces "
         f"{free.depth_min:g}-{free.depth_max:g} m, at most {free.max_layers} layers."
     ]
@@ -345,3 +346,9 @@ def _predicted(
     depths, vs = profiles.model(index)
     thickness = np.append(np.diff(np.concatenate(([0.0], depths))), 1_000.0)
     return phase_velocities(curves, thickness, vs, vp_vs)
+
+
+def _grouped(value: int) -> str:
+    """A whole number as SI writes it: 2500, 12 500 (a narrow space from five digits on)."""
+    text = f"{value:,}"
+    return text.replace(",", "\u202f" if abs(value) >= 10_000 else "")

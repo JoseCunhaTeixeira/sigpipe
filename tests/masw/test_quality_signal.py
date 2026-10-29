@@ -32,7 +32,7 @@ N_TRACES = 24
 DX = 1.0
 VELOCITY = 200.0  # m/s, the surface wave
 FREQUENCY = 20.0  # Hz, the wavelet's centre
-# The surface-wave window of PACo's signal QC: from 1,500 to 80 m/s, 50 ms on both sides.
+# The surface-wave window of PACo's signal QC: from 1500 to 80 m/s, 50 ms on both sides.
 VMIN, VMAX, PAD = 80.0, 1500.0, 0.05
 
 
@@ -332,7 +332,7 @@ def test_a_muted_records_trigger_and_pulse_are_measured_before_its_muting() -> N
 
 def test_the_trigger_is_fitted_on_the_direct_wave_nearest_the_shot() -> None:
     # The direct wave at 400 m/s runs through the shot; past 8.2 m a refractor's head wave at
-    # 1,500 m/s arrives first, its line crossing the shot's time at 15 ms. Every break fitted
+    # 1500 m/s arrives first, its line crossing the shot's time at 15 ms. Every break fitted
     # reads a trigger 15 ms off; the six nearest, none.
     offsets = np.arange(1.0, 49.0, 1.0)
     breaks = np.minimum(offsets / 400.0, 0.015 + offsets / 1500.0)

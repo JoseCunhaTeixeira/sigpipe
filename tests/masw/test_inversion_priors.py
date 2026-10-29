@@ -34,7 +34,7 @@ def test_the_bounds_come_from_the_curve() -> None:
     parameters = derived.parameters
     assert derived.notes == ()
     assert parameters.n_layers == 4  # never 2
-    # Vs wide: 100 to 1,000 m/s for the layers, to 2,000 m/s for the half-space, steps in the
+    # Vs wide: 100 to 1000 m/s for the layers, to 2000 m/s for the half-space, steps in the
     # defaults' ratio.
     *layers, half_space = parameters.vs_layers
     for layer in layers:
@@ -244,8 +244,8 @@ def test_values_that_cannot_hold_are_an_error_for_the_agent() -> None:
 
 
 def test_the_ranges_widen_where_the_curve_needs_it() -> None:
-    # A curve from 80 to 1,900 m/s: slower than 100 m/s, faster than a half-space of 2,000 m/s
-    # makes (1.09 x 1,900).
+    # A curve from 80 to 1900 m/s: slower than 100 m/s, faster than a half-space of 2000 m/s
+    # makes (1.09 x 1900).
     velocities = np.array([1900.0, 400.0, 80.0])
     curve = DispersionCurve(
         fs=velocities / np.array([30.0, 10.0, 3.0]),
@@ -257,10 +257,10 @@ def test_the_ranges_widen_where_the_curve_needs_it() -> None:
 
     *layers, half_space = derive_inversion(curve, RULES).parameters.vs_layers
 
-    # 0.8 x 80 m/s at the lowest, 1.5 x 1,900 m/s for the half-space.
+    # 0.8 x 80 m/s at the lowest, 1.5 x 1900 m/s for the half-space.
     assert {(layer.vs_min, layer.vs_max) for layer in layers} == {(64.0, 1000.0)}
     assert (half_space.vs_min, half_space.vs_max) == (64.0, 2850.0)
-    # A curve too fast at its slowest for layers of 1,000 m/s: 1.5 times its slowest velocity.
+    # A curve too fast at its slowest for layers of 1000 m/s: 1.5 times its slowest velocity.
     fast = DispersionCurve(
         fs=np.array([1200.0, 950.0]) / np.array([30.0, 3.0]),
         vs=np.array([1200.0, 950.0]),
@@ -299,7 +299,7 @@ def test_the_data_choose_the_layers_by_default() -> None:
     parameters = derived.parameters
     assert (parameters.layering, derived.notes, derived.reach_m) == ("free", (), 15.0)
     free = parameters.free
-    # 100 to 2,000 m/s, a third of the shortest wavelength to half the longest, 8 layers.
+    # 100 to 2000 m/s, a third of the shortest wavelength to half the longest, 8 layers.
     assert (free.vs_min, free.vs_max, free.depth_min, free.depth_max, free.max_layers) == (
         100.0,
         2_000.0,
