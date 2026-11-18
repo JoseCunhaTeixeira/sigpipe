@@ -16,14 +16,17 @@ dependencies = [
     "pyyaml",
     "pandas",
     "obspy",
-    "disba",
     "pydantic>=2.13.5",
+    # sigpipe's compiled core (core/): dispersion curves, the inversion's samplers, the phase
+    # shift. Prebuilt wheels from its index (below), which uv reads from here when PAC or PACo
+    # install sigpipe from git.
+    "sigpipe-core==0.1.0",
 ]
 
 [project.optional-dependencies]
 beamforming = ["torch"]
 silex = ["keras", "keras-nlp>=0.19.0", "torch>=2.13.0"]
-santiludo = ["santiludo"]
+santiludo = ["santiludo>=0.2.0"]
 review = [
     "plotly>=7.0.0",
     "streamlit>=1.63.0",
@@ -47,15 +50,23 @@ sigpipe = ["py.typed", "models/silex/**/*"]
 
 
 # -------------------------
-# Santiludo: prebuilt-wheel index
+# Santiludo and sigpipe-core: prebuilt-wheel indexes
 # -------------------------
 [[tool.uv.index]]
 name = "santiludo"
 url = "https://josecunhateixeira.github.io/santiludo/simple/"
 explicit = true
 
+# sigpipe-core's wheels, which .github/workflows/core-wheels.yml publishes from core/ on a tag
+# core-v<version>.
+[[tool.uv.index]]
+name = "sigpipe-core"
+url = "https://josecunhateixeira.github.io/sigpipe/simple/"
+explicit = true
+
 [tool.uv.sources]
 santiludo = { index = "santiludo" }
+sigpipe-core = { index = "sigpipe-core" }
 
 
 # -------------------------

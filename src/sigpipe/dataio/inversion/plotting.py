@@ -2,13 +2,13 @@ from typing import Any
 
 import matplotlib.pyplot as plt
 import numpy as np
-from disba import DispersionError
 from matplotlib import colors
 from matplotlib.collections import LineCollection
 from matplotlib.figure import Figure
 from matplotlib.lines import Line2D
 from matplotlib.ticker import MaxNLocator
 from scipy.stats import gaussian_kde
+from sigpipe_core import DispersionError
 
 from sigpipe.algorithms.inversion.rayleigh.seismic.forward import fwd_seismic_phase
 from sigpipe.base.dispersion_curve import DispersionCurves

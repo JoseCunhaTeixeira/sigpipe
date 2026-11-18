@@ -44,7 +44,7 @@
     "n_modes": 1,
     "wave": "R",
     "frequency_domain": "frequency",
-    "backend": "disba",
+    "backend": "surf96",
     "rock_physics": {
       "rho_water": 1000.0,
       "rho_air": 1.0,

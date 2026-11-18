@@ -1,6 +1,7 @@
 import warnings
 
 import numpy as np
+import sigpipe_core
 from scipy.fft import rfft, rfftfreq
 
 from sigpipe.base.dispersion_curve import VelocityType
@@ -54,6 +55,8 @@ def phase_shift(
     Computes phase-velocity versus frequency energy map
     using a delay and sum technique according to Park et al. (1998).
 
+    The delay and sum runs in sigpipe-core (Rust, core/src/phase_shift.rs), the spectra's
+    normalization here.
     """
     if not isinstance(xt, np.ndarray) or xt.ndim != 2:
         raise TypeError("xt must be a 2D numpy array [nx, nt]")
@@ -88,28 +91,20 @@ def phase_shift(
     vs = np.linspace(vmin, vmax, nv)
     if vs.size == 0:
         raise ValueError("velocity range produced an empty array")
-    xf_norm = xf / (np.abs(xf) + 1e-12)
-    two_pi = 2 * np.pi
+    xf_norm = np.ascontiguousarray(xf / (np.abs(xf) + 1e-12), dtype=np.complex64)
+    fs = np.ascontiguousarray(fs, dtype=np.float64)
     grid = regular_grid(offsets)
     if grid is None:
-        fv_map = np.zeros((len(fs), len(vs)), dtype=np.float32)
-        for v_i, v in enumerate(vs):
-            dphi = two_pi * offsets[:, None] * fs / (v + 1e-12)
-            fv_map[:, v_i] = np.abs(np.sum(xf_norm * np.exp(1j * dphi), axis=0))
+        fv_map = sigpipe_core.phase_shift_at_offsets(
+            xf_norm, fs, vs, np.ascontiguousarray(offsets, dtype=np.float64)
+        ).astype(np.float32)
     else:
         # The same sum by Horner's rule over the grid's steps (an empty step holds no trace):
         # two exponentials a frequency and velocity, where the sum takes one a trace.
         steps, x0, dx = grid
         held = np.zeros((int(steps.max()) + 1, len(fs)), dtype=np.complex128)
         np.add.at(held, steps, xf_norm)
-        per_metre = two_pi * fs[:, None] / (vs[None, :] + 1e-12)
-        step = np.exp(1j * per_metre * dx)
-        summed = np.repeat(held[-1][:, None], len(vs), axis=1)
-        for row in held[-2::-1]:
-            summed *= step
-            summed += row[:, None]
-        summed *= np.exp(1j * per_metre * x0)
-        fv_map = np.abs(summed).astype(np.float32)
+        fv_map = sigpipe_core.phase_shift_on_grid(held, fs, vs, x0, dx).astype(np.float32)
     fv_map /= len(np.unique(offsets))
     return (
         fs.astype(np.float32),

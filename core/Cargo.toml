@@ -1,0 +1,27 @@
+[package]
+name = "sigpipe-core"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.85"
+description = "sigpipe's compiled core: the seismic inversion's forward model and samplers, and the phase-shift transform"
+license = "MIT AND BSD-3-Clause"
+publish = false
+
+[lib]
+name = "sigpipe_core"
+crate-type = ["cdylib", "rlib"]
+
+[features]
+# On for the wheels (pyproject.toml's tool.maturin), off for `cargo test`, which links Python.
+extension-module = ["pyo3/extension-module"]
+
+[dependencies]
+numpy = "0.30"
+pyo3 = "0.30"
+rand = "0.10"
+rand_distr = "0.6"
+rand_pcg = "0.10"
+
+[profile.release]
+codegen-units = 1
+lto = true

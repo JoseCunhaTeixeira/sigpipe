@@ -1,7 +1,11 @@
+"""Rayleigh-wave dispersion curves of layered Vs models, Vp and density following Vs: the
+curves sigpipe draws for the inverted models, computed by sigpipe-core's surf96."""
+
 from collections.abc import Mapping
 
 import numpy as np
-from disba import DispersionError, PhaseDispersion
+import sigpipe_core
+from sigpipe_core import DispersionError
 
 from sigpipe.base.acquisition import UNKNOWN_ACQUISITION
 from sigpipe.base.dispersion_curve import DispersionCurve, DispersionCurves, Mode, VelocityType
@@ -17,6 +21,17 @@ def vp_rho_from_vs(
     return Vp, rho
 
 
+def _layer_arrays(
+    velocity_model: np.ndarray,
+) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+    """The columns of a layers x (thickness, Vp, Vs, density) array, each contiguous in float64,
+    as sigpipe_core takes them."""
+    thickness, vp, vs, rho = (
+        np.ascontiguousarray(column, dtype=np.float64) for column in velocity_model.T
+    )
+    return thickness, vp, vs, rho
+
+
 def fwd_seismic_phase(
     thickness_per_layer: list[float],
     Vs_per_layer: list[float],
@@ -24,6 +39,8 @@ def fwd_seismic_phase(
     fs: np.ndarray,
     Vp_Vs_ratio: float,
 ) -> DispersionCurve:
+    """The phase velocities of Rayleigh mode `mode` at frequencies `fs` (m/s, NaN where the mode
+    does not exist). Raises DispersionError where the fundamental mode is not found."""
     Vs_per_layer_arr = np.array(Vs_per_layer, dtype=np.float32)
     Vp_per_layer_arr, rho_per_layer_arr = vp_rho_from_vs(Vs_per_layer_arr, Vp_Vs_ratio)
     velocity_model = (
@@ -37,14 +54,12 @@ def fwd_seismic_phase(
         )
         / 1_000
     )  # m to km and kg/m^3 to g/cm^3
-    pd = PhaseDispersion(*velocity_model.T)
-    periods = 1 / fs[::-1]  # Hz to s and reverse
-    pd = pd(periods, mode=mode, wave="rayleigh")
-    vr = pd.velocity
+    periods = np.ascontiguousarray(1 / fs[::-1], dtype=np.float64)  # Hz to s, increasing
+    found, vr = sigpipe_core.phase_dispersion(periods, *_layer_arrays(velocity_model), mode)
     if (
-        pd.period.shape[0] < periods.shape[0]
+        found.shape[0] < periods.shape[0]
     ):  # If the dispersion curve is too short - It is often the case for low velocities (i.e. high periods) on superior modes
-        vr = np.append(vr, [np.nan] * (periods.shape[0] - pd.period.shape[0]))
+        vr = np.append(vr, [np.nan] * (periods.shape[0] - found.shape[0]))
     vr = vr[::-1] * 1000  # Reverse back and km/s to m/s
     return DispersionCurve(
         fs=fs,
@@ -62,7 +77,7 @@ def fwd_seismic_all_modes(
     Vp_Vs_ratio: float,
 ) -> DispersionCurves | None:
     """Forward-model every Rayleigh mode (0, 1, 2, ...) the model supports, across
-    the full given frequency axis, stopping at the first mode disba can't resolve.
+    the full given frequency axis, stopping at the first mode the forward model can't resolve.
 
     Used to overlay all superior modes a model predicts on a dispersion image
     (not just the picked ones). Returns None if not even the fundamental mode
@@ -76,23 +91,22 @@ def fwd_seismic_all_modes(
         )
         / 1_000
     )  # m to km and kg/m^3 to g/cm^3
-    pd = PhaseDispersion(*velocity_model.T)
-
-    periods = (1 / fs[fs > 0])[::-1]  # Hz to s and reverse
+    layers = _layer_arrays(velocity_model)
+    periods = np.ascontiguousarray((1 / fs[fs > 0])[::-1], dtype=np.float64)  # s, increasing
 
     curves: list[DispersionCurve] = []
     mode = 0
     while True:
         try:
-            data = pd(periods, mode=mode, wave="rayleigh")
+            found, velocity = sigpipe_core.phase_dispersion(periods, *layers, mode)
         except DispersionError:
             break
-        if data.period.shape[0] == 0:
+        if found.shape[0] == 0:
             break
         curves.append(
             DispersionCurve(
-                fs=(1 / data.period[::-1]).astype(np.float32),
-                vs=(data.velocity[::-1] * 1000).astype(np.float32),
+                fs=(1 / found[::-1]).astype(np.float32),
+                vs=(velocity[::-1] * 1000).astype(np.float32),
                 mode=Mode("R", mode),
                 type=VelocityType.PHASE,
                 acquisition=UNKNOWN_ACQUISITION,

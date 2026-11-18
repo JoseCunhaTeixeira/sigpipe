@@ -1,7 +1,7 @@
 from collections.abc import Sequence
 
 import numpy as np
-from disba import DispersionError, PhaseDispersion
+import sigpipe_core
 from santiludo import (
     DEFAULT_FLUID_PROPERTIES,
     DEFAULT_GRAIN_PROPERTIES,
@@ -64,33 +64,39 @@ def rock_physics(
     )
 
 
-def _disba_arrays(
+def _layer_arrays(
     profile: RockPhysicsResult,
     under_layers: Sequence[UnderLayer],
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
-    """Flat thickness/Vp/Vs/rho arrays for disba.PhaseDispersion, in (km, km/s, km/s, g/cm3).
+    """Flat thickness/Vp/Vs/rho arrays for sigpipe_core.phase_dispersion, in (km, km/s, km/s,
+    g/cm3).
 
     `profile.thks` (`np.diff(np.abs(zs))`) has one fewer element than `VPs`/`VSs`/
     `rhobs` (inter-sample thickness vs. per-sample velocity/density), so it's paired with
     the first `nl` velocity/density samples, dropping the very last one, before appending
     `under_layers` (ordered shallowest to the terminating half-space, thickness 0 on the
     last one). Mirrors (without importing -- it's a private helper) santiludo's own
-    `seismic._build_disba_model`.
+    `seismic._layer_arrays`.
 
-    Without `under_layers`, the deepest disba "layer" is just the last rock-physics
-    sample -- i.e. whatever soil happens to be at the bottom of the modeled column acts
-    as the half-space disba extends to infinity. That's rarely physically intended (real
-    soil columns sit on a stiffer substrate), so callers comparing against a model that
-    assumes a specific substrate -- e.g. Silex, trained with a fixed bedrock under every
-    synthetic sample -- must pass the same `under_layers` or the low-frequency end of the
-    curve won't correspond.
+    Without `under_layers`, the deepest layer is just the last rock-physics sample -- i.e.
+    whatever soil happens to be at the bottom of the modeled column acts as the half-space
+    the forward model extends to infinity. That's rarely physically intended (real soil
+    columns sit on a stiffer substrate), so callers comparing against a model that assumes a
+    specific substrate -- e.g. Silex, trained with a fixed bedrock under every synthetic
+    sample -- must pass the same `under_layers` or the low-frequency end of the curve won't
+    correspond.
     """
     nl = len(profile.thks)
     thks = np.concatenate((profile.thks, [layer.thickness for layer in under_layers]))
     vps = np.concatenate((profile.VPs[:nl], [layer.vp for layer in under_layers]))
     vss = np.concatenate((profile.VSs[:nl], [layer.vs for layer in under_layers]))
     rhobs = np.concatenate((profile.rhobs[:nl], [layer.rho for layer in under_layers]))
-    return thks / 1_000, vps / 1_000, vss / 1_000, rhobs / 1_000  # m to km and kg/m^3 to g/cm^3
+
+    def per_thousand(values: np.ndarray) -> np.ndarray:
+        """m to km and kg/m^3 to g/cm^3, contiguous in float64 as sigpipe_core takes them."""
+        return np.ascontiguousarray(values / 1_000, dtype=np.float64)
+
+    return per_thousand(thks), per_thousand(vps), per_thousand(vss), per_thousand(rhobs)
 
 
 def fwd_petro_phase(
@@ -115,15 +121,13 @@ def fwd_petro_phase(
         fluid_properties=fluid_properties,
         g=g,
     )
-    thks, vps, vss, rhobs = _disba_arrays(profile, under_layers)
-    pd = PhaseDispersion(thks, vps, vss, rhobs)
-    periods = 1 / fs[::-1]  # Hz to s and reverse
-    pd = pd(periods, mode=mode, wave="rayleigh")
-    vr = pd.velocity
+    layers = _layer_arrays(profile, under_layers)
+    periods = np.ascontiguousarray(1 / fs[::-1], dtype=np.float64)  # Hz to s, increasing
+    found, vr = sigpipe_core.phase_dispersion(periods, *layers, mode)
     if (
-        pd.period.shape[0] < periods.shape[0]
+        found.shape[0] < periods.shape[0]
     ):  # If the dispersion curve is too short - It is often the case for low velocities (i.e. high periods) on superior modes
-        vr = np.append(vr, [np.nan] * (periods.shape[0] - pd.period.shape[0]))
+        vr = np.append(vr, [np.nan] * (periods.shape[0] - found.shape[0]))
     vr = vr[::-1] * 1000  # Reverse back and km/s to m/s
     return DispersionCurve(
         fs=fs,
@@ -147,7 +151,7 @@ def fwd_petro_all_modes(
     g: float = 9.82,
 ) -> DispersionCurves | None:
     """Forward-model every Rayleigh mode (0, 1, 2, ...) the model supports, across
-    the full given frequency axis, stopping at the first mode disba can't resolve.
+    the full given frequency axis, stopping at the first mode the forward model can't resolve.
 
     Petro-model counterpart of `seismic.forward.fwd_seismic_all_modes`, using
     santiludo's rock-physics chain (see `rock_physics`) in place of
@@ -163,24 +167,22 @@ def fwd_petro_all_modes(
         fluid_properties=fluid_properties,
         g=g,
     )
-    thks, vps, vss, rhobs = _disba_arrays(profile, under_layers)
-    pd = PhaseDispersion(thks, vps, vss, rhobs)
-
-    periods = (1 / fs[fs > 0])[::-1]  # Hz to s and reverse
+    layers = _layer_arrays(profile, under_layers)
+    periods = np.ascontiguousarray((1 / fs[fs > 0])[::-1], dtype=np.float64)  # s, increasing
 
     curves: list[DispersionCurve] = []
     mode = 0
     while True:
         try:
-            data = pd(periods, mode=mode, wave="rayleigh")
-        except DispersionError:
+            found, velocity = sigpipe_core.phase_dispersion(periods, *layers, mode)
+        except sigpipe_core.DispersionError:
             break
-        if data.period.shape[0] == 0:
+        if found.shape[0] == 0:
             break
         curves.append(
             DispersionCurve(
-                fs=(1 / data.period[::-1]).astype(np.float32),
-                vs=(data.velocity[::-1] * 1000).astype(np.float32),
+                fs=(1 / found[::-1]).astype(np.float32),
+                vs=(velocity[::-1] * 1000).astype(np.float32),
                 mode=Mode("R", mode),
                 type=VelocityType.PHASE,
                 acquisition=UNKNOWN_ACQUISITION,

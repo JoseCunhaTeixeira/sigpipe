@@ -15,7 +15,7 @@ Raw waveforms go in; dispersion curves and inverted velocity models come out. Ea
 - **Correlation & stacking** — cross-correlation, bidirectional correlation, active-shot correlation, linear/root/phase-weighted stacking.
 - **Beamforming** — cross-beamforming and f-k based receiver selection.
 - **Dispersion analysis** — phase-shift and FTAN dispersion imaging; curve picking within bounds (`maximum`), inside a hand-drawn polygon (`lasso`) or automatically, mode after mode (`tracking`).
-- **Seismic inversion** — Bayesian inversion (MCMC) of Rayleigh-wave dispersion curves into 1D Vs profiles, each model's curve computed by [`disba`](https://github.com/keurfonluu/disba). The number of layers is chosen by the data (reversible-jump MCMC with parallel tempering) or given (DREAM(ZS)); the picks' noise is estimated with the model. See [References](#references).
+- **Seismic inversion** — Bayesian inversion (MCMC) of Rayleigh-wave dispersion curves into 1D Vs profiles, each model's curve computed by surf96 (Herrmann's Computer Programs in Seismology). The number of layers is chosen by the data (reversible-jump MCMC with parallel tempering) or given (DREAM(ZS)); the picks' noise is estimated with the model. The samplers and their forward model run in sigpipe's compiled core, [`sigpipe-core`](core/README.md) (Rust), as does the phase shift's sum. See [References](#references).
 - **Petrophysical inversion** — AI inversion of Rayleigh-wave dispersion curves to 1D soil models (via [`silex`](https://github.com/josecunhateixeira/silex)).
 - **Forward modeling** — 1D velocity or soil models to Rayleigh dispersion curves (soil models through rock physics, via [`santiludo`](https://github.com/JoseCunhaTeixeira/santiludo)), with one `Forward` transformer.
 - **I/O & plotting** — saving/loading and plotting for every data type above, plus section views across multiple acquisitions.
@@ -37,6 +37,8 @@ src/sigpipe/
 └── masw/          # MASW on a line: profiles, windows, presets (the settings schema),
                    # pipelines, runs, picks, inversion (per window, sections), quality measures
 
+core/              # sigpipe-core, the compiled core (Rust): the inversion's forward model and
+                   # samplers, the phase shift's sum; its own package, prebuilt wheels
 experiments/       # example.py, a worked example pipeline
 run.py             # Runs experiments/example.py
 ```
@@ -58,6 +60,8 @@ uv sync --extra beamforming  # beamforming transformer
 ```
 
 `santiludo` is a compiled Cython/C++ package installed from git (not on PyPI) — building it needs a C++ toolchain (on Windows, MSVC via Visual Studio Build Tools' "Desktop development with C++" workload).
+
+`sigpipe-core`, sigpipe's compiled core, comes as prebuilt wheels (CPython 3.14 on Linux x86_64 and aarch64, Windows x64, macOS) from its index, which `pyproject.toml` names: no Rust toolchain needed, for sigpipe as for PAC and PACo, which install it through sigpipe. Elsewhere it builds from source with Rust ([rustup.rs](https://rustup.rs)). How it is released: [core/README.md](core/README.md).
 
 ## Usage
 
@@ -176,7 +180,9 @@ uv run pytest               # the tests
 uv run pre-commit install   # ruff and hygiene checks on every commit
 ```
 
-CI runs the lint, format and test checks on every push and pull request to `main` ([ci.yml](.github/workflows/ci.yml)).
+CI runs the lint, format and test checks on every push and pull request to `main` ([ci.yml](.github/workflows/ci.yml)), on this checkout's core, built there.
+
+Working on the core takes Rust: `uv pip install ./core` puts this checkout's over the released one, and `uv run --no-sync pytest` keeps it (a plain `uv run` puts the released one back). Its wheels are built and published by [core-wheels.yml](.github/workflows/core-wheels.yml) on a tag `core-v<version>` ([core/README.md](core/README.md)).
 
 ## References
 
@@ -191,6 +197,12 @@ The seismic inversion's samplers (`sigpipe/algorithms/inversion/rayleigh/seismic
   - Bodin, T., Sambridge, M., Tkalčić, H., Arroucau, P., Gallagher, K., & Rawlinson, N. (2012). Transdimensional inversion of receiver functions and surface wave dispersion. *Journal of Geophysical Research: Solid Earth*, 117, B02301. https://doi.org/10.1029/2011JB008560 (also the noise level sampled with the model: hierarchical Bayes)
   - Earl, D. J., & Deem, M. W. (2005). Parallel tempering: Theory, applications, and new perspectives. *Physical Chemistry Chemical Physics*, 7(23), 3910–3916. https://doi.org/10.1039/B509983H
 
+Their forward model, the curves of layered models (`core/src/surf96.rs`):
+
+- Herrmann, R. B. (2013). Computer programs in seismology: An evolving tool for instruction and research. *Seismological Research Letters*, 84(6), 1081–1088. https://doi.org/10.1785/0220110096 (surf96)
+- Dunkin, J. W. (1965). Computation of modal solutions in layered, elastic media at high frequencies. *Bulletin of the Seismological Society of America*, 55(2), 335–358. https://doi.org/10.1785/BSSA0550020335 (the Rayleigh waves' compound matrices)
+- Dowell, M., & Jarratt, P. (1971). A modified regula falsi method for computing the root of an equation. *BIT Numerical Mathematics*, 11(2), 168–174. https://doi.org/10.1007/BF01934364 (the Illinois method, which refines the roots)
+
 ## License
 
-[MIT](LICENSE)
+[MIT](LICENSE); in `sigpipe-core`, the surf96 forward model (`core/src/surf96.rs`) is under the [BSD 3-Clause License](core/LICENSE-BSD-3-Clause) of the code it derives from.

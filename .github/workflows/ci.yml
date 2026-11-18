@@ -25,14 +25,24 @@ jobs:
       - name: Install dependencies
         run: uv sync --locked
 
+      # This checkout's core, built here (GitHub's runners have Rust), over the released wheel the
+      # lock names: what the tests take, `uv run --no-sync` keeping it.
+      - name: Build the core
+        run: uv pip install ./core
+
+      - name: Lint the core
+        run: |
+          cargo fmt --manifest-path core/Cargo.toml --check
+          PYO3_PYTHON="$(uv python find 3.14)" cargo clippy --manifest-path core/Cargo.toml -- -D warnings
+
       - name: Lint with ruff
-        run: uv run ruff check .
+        run: uv run --no-sync ruff check .
 
       - name: Check formatting with ruff
-        run: uv run ruff format --check .
+        run: uv run --no-sync ruff format --check .
 
       - name: Run tests
-        run: uv run pytest
+        run: uv run --no-sync pytest
 
   # What Windows does its own way: the locks on files PAC and PACo share a run with.
   windows:
@@ -53,8 +63,14 @@ jobs:
       - name: Install dependencies
         run: uv sync --locked
 
-      - name: Import the runs
-        run: uv run python -c "import sigpipe.masw.runs"
+      - name: Build the core
+        run: uv pip install ./core
 
-      - name: Run the locks' tests
-        run: uv run pytest tests/masw/test_locking.py tests/masw/test_writing.py tests/masw/test_history.py
+      - name: Import the runs
+        run: uv run --no-sync python -c "import sigpipe.masw.runs"
+
+      - name: Run the locks' tests, and the core's
+        run: >-
+          uv run --no-sync pytest tests/masw/test_locking.py tests/masw/test_writing.py
+          tests/masw/test_history.py tests/algorithms/test_inversion_surf96.py
+          tests/algorithms/test_phase_shift.py tests/algorithms/test_inversion_mcmc.py

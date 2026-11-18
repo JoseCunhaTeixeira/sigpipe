@@ -1,4 +1,4 @@
-from disba import DispersionError
+from sigpipe_core import DispersionError
 
 from sigpipe.algorithms.inversion.rayleigh.seismic.forward import fwd_seismic_phase
 from sigpipe.base.dispersion_curve import DispersionCurves
@@ -15,7 +15,7 @@ def forward_model_all(
     """Forward-model every named model (best, smooth_best, median, smooth_median,
     ensemble) at each observed curve's own frequencies.
 
-    One dispersion-curve collection per model name. A model is `None` if disba
+    One dispersion-curve collection per model name. A model is `None` if the forward model
     can't resolve any mode for it at all (e.g. a finely-discretized smoothed
     model occasionally too ill-conditioned for the fundamental-mode root
     finder); individual unresolved modes are otherwise just omitted.

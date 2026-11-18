@@ -553,7 +553,7 @@ def report_depths(longest_wavelengths: Sequence[float], count: int = 5) -> tuple
 
 def _forward(folder: Path, model: str) -> DispersionCurve | None:
     path = folder / f"SeismicInversion_DispersionCurves_0000_{model}.csv"
-    if not path.exists():  # disba found no mode of this model at all
+    if not path.exists():  # the forward model found no mode of this model at all
         return None
     return load_dispersion_curves([path])[0][0]
 
