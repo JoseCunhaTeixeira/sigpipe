@@ -85,7 +85,7 @@ class SilexModel:
             model_dir / "silex.keras"
         )
         keras_model = cast("keras.Model", loaded)
-        vocab = json.loads((model_dir / "vocab.json").read_text())
+        vocab = json.loads((model_dir / "vocab.json").read_text(encoding="utf-8"))
 
         return cls(
             keras_model=keras_model,

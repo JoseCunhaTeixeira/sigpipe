@@ -32,7 +32,7 @@ def write_atomic(path: Path, text: str) -> None:
     (a crash leaves the old file or the new one, never half of one)."""
     partial = path.with_name(f".{path.name}.{os.getpid()}-{threading.get_ident()}.partial")
     try:
-        partial.write_text(text)
+        partial.write_text(text, encoding="utf-8")
         partial.replace(path)
     finally:
         partial.unlink(missing_ok=True)
@@ -58,7 +58,7 @@ def run_lock(
         finally:
             holding[key] -= 1
         return
-    with (run_folder / RUN_LOCK).open("a+") as lock:
+    with (run_folder / RUN_LOCK).open("a+", encoding="utf-8") as lock:
         deadline = time.monotonic() + wait_s
         while True:
             try:

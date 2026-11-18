@@ -49,7 +49,7 @@ def test_the_key_holds_the_records_content(workspace: Folders) -> None:
     manifest = run_processing("shots", "active", WINDOWS, workspace)
     run_folder = find_run(manifest.run_id, workspace)
     window = MASWWindow.model_validate_json(
-        (run_folder / manifest.windows[0].folder / "window.json").read_text()
+        (run_folder / manifest.windows[0].folder / "window.json").read_text(encoding="utf-8")
     )
     records = run_folder / RECORDS_FOLDER
     key = image_key(manifest.preset, window, records, {})

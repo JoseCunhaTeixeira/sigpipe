@@ -288,7 +288,7 @@ def process_windows(
             window = apply_exclusions(built, exclusions, GEOMETRIES[preset.mode])
             if window is None:
                 error = "every record, or all but 2 of its receivers, excluded by the signal QC"
-                (folder / "error.log").write_text(error + "\n")
+                (folder / "error.log").write_text(error + "\n", encoding="utf-8")
                 outcomes.append(
                     WindowOutcome(xmid=built.xmid, folder=folder.name, status="failed", error=error)
                 )
@@ -296,7 +296,7 @@ def process_windows(
             write_atomic(folder / "window.json", window.model_dump_json(indent=2))
             if missing := [path.name for path in window.selected_files if path.name in failed]:
                 error = f"record {missing[0]} failed preprocessing: {failed[missing[0]]}"
-                (folder / "error.log").write_text(error + "\n")
+                (folder / "error.log").write_text(error + "\n", encoding="utf-8")
                 outcomes.append(
                     WindowOutcome(
                         xmid=window.xmid, folder=folder.name, status="failed", error=error
@@ -358,7 +358,9 @@ def _finish(future: Future[float], folder: Path) -> tuple[float | None, str | No
     try:
         return future.result(), None
     except Exception as exc:
-        (folder / "error.log").write_text("".join(traceback.format_exception(exc)))
+        (folder / "error.log").write_text(
+            "".join(traceback.format_exception(exc)), encoding="utf-8"
+        )
         return None, f"{type(exc).__name__}: {exc}"
 
 

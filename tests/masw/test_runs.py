@@ -393,10 +393,10 @@ def test_a_run_made_with_a_removed_stage_still_loads(
 ) -> None:
     manifest = run_processing(profile, mode, WINDOWS, workspace, packages=())
     path = find_run(manifest.run_id, workspace) / "run.json"
-    older = json.loads(path.read_text())
+    older = json.loads(path.read_text(encoding="utf-8"))
     older["preset"] |= removed
     del older["inputs"]  # written before the inputs were recorded
-    path.write_text(json.dumps(older))
+    path.write_text(json.dumps(older), encoding="utf-8")
 
     assert load_manifest(manifest.run_id, workspace) == manifest.model_copy(update={"inputs": ()})
 
@@ -519,7 +519,7 @@ def test_the_shots_wave_is_picked_and_inverted_into_a_section(
         assert (vs.low <= vs.middle).all() and (vs.middle <= vs.high).all()
         # The chains' agreement measured on Vs at the depths the curve resolves.
         measures = measure_inversion(folder / unit, parameters)
-        (folder / unit / MEASURES_FILE).write_text(measures.model_dump_json())
+        (folder / unit / MEASURES_FILE).write_text(measures.model_dump_json(), encoding="utf-8")
         assert measures.useful_reference == USEFUL_REFERENCE
         assert measures.watched and set(measures.watched) <= set(measures.rhat)
         assert {"vs1", "vs2", "thick1", "noise"} <= set(measures.rhat)
@@ -534,7 +534,7 @@ def test_the_shots_wave_is_picked_and_inverted_into_a_section(
     assert {"vs", "noise"} <= set(window.steps) and {"birth", "death"} <= set(window.moves)
     assert window.exchanges is not None
     measures = measure_inversion(folder / units[0], free)
-    (folder / units[0] / MEASURES_FILE).write_text(measures.model_dump_json())
+    (folder / units[0] / MEASURES_FILE).write_text(measures.model_dump_json(), encoding="utf-8")
     assert {"layers", "top_vs", "half_space_vs", "deepest_interface"} <= {
         share.parameter for share in measures.at_bounds
     }

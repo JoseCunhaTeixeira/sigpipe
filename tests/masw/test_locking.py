@@ -12,7 +12,7 @@ from sigpipe.masw.runs.locking import lock_file, unlock_file
 
 def test_an_exclusive_lock_refuses_any_other(tmp_path: Path) -> None:
     path = tmp_path / ".run.lock"
-    with path.open("a+") as held, path.open("a+") as other:
+    with path.open("a+", encoding="utf-8") as held, path.open("a+", encoding="utf-8") as other:
         lock_file(held)
 
         with pytest.raises(BlockingIOError):
@@ -27,7 +27,11 @@ def test_an_exclusive_lock_refuses_any_other(tmp_path: Path) -> None:
 
 def test_shared_locks_share_and_refuse_an_exclusive_one(tmp_path: Path) -> None:
     path = tmp_path / ".run.lock"
-    with path.open("a+") as first, path.open("a+") as second, path.open("a+") as writer:
+    with (
+        path.open("a+", encoding="utf-8") as first,
+        path.open("a+", encoding="utf-8") as second,
+        path.open("a+", encoding="utf-8") as writer,
+    ):
         lock_file(first, shared=True)
         lock_file(second, shared=True, wait=False)
 
@@ -42,18 +46,18 @@ def test_shared_locks_share_and_refuse_an_exclusive_one(tmp_path: Path) -> None:
 
 def test_a_locked_file_stays_readable_and_writable_to_others(tmp_path: Path) -> None:
     path = tmp_path / "history.jsonl"
-    with path.open("a+") as held:
+    with path.open("a+", encoding="utf-8") as held:
         lock_file(held)
         held.write("PACo: pick\n")
         held.flush()
 
         # The holder's name read by a writer it refuses; a line added beside it.
-        assert path.read_text() == "PACo: pick\n"
-        with path.open("a") as other:
+        assert path.read_text(encoding="utf-8") == "PACo: pick\n"
+        with path.open("a", encoding="utf-8") as other:
             other.write("PAC\n")
 
         unlock_file(held)
-    assert path.read_text() == "PACo: pick\nPAC\n"
+    assert path.read_text(encoding="utf-8") == "PACo: pick\nPAC\n"
 
 
 def test_a_lock_waited_for_is_taken_once_released(tmp_path: Path) -> None:
@@ -61,7 +65,7 @@ def test_a_lock_waited_for_is_taken_once_released(tmp_path: Path) -> None:
     held, released = threading.Event(), threading.Event()
 
     def holder() -> None:
-        with path.open("a") as lock:
+        with path.open("a", encoding="utf-8") as lock:
             lock_file(lock)
             held.set()
             time.sleep(0.3)
@@ -71,7 +75,7 @@ def test_a_lock_waited_for_is_taken_once_released(tmp_path: Path) -> None:
     thread = threading.Thread(target=holder)
     thread.start()
     assert held.wait(timeout=10)
-    with path.open("a") as lock:
+    with path.open("a", encoding="utf-8") as lock:
         lock_file(lock)
         assert released.is_set()
         unlock_file(lock)

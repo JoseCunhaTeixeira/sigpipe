@@ -29,18 +29,18 @@ def _run(tmp_path: Path) -> Path:
     for unit in ("xmid_5.00", "xmid_6.50"):
         window = run / unit
         window.mkdir(parents=True)
-        (window / "DispersionImage_0000.hdf5").write_text("image")
-        (window / "DispersionCurves_0000.csv").write_text("picks")
-        (window / "quality.json").write_text("{}")
-        (window / "SeismicInversion_Samples_0000.npz").write_text("models")
-        (window / "SeismicInversion_Model_0000_best.csv").write_text("best")
+        (window / "DispersionImage_0000.hdf5").write_text("image", encoding="utf-8")
+        (window / "DispersionCurves_0000.csv").write_text("picks", encoding="utf-8")
+        (window / "quality.json").write_text("{}", encoding="utf-8")
+        (window / "SeismicInversion_Samples_0000.npz").write_text("models", encoding="utf-8")
+        (window / "SeismicInversion_Model_0000_best.csv").write_text("best", encoding="utf-8")
     window = run / "xmid_5.00"
-    (window / "PetroInversion_Model_0000.csv").write_text("soil")
+    (window / "PetroInversion_Model_0000.csv").write_text("soil", encoding="utf-8")
     archive = window / ATTEMPTS_FOLDER / "1_inversion"
     archive.mkdir(parents=True)
-    (archive / "SeismicInversion_Samples_0000.npz").write_text("first models")
-    (run / "SeismicInversion_VelocitySection_0000.png").write_text("section")
-    (run / "seismic_inversion_config.json").write_text("{}")
+    (archive / "SeismicInversion_Samples_0000.npz").write_text("first models", encoding="utf-8")
+    (run / "SeismicInversion_VelocitySection_0000.png").write_text("section", encoding="utf-8")
+    (run / "seismic_inversion_config.json").write_text("{}", encoding="utf-8")
     lines = [
         {"unit": "xmid_5.00", "stage": "picking", "attempt": 1},
         {"unit": "xmid_5.00", "stage": "inversion", "attempt": 1},
@@ -49,7 +49,9 @@ def _run(tmp_path: Path) -> Path:
         {"unit": "xmid_5.00", "stage": "petro_inversion", "attempt": 1},
         {"unit": "xmid_6.50", "stage": "inversion", "attempt": 1},
     ]
-    (run / LOG_FILE).write_text("".join(json.dumps(line) + "\n" for line in lines))
+    (run / LOG_FILE).write_text(
+        "".join(json.dumps(line) + "\n" for line in lines), encoding="utf-8"
+    )
     return run
 
 
@@ -71,7 +73,7 @@ def _replaced(window: Path) -> Path:
 def test_an_inversion_done_again_forgets_the_windows_earlier_ones(tmp_path: Path) -> None:
     run = _run(tmp_path)
     window = run / "xmid_5.00"
-    before = (run / LOG_FILE).read_text()
+    before = (run / LOG_FILE).read_text(encoding="utf-8")
 
     forget(run, "xmid_5.00", "inversion", results=False, actor="agent")
 
@@ -87,8 +89,10 @@ def test_an_inversion_done_again_forgets_the_windows_earlier_ones(tmp_path: Path
     assert (run / "SeismicInversion_VelocitySection_0000.png").exists()
     # Kept all the same: the archive set aside, the log's lines there, a reset after them.
     archived = _replaced(window) / ATTEMPTS_FOLDER / "1_inversion"
-    assert (archived / "SeismicInversion_Samples_0000.npz").read_text() == "first models"
-    log = (run / LOG_FILE).read_text()
+    assert (archived / "SeismicInversion_Samples_0000.npz").read_text(
+        encoding="utf-8"
+    ) == "first models"
+    log = (run / LOG_FILE).read_text(encoding="utf-8")
     assert log.startswith(before)
     reset = json.loads(log.removeprefix(before))
     assert {key: reset[key] for key in ("event", "version", "unit", "stages", "actor")} == {
@@ -130,12 +134,14 @@ def test_new_results_replace_every_old_file_of_their_kind(tmp_path: Path) -> Non
     run = _run(tmp_path)
     window = run / "xmid_5.00"
     output = staging(window)
-    (output / "SeismicInversion_Samples_0000.npz").write_text("new models")
+    (output / "SeismicInversion_Samples_0000.npz").write_text("new models", encoding="utf-8")
 
     commit(window, replacing=("SeismicInversion_*",))
 
     # The old best model, which the new run did not write, gone with the rest.
-    assert (window / "SeismicInversion_Samples_0000.npz").read_text() == "new models"
+    assert (window / "SeismicInversion_Samples_0000.npz").read_text(
+        encoding="utf-8"
+    ) == "new models"
     assert not (window / "SeismicInversion_Model_0000_best.csv").exists()
     assert (window / "DispersionCurves_0000.csv").exists()
 
@@ -143,7 +149,7 @@ def test_new_results_replace_every_old_file_of_their_kind(tmp_path: Path) -> Non
 def test_the_log_says_what_came_after_each_reset(tmp_path: Path) -> None:
     run = _run(tmp_path)
     forget(run, "xmid_5.00", "inversion", results=False)
-    with (run / LOG_FILE).open("a") as log:
+    with (run / LOG_FILE).open("a", encoding="utf-8") as log:
         log.write(json.dumps({"unit": "xmid_5.00", "stage": "inversion", "attempt": 1}) + "\n")
         log.write('{"unit": "xmid_5.00", "stage": "inv')  # the last line, while written
 
@@ -155,7 +161,7 @@ def test_the_log_says_what_came_after_each_reset(tmp_path: Path) -> None:
         ("xmid_5.00", "inversion", 1),
     ]
     # Another kind of line is read as it is.
-    with (run / LOG_FILE).open("a") as log:
+    with (run / LOG_FILE).open("a", encoding="utf-8") as log:
         log.write("\n" + json.dumps({"event": "given", "family": "picking"}) + "\n")
     assert log_entries(run)[-1] == {"event": "given", "family": "picking"}
 
@@ -168,7 +174,7 @@ def test_a_change_in_pac_sets_aside_what_it_replaces(tmp_path: Path) -> None:
     curves = set_aside(window, "picking", copy=True)
     assert curves is not None and curves.startswith(f"{REPLACED_FOLDER}/")
     assert curves.endswith("_picking")
-    assert (window / curves / "DispersionCurves_0000.csv").read_text() == "picks"
+    assert (window / curves / "DispersionCurves_0000.csv").read_text(encoding="utf-8") == "picks"
     assert (window / curves / "quality.json").exists()
     assert (window / "DispersionCurves_0000.csv").exists()
     # A window inverted again: its models moved aside, the archived attempts left to forget.
@@ -202,7 +208,7 @@ def test_each_windows_changes_are_its_own_record(tmp_path: Path) -> None:
     )
     record_change(window, lasso)
     record_change(window, inverted)
-    with (window / CHANGES_FILE).open("a") as file:
+    with (window / CHANGES_FILE).open("a", encoding="utf-8") as file:
         file.write('{"at": "2026-10-24T12:10')  # the last line, while written
 
     assert read_changes(window) == (lasso, inverted)
@@ -214,15 +220,19 @@ def test_new_results_can_set_aside_the_old_ones(tmp_path: Path) -> None:
     run = _run(tmp_path)
     window = run / "xmid_5.00"
     output = staging(window)
-    (output / "SeismicInversion_Samples_0000.npz").write_text("new models")
+    (output / "SeismicInversion_Samples_0000.npz").write_text("new models", encoding="utf-8")
 
     kept = commit(window, replacing=("SeismicInversion_*",), aside="inversion")
 
-    assert (window / "SeismicInversion_Samples_0000.npz").read_text() == "new models"
+    assert (window / "SeismicInversion_Samples_0000.npz").read_text(
+        encoding="utf-8"
+    ) == "new models"
     assert not (window / "SeismicInversion_Model_0000_best.csv").exists()
     # The old models, kept where the history says.
     assert kept is not None and kept.endswith("_inversion")
-    assert (window / kept / "SeismicInversion_Samples_0000.npz").read_text() == "models"
+    assert (window / kept / "SeismicInversion_Samples_0000.npz").read_text(
+        encoding="utf-8"
+    ) == "models"
     assert (window / kept / "SeismicInversion_Model_0000_best.csv").exists()
     # Nothing to commit: nothing set aside.
     assert commit(window, aside="inversion") is None

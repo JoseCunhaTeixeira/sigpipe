@@ -56,7 +56,7 @@ def auto_at(window: Path) -> datetime | None:
     path = window / AUTO_FILE
     if not path.exists():
         return None
-    value = json.loads(path.read_text()).get("picked_at")
+    value = json.loads(path.read_text(encoding="utf-8")).get("picked_at")
     return datetime.fromisoformat(value) if isinstance(value, str) else None
 
 
@@ -90,7 +90,7 @@ def _edits(window: Path) -> dict[str, str]:
     path = window / EDITS_FILE
     if not path.exists():
         return {}
-    data = json.loads(path.read_text())
+    data = json.loads(path.read_text(encoding="utf-8"))
     modes = data.get("modes")
     if isinstance(modes, dict):
         return {str(label): str(at) for label, at in modes.items()}

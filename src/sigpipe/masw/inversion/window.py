@@ -124,7 +124,7 @@ def invert_window(
         data=[curves], show_log=False
     )[0]
 
-    (out / "SeismicInversion_Log_0000.log").write_text(result.log)
+    (out / "SeismicInversion_Log_0000.log").write_text(result.log, encoding="utf-8")
     save_parameters(parameters, result, out / PARAMETERS_FILE)
     save_samples(result, out / SAMPLES_FILE)
     save_spread(result, curves, out / SPREAD_FILE)
@@ -378,12 +378,12 @@ def save_parameters(parameters: InversionParameters, result: InversionResult, pa
         moves=result.moves,
         exchanges=result.exchanges,
     )
-    path.write_text(window.model_dump_json(indent=2))
+    path.write_text(window.model_dump_json(indent=2), encoding="utf-8")
 
 
 def load_parameters(path: Path) -> WindowParameters:
     """The parameters `save_parameters` wrote."""
-    return WindowParameters.model_validate_json(path.read_text())
+    return WindowParameters.model_validate_json(path.read_text(encoding="utf-8"))
 
 
 def save_samples(result: InversionResult, path: Path) -> None:
@@ -440,7 +440,7 @@ def save_spread(result: InversionResult, curves: DispersionCurves, path: Path) -
             low, middle, high = np.nanpercentile(predicted, SPREAD_PERCENTILES, axis=0)
         for row in zip(np.asarray(curve.fs, dtype=float), low, middle, high, strict=True):
             lines.append(",".join([curve.mode.label, *(f"{value:.6g}" for value in row)]))
-    path.write_text("\n".join(lines) + "\n")
+    path.write_text("\n".join(lines) + "\n", encoding="utf-8")
 
 
 def load_spread(folder: Path) -> dict[str, Spread]:
@@ -450,7 +450,7 @@ def load_spread(folder: Path) -> dict[str, Spread]:
     if not path.exists():
         return {}
     rows: dict[str, list[tuple[float, float, float, float]]] = {}
-    for line in path.read_text().splitlines()[1:]:
+    for line in path.read_text(encoding="utf-8").splitlines()[1:]:
         label, *values = line.split(",")
         f, low, middle, high = (float(value) for value in values)
         rows.setdefault(label, []).append((f, low, middle, high))
@@ -489,7 +489,7 @@ def save_vs_spread(spread: VsSpread, path: Path) -> None:
     for row in zip(spread.depths, spread.low, spread.middle, spread.high, strict=True):
         lines.append(",".join(f"{value:.6g}" for value in row))
     partial = path.with_name(f".{path.name}.partial")
-    partial.write_text("\n".join(lines) + "\n")
+    partial.write_text("\n".join(lines) + "\n", encoding="utf-8")
     partial.replace(path)
 
 
@@ -500,7 +500,7 @@ def load_vs_spread(folder: Path) -> VsSpread | None:
     path = folder / VS_SPREAD_FILE
     if not path.exists():
         return None
-    with path.open() as file:
+    with path.open(encoding="utf-8") as file:
         if file.readline().strip() != _SPREAD_HEADER:
             return None
     rows = np.loadtxt(path, delimiter=",", skiprows=1, ndmin=2)

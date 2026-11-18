@@ -59,7 +59,9 @@ def xmid_of(folder: str) -> float:
 
 
 def load_manifest(run_id: str, workspace: Workspace) -> RunManifest:
-    return RunManifest.model_validate_json((find_run(run_id, workspace) / "run.json").read_text())
+    return RunManifest.model_validate_json(
+        (find_run(run_id, workspace) / "run.json").read_text(encoding="utf-8")
+    )
 
 
 def window_length(run_folder: Path) -> float | None:
@@ -68,7 +70,7 @@ def window_length(run_folder: Path) -> float | None:
     path = run_folder / "run.json"
     if not path.exists():
         return None
-    manifest = RunManifest.model_validate_json(path.read_text())
+    manifest = RunManifest.model_validate_json(path.read_text(encoding="utf-8"))
     return (manifest.preset.masw.length - 1) * manifest.profile.receiver_spacing_m
 
 

@@ -83,7 +83,9 @@ def bundled_silex_model_dir(name: str) -> Path:
 
 def load_silex_card(model_dir: Path) -> SilexCard:
     """What the Silex model in `model_dir` was trained on."""
-    params: dict[str, Any] = json.loads((model_dir / "silex_params.json").read_text())
+    params: dict[str, Any] = json.loads(
+        (model_dir / "silex_params.json").read_text(encoding="utf-8")
+    )
     generation: dict[str, Any] = params["generation_config"]
     return SilexCard(
         name=model_dir.name,

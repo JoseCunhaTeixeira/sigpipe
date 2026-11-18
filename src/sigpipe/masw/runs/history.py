@@ -84,7 +84,7 @@ def downstream(stage: Stage) -> tuple[Stage, ...]:
 def log_lock(run_folder: Path) -> Generator[None]:
     """The run's QC log held for one writer at a time, across processes: appending a line and
     rewriting the log without some never interleave."""
-    with (run_folder / LOCK_FILE).open("a") as lock:
+    with (run_folder / LOCK_FILE).open("a", encoding="utf-8") as lock:
         lock_file(lock)
         try:
             yield
@@ -141,7 +141,7 @@ def log_entries(run_folder: Path) -> list[dict[str, Any]]:
     if not path.exists():
         return []
     entries: list[dict[str, Any]] = []
-    for line in path.read_text().splitlines():
+    for line in path.read_text(encoding="utf-8").splitlines():
         try:
             entry = json.loads(line)
         except json.JSONDecodeError:
@@ -179,7 +179,7 @@ def _reset(run_folder: Path, unit: str, stages: Sequence[Stage], actor: Actor) -
         "at": datetime.now(UTC).isoformat(),
         "actor": actor,
     }
-    with log_lock(run_folder), path.open("a") as log:
+    with log_lock(run_folder), path.open("a", encoding="utf-8") as log:
         log.write(json.dumps(event) + "\n")
 
 
@@ -218,7 +218,7 @@ class Change(BaseModel):
 
 def record_change(folder: Path, change: Change) -> None:
     """`change` appended to the record of the unit in `folder` (a window's, or a record's)."""
-    with (folder / CHANGES_FILE).open("a") as file:
+    with (folder / CHANGES_FILE).open("a", encoding="utf-8") as file:
         lock_file(file)
         try:
             file.write(change.model_dump_json() + "\n")
@@ -233,7 +233,7 @@ def read_changes(folder: Path) -> tuple[Change, ...]:
     if not path.exists():
         return ()
     changes: list[Change] = []
-    for line in path.read_text().splitlines():
+    for line in path.read_text(encoding="utf-8").splitlines():
         try:
             changes.append(Change.model_validate_json(line))
         except ValidationError:

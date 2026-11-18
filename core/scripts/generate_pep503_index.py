@@ -23,7 +23,9 @@ def main() -> None:
     links: dict[str, str] = {}
     existing_index = Path(existing_index_dir) / "simple" / PROJECT / "index.html"
     if existing_index.exists():
-        for match in re.finditer(r'href="([^"]+)"[^>]*>([^<]+)</a>', existing_index.read_text()):
+        for match in re.finditer(
+            r'href="([^"]+)"[^>]*>([^<]+)</a>', existing_index.read_text(encoding="utf-8")
+        ):
             href, name = match.groups()
             links[name] = href
 
@@ -40,11 +42,12 @@ def main() -> None:
         for name, href in sorted(links.items())
     )
     (project_dir / "index.html").write_text(
-        f"<!DOCTYPE html>\n<html>\n<body>\n{rows}\n</body>\n</html>\n"
+        f"<!DOCTYPE html>\n<html>\n<body>\n{rows}\n</body>\n</html>\n", encoding="utf-8"
     )
     (Path(out_dir) / "simple" / "index.html").write_text(
         f'<!DOCTYPE html>\n<html>\n<body>\n    <a href="{PROJECT}/">{PROJECT}</a><br/>\n'
-        "</body>\n</html>\n"
+        "</body>\n</html>\n",
+        encoding="utf-8",
     )
     print(f"Wrote the index of {len(links)} file(s) to {out_dir}/simple/")
 

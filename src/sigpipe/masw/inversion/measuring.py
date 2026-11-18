@@ -176,7 +176,7 @@ def measure_inversion(
     acceptance = (
         window.acceptance
         if window is not None and window.acceptance
-        else acceptance_rates((out / LOG_FILE).read_text())
+        else acceptance_rates((out / LOG_FILE).read_text(encoding="utf-8"))
         if (out / LOG_FILE).exists()
         else ()
     )
@@ -225,7 +225,7 @@ def saved_measures(folder: Path) -> InversionMeasures | None:
         return None
     if path.stat().st_mtime < samples.stat().st_mtime:
         return None
-    return InversionMeasures.model_validate_json(path.read_text())
+    return InversionMeasures.model_validate_json(path.read_text(encoding="utf-8"))
 
 
 def informed_depth(measures: InversionMeasures) -> float | None:

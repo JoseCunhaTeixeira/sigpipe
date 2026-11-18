@@ -105,7 +105,7 @@ class Pipeline:
         logger.addHandler(console_handler)
 
         if save_log:
-            file_handler = logging.FileHandler(log_path)
+            file_handler = logging.FileHandler(log_path, encoding="utf-8")
             file_handler.setFormatter(formatter)
             logger.addHandler(file_handler)
 

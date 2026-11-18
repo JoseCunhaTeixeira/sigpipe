@@ -40,7 +40,9 @@ def test_a_curve_no_picker_is_known_to_have_made_is_a_persons(tmp_path: Path) ->
 
 def test_an_older_record_without_modes_stands_for_every_mode(tmp_path: Path) -> None:
     before = datetime.now(UTC) - timedelta(minutes=5)
-    (tmp_path / EDITS_FILE).write_text(json.dumps({"edited_at": before.isoformat()}))
+    (tmp_path / EDITS_FILE).write_text(
+        json.dumps({"edited_at": before.isoformat()}), encoding="utf-8"
+    )
 
     mark_edited(tmp_path, M1)
 

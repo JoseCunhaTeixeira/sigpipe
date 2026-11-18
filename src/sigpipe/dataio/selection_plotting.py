@@ -66,7 +66,7 @@ def save_selection(
     folder.mkdir(parents=True, exist_ok=True)
     path = folder / f"{stem}_0000"
     path.with_suffix(".json").write_text(
-        selection_scores(scores, threshold, flip).model_dump_json()
+        selection_scores(scores, threshold, flip).model_dump_json(), encoding="utf-8"
     )
     figure = plot_selection(scores, threshold)
     figure.savefig(path.with_suffix(".png"), bbox_inches="tight", dpi=SAVING_DPI)
@@ -77,7 +77,11 @@ def save_selection(
 def load_selection(folder: Path, stem: str = SELECTION_STEM) -> SelectionScores | None:
     """The selection save_selection saved in `folder`; None when it saved none."""
     path = folder / f"{stem}_0000.json"
-    return SelectionScores.model_validate_json(path.read_text()) if path.exists() else None
+    return (
+        SelectionScores.model_validate_json(path.read_text(encoding="utf-8"))
+        if path.exists()
+        else None
+    )
 
 
 def plot_selection(scores: Sequence[tuple[float, bool]], threshold: float) -> Figure:

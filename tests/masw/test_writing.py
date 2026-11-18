@@ -40,7 +40,7 @@ def test_a_file_is_replaced_whole_or_not_at_all(
     path = tmp_path / "run.json"
     write_atomic(path, "old")
     write_atomic(path, "new")
-    assert path.read_text() == "new"
+    assert path.read_text(encoding="utf-8") == "new"
 
     def full_disk(*_: object) -> Path:
         raise OSError(28, "No space left on device")
@@ -49,7 +49,17 @@ def test_a_file_is_replaced_whole_or_not_at_all(
     with pytest.raises(OSError, match="No space left"):
         write_atomic(path, "newer")
     # The old file whole, nothing half-written beside it.
-    assert path.read_text() == "new" and sorted(tmp_path.iterdir()) == [path]
+    assert path.read_text(encoding="utf-8") == "new" and sorted(tmp_path.iterdir()) == [path]
+
+
+def test_a_file_is_written_in_utf8_whatever_the_systems_code_page(tmp_path: Path) -> None:
+    # Characters a Windows code page lacks (cp1252 has no λ, no ≈).
+    path = tmp_path / "transcript.json"
+    text = '{"answer": "λ = 12 m at 25 °C · Vs ≈ 180 m/s"}'
+
+    write_atomic(path, text)
+
+    assert path.read_bytes() == text.encode("utf-8")
 
 
 def test_one_writer_holds_a_run_exclusively(tmp_path: Path) -> None:
@@ -66,7 +76,7 @@ def test_one_writer_holds_a_run_exclusively(tmp_path: Path) -> None:
     )
     # Released: free again, the holder's name gone.
     assert _in_thread(_hold(tmp_path, "PAC", shared=True)) is None
-    assert (tmp_path / ".run.lock").read_text() == ""
+    assert (tmp_path / ".run.lock").read_text(encoding="utf-8") == ""
 
 
 def test_pacs_pages_share_a_run_and_keep_paco_out(tmp_path: Path) -> None:
