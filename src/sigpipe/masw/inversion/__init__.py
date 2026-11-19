@@ -23,13 +23,16 @@ from .window import (
     Spread,
     VsSpread,
     WindowParameters,
+    WindowSampling,
     build_inversion_pipeline,
     draw_figures,
+    finish_window,
     invert_window,
     load_parameters,
     load_spread,
     load_vs_spread,
     vs_spread,
+    window_sampling,
 )
 
 __all__ = [
@@ -46,11 +49,14 @@ __all__ = [
     "VsLayer",
     "VsSpread",
     "WindowParameters",
+    "WindowSampling",
     "build_inversion_pipeline",
     "draw_figures",
+    "finish_window",
     "invert_window",
     "load_parameters",
     "load_spread",
     "load_vs_spread",
     "vs_spread",
+    "window_sampling",
 ]

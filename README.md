@@ -166,9 +166,9 @@ if __name__ == "__main__":  # the run's worker processes need this guard
 - `windows`: `build_windows`, and the records and traces a run leaves out.
 - `presets`: the settings schema: `make_preset`, `resolve_preset`, `method_defaults`.
 - `pipelines`: the preprocessing and image pipelines of each mode.
-- `runs`: `run_processing`, `find_run`, `list_runs`.
+- `runs`: `run_processing`, `find_run`, `list_runs`; `scheduling`, work in parts on one pool of workers (a line's windows' chains, each on whichever worker is free).
 - `picks`: a window's curves in PAC's layout.
-- `inversion`: `invert_window`, its `measuring`, its `priors` derived from the curve, and the line's `section`.
+- `inversion`: `invert_window` (or `window_sampling`, then `finish_window` on the chains' outputs, for a caller that runs the chains itself), its `measuring`, its `priors` derived from the curve, and the line's `section`.
 - `quality`: the measures of a record's signal, a dispersion image, an M0 pick, and the lateral consistency along the line. Measures only: PACo's quality gates judge them.
 - `petro`: the petrophysical inversion of each window (a Silex model predicts the soils, their N values and the water table from the fundamental mode; santiludo's rock physics gives Vs and the shear modulus with depth), the line's sections, and the measures PACo's gates judge. Needs the `silex` and `santiludo` extras. The bundled Silex models, and the band and velocities each was trained on, are in `algorithms/inversion/rayleigh/petro/silex_catalog.py`, which needs neither.
 

@@ -3,6 +3,7 @@ runs in each mode, picks, and the inversion of two windows."""
 
 import hashlib
 import json
+import pickle
 import shutil
 import threading
 from pathlib import Path
@@ -27,10 +28,12 @@ from sigpipe.masw.inversion import (
     InversionParameters,
     WindowParameters,
     draw_figures,
+    finish_window,
     invert_window,
     load_parameters,
     load_spread,
     load_vs_spread,
+    window_sampling,
 )
 from sigpipe.masw.inversion.measuring import MEASURES_FILE, USEFUL_REFERENCE, measure_inversion
 from sigpipe.masw.inversion.section import (
@@ -40,6 +43,7 @@ from sigpipe.masw.inversion.section import (
     save_section,
 )
 from sigpipe.masw.inversion.summary import LINE_SUMMARY_FIGURE, save_line_summary
+from sigpipe.masw.inversion.window import SAMPLES_FILE
 from sigpipe.masw.picks import PICKS_FIGURE_STEM, save_pick, save_picks_figures
 from sigpipe.masw.pipelines.common import stage_kwargs
 from sigpipe.masw.pipelines.preprocessing import (
@@ -547,6 +551,27 @@ def test_the_shots_wave_is_picked_and_inverted_into_a_section(
         figure.unlink()
     draw_figures(folder / units[0])
     assert all(figure.exists() and figure.stat().st_size > 10_000 for figure in figures)
+    # In two steps around its chains, as a line's scheduler runs them: the window's sampling
+    # pickled to the workers, its chains run apart, in any order, then its files made of their
+    # outputs. The inversion invert_window makes for the same seed, and the same files.
+    one_call, two_steps = tmp_path / "one_call", tmp_path / "two_steps"
+    expected = invert_window(folder / units[0], free, output_folder=one_call, seed=4)
+    window = pickle.loads(pickle.dumps(window_sampling(folder / units[0], free, seed=4)))
+    parts = window.sampling.parts
+    ran = {index: parts[index]() for index in reversed(range(len(parts)))}
+    result = finish_window(window, [ran[index] for index in range(len(parts))], two_steps)
+    assert len(parts) == free.n_chains
+    assert np.array_equal(result.misfits, expected.misfits)
+    assert sorted(path.name for path in two_steps.iterdir()) == sorted(
+        path.name for path in one_call.iterdir()
+    )
+    log = "SeismicInversion_Log_0000.log"
+    assert (two_steps / log).read_text(encoding="utf-8") == (one_call / log).read_text(
+        encoding="utf-8"
+    )
+    with np.load(two_steps / SAMPLES_FILE) as made, np.load(one_call / SAMPLES_FILE) as run:
+        assert sorted(made.files) == sorted(run.files)
+        assert all(np.array_equal(made[key], run[key], equal_nan=True) for key in run.files)
 
     assert save_section(folder, units) == folder / SECTION_FIGURE
     # Smoothed along the line too, and the comparison by wavelength beside the one by frequency.

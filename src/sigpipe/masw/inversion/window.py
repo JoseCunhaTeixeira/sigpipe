@@ -1,5 +1,6 @@
 """One window's inversion, on a window folder of a run: sigpipe's MCMC on the window's picked
-curves, and PAC's files beside them."""
+curves, and PAC's files beside them. In one call (invert_window), or in two around its chains,
+for a caller that runs them itself (window_sampling, then finish_window)."""
 
 import logging
 import warnings
@@ -14,6 +15,13 @@ from matplotlib.figure import Figure
 from pydantic import BaseModel, ConfigDict
 
 from sigpipe.algorithms.inversion.rayleigh.seismic.data import NOISE_BOUNDS
+from sigpipe.algorithms.inversion.rayleigh.seismic.mcmc import (
+    Ran,
+    Sampling,
+    inversion_result,
+    inversion_sampling,
+    run_parts,
+)
 from sigpipe.algorithms.inversion.rayleigh.seismic.parameters import (
     InversionParameters,
     SavedInversionParameters,
@@ -87,6 +95,18 @@ class WindowParameters(BaseModel):
     exchanges: float | None = None
 
 
+@dataclass(frozen=True, slots=True)
+class WindowSampling:
+    """A window's inversion before its chains ran: the curves of window folder `folder` it
+    inverts with `parameters`, and their sampling (the MCMC's inversion_sampling), whose parts
+    run wherever its caller has them run."""
+
+    folder: Path
+    parameters: InversionParameters
+    curves: DispersionCurves
+    sampling: Sampling
+
+
 def build_inversion_pipeline(
     parameters: InversionParameters,
     output_folder: Path,
@@ -118,18 +138,50 @@ def invert_window(
     in `chain_jobs` processes seeded with `seed` (None: unseeded, two runs draw other models), and
     write PAC's files next to them, or in `output_folder` (a staging folder: see
     sigpipe.masw.runs.stopping)."""
-    out = output_folder or folder
+    window = window_sampling(folder, parameters, modes, seed)
+    return finish_window(window, run_parts(window.sampling.parts, chain_jobs), output_folder)
+
+
+def window_sampling(
+    folder: Path,
+    parameters: InversionParameters,
+    modes: Collection[Mode] = (M0,),
+    seed: int | None = None,
+) -> WindowSampling:
+    """invert_window's inversion before its chains run, for a caller that runs its parts where
+    it chooses, then hands their outputs to finish_window (a line's windows' parts on whichever
+    workers are free: see sigpipe.masw.runs.scheduling): the curves of `modes` saved in window
+    folder `folder`, with `parameters`, seeded with `seed` (None: unseeded)."""
     curves = _curves(folder, modes)
-    result: InversionResult = build_inversion_pipeline(parameters, out, chain_jobs, seed).run(
-        data=[curves], show_log=False
-    )[0]
+    sampling = inversion_sampling(
+        curves,
+        curves[0].acquisition.mid_position,
+        Vp_Vs_ratio=VP_VS_RATIO,
+        dz=DZ,
+        seed=seed,
+        **dict(parameters),
+    )
+    return WindowSampling(folder=folder, parameters=parameters, curves=curves, sampling=sampling)
+
+
+def finish_window(
+    window: WindowSampling, ran: Sequence[Ran], output_folder: Path | None = None
+) -> InversionResult:
+    """The window's inversion made of its parts' outputs (in its parts' order), and PAC's files
+    written next to its curves, or in `output_folder` (a staging folder: see
+    sigpipe.masw.runs.stopping)."""
+    folder, curves = window.folder, window.curves
+    out = output_folder or folder
+    result = inversion_result(window.sampling, ran)
+    Save(folder_path=out, file_name="SeismicInversion_Model").transform([result])
 
     (out / "SeismicInversion_Log_0000.log").write_text(result.log, encoding="utf-8")
-    save_parameters(parameters, result, out / PARAMETERS_FILE)
+    save_parameters(window.parameters, result, out / PARAMETERS_FILE)
     save_samples(result, out / SAMPLES_FILE)
     save_spread(result, curves, out / SPREAD_FILE)
-    ran = load_parameters(out / PARAMETERS_FILE).parameters
-    spread = vs_spread(result.profiles, ran.bottom)
+    profiles = result.profiles
+    assert profiles is not None  # the MCMC keeps its models as layers
+    spread = vs_spread(profiles, load_parameters(out / PARAMETERS_FILE).parameters.bottom)
     save_vs_spread(spread, out / VS_SPREAD_FILE)
 
     # Each model's curves at the picked frequencies, saved beside it; the figures drawn from the

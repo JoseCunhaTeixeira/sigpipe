@@ -16,7 +16,12 @@ from sigpipe.algorithms.inversion.rayleigh.seismic.data import (
     curves_of,
 )
 from sigpipe.algorithms.inversion.rayleigh.seismic.forward import fwd_seismic_phase
-from sigpipe.algorithms.inversion.rayleigh.seismic.mcmc import inversion_mcmc
+from sigpipe.algorithms.inversion.rayleigh.seismic.mcmc import (
+    TEMPERATURES,
+    inversion_mcmc,
+    inversion_result,
+    inversion_sampling,
+)
 from sigpipe.algorithms.inversion.rayleigh.seismic.parameters import (
     SAVE_EVERY,
     InversionParameters,
@@ -166,6 +171,39 @@ def test_the_data_choose_the_layers(linear_acquisition: LinearAcquisition) -> No
     # Two chains of their own, as many kept each.
     first, second = np.split(result.profiles.vs[:, 0], 2)
     assert first.size == second.size > 1 and not np.array_equal(first, second)
+
+
+@pytest.mark.parametrize("layering", ["free", "fixed"])
+def test_the_parts_run_apart_make_the_same_inversion(
+    linear_acquisition: LinearAcquisition, layering: str
+) -> None:
+    # The free layering's chains a part each, the fixed layering's chains one (DREAM's propose
+    # from each other's states). Run in any order, as a line's workers run them, their outputs
+    # handed back in the parts' order: inversion_mcmc's inversion for the same seed.
+    parameters: dict[str, Any] = {"n_iterations": 3_000, "n_chains": 3}
+    if layering == "fixed":
+        parameters |= FIXED
+    expected = _invert(linear_acquisition, **parameters)
+    sampling = inversion_sampling(
+        DispersionCurvesImage(dispersion_curves=(_picked(linear_acquisition),)),
+        position=linear_acquisition.mid_position,
+        seed=1,
+        **parameters,
+    )
+    ran = {index: sampling.parts[index]() for index in reversed(range(len(sampling.parts)))}
+    result = inversion_result(sampling, [ran[index] for index in range(len(ran))])
+
+    assert len(sampling.parts) == (3 if layering == "free" else 1)
+    assert result.profiles is not None and expected.profiles is not None
+    assert np.array_equal(result.profiles.vs, expected.profiles.vs, equal_nan=True)
+    assert np.array_equal(result.misfits, expected.misfits)
+    assert result.log == expected.log
+    # A part's cost, the forward models it computes: its curve's points at each iteration of
+    # each tempered copy of its chain, or of each chain DREAM runs together.
+    copies = TEMPERATURES if layering == "free" else 3
+    assert sampling.cost == 3_000 * copies * FS.size
+    with pytest.raises(ValueError, match="One output for each of the"):
+        inversion_result(sampling, [ran[0]] * (len(ran) + 1))
 
 
 def test_a_value_fixed_is_not_sampled(linear_acquisition: LinearAcquisition) -> None:

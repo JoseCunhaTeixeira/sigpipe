@@ -8,17 +8,24 @@ Both samplers keep models as layers (sigpipe.base.inversion.LayeredSamples). Fro
   median of each layer's values would glue different models' layers together;
 - the best model, the least misfit of every model the chains visited;
 - the smooth best and median, their layers' steps eased (VelocityModel.smoothed).
+
+An inversion runs in parts (inversion_sampling): the free layering's chains each on its own,
+the fixed layering's chains as one, as DREAM's chains propose from each other's states. A part
+runs in any process; inversion_result makes the models of the parts' outputs. inversion_mcmc
+runs the parts itself; a caller inverting many windows runs all their parts on whichever of its
+workers is free (sigpipe.masw.runs.scheduling).
 """
 
 import math
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from concurrent.futures import ProcessPoolExecutor
 from dataclasses import dataclass, field
+from functools import partial
 
 import numpy as np
 
 from sigpipe.base.coordinate import Coordinate
-from sigpipe.base.dispersion_curve import DispersionCurve, DispersionCurvesImage
+from sigpipe.base.dispersion_curve import DispersionCurve, DispersionCurves, DispersionCurvesImage
 from sigpipe.base.inversion import InversionResult, LayeredSamples
 from sigpipe.base.velocity_model import VelocityModel
 from sigpipe.workers import one_thread_each
@@ -52,6 +59,27 @@ class _Run:
     exchanges: float | None = None
 
 
+# What a part of an inversion gives: a chain of the free layering, or the fixed layering's chains.
+type Ran = transdimensional.Chain | dream.Sampled
+
+
+@dataclass(frozen=True, slots=True)
+class Sampling:
+    """An inversion before its chains ran: its `parts`, each run on its own, called without
+    arguments, in this process or pickled to another, and what inversion_result needs to make the
+    models of their outputs."""
+
+    settings: InversionParameters  # the free layering's bounds found from the curves
+    picked: tuple[DispersionCurve, ...]
+    position: Coordinate
+    vp_vs: float
+    dz: float
+    parts: tuple[Callable[[], Ran], ...]
+    # A part's expected time, relative to other inversions' parts: the forward models it
+    # computes, its curves' points at each iteration of each of its chains or tempered copies.
+    cost: float
+
+
 def inversion_mcmc(
     dispersion_curves: DispersionCurvesImage,
     position: Coordinate,
@@ -71,15 +99,32 @@ def inversion_mcmc(
     together in this one. Vp and density follow Vs by `Vp_Vs_ratio`; the smooth and ensemble
     models are sampled every `dz` metres. `seed` makes a run repeatable.
     """
+    sampling = inversion_sampling(
+        dispersion_curves, position, Vp_Vs_ratio=Vp_Vs_ratio, dz=dz, seed=seed, **parameters
+    )
+    return inversion_result(sampling, run_parts(sampling.parts, chain_jobs))
+
+
+def inversion_sampling(
+    dispersion_curves: DispersionCurves,
+    position: Coordinate,
+    *,
+    Vp_Vs_ratio: float = 1.77,
+    dz: float = 0.01,
+    seed: int | None = None,
+    **parameters: object,
+) -> Sampling:
+    """inversion_mcmc's inversion before its chains run, for a caller that runs its parts where
+    it chooses, then hands their outputs to inversion_result: the parameters validated and the
+    bounds the free layering leaves out found from the curves, as inversion_mcmc does. The
+    parts of a `seed` run the chains inversion_mcmc runs with it."""
     settings = InversionParameters.model_validate(parameters)
     if len(dispersion_curves) == 0:
         raise ValueError("At least one dispersion curve must be provided for inversion.")
-    picked: list[DispersionCurve] = list(dispersion_curves)
+    picked = tuple(dispersion_curves)
     modes = [curve.mode.number for curve in picked]
     if len(set(modes)) != len(modes):
         raise ValueError("All dispersion curves must have a different mode.")
-    if chain_jobs < 1:
-        raise ValueError(f"chain_jobs must be at least 1, not {chain_jobs}")
 
     settings = settings.resolved(
         np.concatenate([np.asarray(curve.fs, dtype=float) for curve in picked]),
@@ -87,18 +132,68 @@ def inversion_mcmc(
     )
     curves = curves_of(picked)
     seeds = np.random.SeedSequence(seed).generate_state(settings.n_chains + 1).tolist()
-    run = (
-        _fixed(settings, curves, Vp_Vs_ratio, seeds[0])
-        if settings.layering == "fixed"
-        else _free(settings, curves, Vp_Vs_ratio, seeds[1:], chain_jobs)
+    parts: tuple[Callable[[], Ran], ...]
+    if settings.layering == "fixed":
+        problem = _problem(settings, curves, Vp_Vs_ratio)
+        parts = (partial(dream.sample, problem, _dream_settings(settings), seeds[0]),)
+        copies = settings.n_chains
+    else:
+        space = _space(settings, curves, Vp_Vs_ratio)
+        chain_settings = _chain_settings(settings)
+        parts = tuple(
+            partial(transdimensional.run_chain, space, chain_settings, chain_seed)
+            for chain_seed in seeds[1:]
+        )
+        copies = TEMPERATURES
+    points = sum(curve.observed.size for curve in curves)
+    return Sampling(
+        settings=settings,
+        picked=picked,
+        position=position,
+        vp_vs=Vp_Vs_ratio,
+        dz=dz,
+        parts=parts,
+        cost=float(settings.n_iterations * copies * points),
     )
-    return _result(settings, run, picked, Vp_Vs_ratio, dz, position)
 
 
-def _fixed(
-    settings: InversionParameters, curves: tuple[Curve, ...], vp_vs: float, seed: int
-) -> _Run:
-    """The layers given, sampled together by DREAM(ZS)."""
+def run_parts(parts: Sequence[Callable[[], Ran]], chain_jobs: int = 1) -> list[Ran]:
+    """`parts`' outputs, in their order, run in `chain_jobs` processes (1: one after the other,
+    in this process)."""
+    if chain_jobs < 1:
+        raise ValueError(f"chain_jobs must be at least 1, not {chain_jobs}")
+    jobs = min(chain_jobs, len(parts))
+    if jobs > 1:
+        one_thread_each()  # each part's process a core
+        with ProcessPoolExecutor(jobs) as executor:
+            futures = [executor.submit(part) for part in parts]
+            return [future.result() for future in futures]
+    return [part() for part in parts]
+
+
+def inversion_result(sampling: Sampling, ran: Sequence[Ran]) -> InversionResult:
+    """The models made of the outputs of `sampling`'s parts, in its parts' order."""
+    settings = sampling.settings
+    if len(ran) != len(sampling.parts):
+        raise ValueError(f"One output for each of the {len(sampling.parts)} parts, not {len(ran)}")
+    if settings.layering == "fixed":
+        (sampled,) = ran
+        if not isinstance(sampled, dream.Sampled):
+            raise TypeError(f"The fixed layering's chains ran as one, not as {type(sampled)}")
+        problem = _problem(settings, curves_of(sampling.picked), sampling.vp_vs)
+        run = _fixed(settings, problem, sampled)
+    else:
+        chains = [chain for chain in ran if isinstance(chain, transdimensional.Chain)]
+        if len(chains) != len(ran):
+            raise TypeError("The free layering's parts are its chains, one each")
+        run = _free(settings, chains)
+    return _result(settings, run, sampling.picked, sampling.vp_vs, sampling.dz, sampling.position)
+
+
+def _problem(
+    settings: InversionParameters, curves: tuple[Curve, ...], vp_vs: float
+) -> dream.Problem:
+    """The layers given: the values sampled, their priors, and the values fixed."""
     fixed = settings.fixed()
     bounds = {
         f"vs{i + 1}": (layer.vs_min, layer.vs_max) for i, layer in enumerate(settings.vs_layers)
@@ -107,7 +202,7 @@ def _fixed(
         for i, layer in enumerate(settings.thickness_layers)
     }
     bounds = {name: prior for name, prior in bounds.items() if name not in fixed}
-    problem = dream.Problem(
+    return dream.Problem(
         curves=curves,
         names=tuple(bounds),
         low=np.array([low for low, _ in bounds.values()], dtype=float),
@@ -117,16 +212,19 @@ def _fixed(
         vp_vs=vp_vs,
         least_ratio=settings.least_ratio,
     )
-    sampled = dream.sample(
-        problem,
-        dream.Settings(
-            n_iterations=settings.n_iterations,
-            n_burnin=settings.n_burnin_iterations,
-            save_every=SAVE_EVERY,
-            n_chains=settings.n_chains,
-        ),
-        seed,
+
+
+def _dream_settings(settings: InversionParameters) -> dream.Settings:
+    return dream.Settings(
+        n_iterations=settings.n_iterations,
+        n_burnin=settings.n_burnin_iterations,
+        save_every=SAVE_EVERY,
+        n_chains=settings.n_chains,
     )
+
+
+def _fixed(settings: InversionParameters, problem: dream.Problem, sampled: dream.Sampled) -> _Run:
+    """The layers given, sampled together by DREAM(ZS): what its chains kept."""
     values = np.concatenate([chain.values for chain in sampled.chains])
     layered = [problem.layers(row) for row in values]
     thickness = np.array([t for t, _ in layered])
@@ -163,19 +261,14 @@ def _fixed(
     )
 
 
-def _free(
-    settings: InversionParameters,
-    curves: tuple[Curve, ...],
-    vp_vs: float,
-    seeds: Sequence[int],
-    chain_jobs: int,
-) -> _Run:
-    """The layers chosen by the data: one reversible-jump chain each (and its tempered copies),
-    in `chain_jobs` processes."""
+def _space(
+    settings: InversionParameters, curves: tuple[Curve, ...], vp_vs: float
+) -> transdimensional.Space:
+    """The layers chosen by the data: the data and the priors."""
     free = settings.free
     assert free.vs_min is not None and free.vs_max is not None  # resolved
     assert free.depth_min is not None and free.depth_max is not None
-    space = transdimensional.Space(
+    return transdimensional.Space(
         curves=curves,
         vs_bounds=(free.vs_min, free.vs_max),
         depth_bounds=(free.depth_min, free.depth_max),
@@ -183,24 +276,22 @@ def _free(
         least_ratio=settings.least_ratio,
         vp_vs=vp_vs,
     )
-    run_settings = transdimensional.Settings(
+
+
+def _chain_settings(settings: InversionParameters) -> transdimensional.Settings:
+    return transdimensional.Settings(
         n_iterations=settings.n_iterations,
         n_burnin=settings.n_burnin_iterations,
         save_every=SAVE_EVERY,
         temperatures=TEMPERATURES,
         hottest=HOTTEST,
     )
-    jobs = min(chain_jobs, settings.n_chains)
-    if jobs > 1:
-        one_thread_each()  # each chain's process a core
-        with ProcessPoolExecutor(jobs) as executor:
-            futures = [
-                executor.submit(transdimensional.run_chain, space, run_settings, seed)
-                for seed in seeds
-            ]
-            chains = [future.result() for future in futures]
-    else:
-        chains = [transdimensional.run_chain(space, run_settings, seed) for seed in seeds]
+
+
+def _free(settings: InversionParameters, chains: Sequence[transdimensional.Chain]) -> _Run:
+    """The layers chosen by the data: what its reversible-jump chains (one each, and its
+    tempered copies) kept."""
+    free = settings.free
     best = min(chains, key=lambda chain: chain.best_misfit)
     layers = np.concatenate([chain.layers for chain in chains])
     noise = np.concatenate([chain.noise for chain in chains])
