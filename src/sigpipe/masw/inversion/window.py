@@ -503,7 +503,7 @@ def load_vs_spread(folder: Path) -> VsSpread | None:
     with path.open(encoding="utf-8") as file:
         if file.readline().strip() != _SPREAD_HEADER:
             return None
-    rows = np.loadtxt(path, delimiter=",", skiprows=1, ndmin=2)
+    rows = np.loadtxt(path, delimiter=",", skiprows=1, ndmin=2, encoding="utf-8")
     return VsSpread(*(rows[:, k].copy() for k in range(4)))
 
 

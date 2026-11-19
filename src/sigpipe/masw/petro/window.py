@@ -177,6 +177,6 @@ def load_profile(folder: Path, quantity: Quantity) -> tuple[np.ndarray, np.ndarr
     with path.open("r", encoding="utf-8") as file:
         position_line = file.readline()
     top = json.loads(position_line.removeprefix("position:").strip())[2]
-    data = np.loadtxt(path, delimiter=",", skiprows=2, dtype=np.float32, ndmin=2)
+    data = np.loadtxt(path, delimiter=",", skiprows=2, dtype=np.float32, ndmin=2, encoding="utf-8")
     thicknesses, values = data[:, 0], data[:, 1]
     return top - np.cumsum(thicknesses), values

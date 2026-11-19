@@ -10,6 +10,7 @@ from sigpipe.base.coordinate import Coordinate
 from sigpipe.dataio.stream.loading import read_seismic_header
 from sigpipe.masw.profiles.models import Profile, ProfileKind, Record
 from sigpipe.masw.workspace import Workspace
+from sigpipe.text import read_hand_written
 
 RECEIVER_POSITIONS_FILE = "receiver_positions.yaml"
 SOURCE_POSITIONS_FILE = "source_positions.yaml"
@@ -170,8 +171,7 @@ def _read_sources(
 
 def _load_yaml(path: Path, profile: str) -> Any:  # noqa: ANN401
     try:
-        with path.open(encoding="utf-8") as file:
-            return yaml.safe_load(file)
+        return yaml.safe_load(read_hand_written(path))
     except yaml.YAMLError as exc:
         raise ProfileError(f"Profile '{profile}': {path.name} is not valid YAML ({exc}).") from exc
 
