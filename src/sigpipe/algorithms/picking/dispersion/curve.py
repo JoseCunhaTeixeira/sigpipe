@@ -2,9 +2,8 @@ import math
 from itertools import pairwise
 
 import numpy as np
-from scipy.interpolate import interp1d
+from scipy.interpolate import interp1d, make_smoothing_spline
 from scipy.ndimage import median_filter
-from scipy.signal import savgol_filter
 
 from sigpipe.base.acquisition import Acquisition
 from sigpipe.base.dispersion_curve import (
@@ -117,12 +116,17 @@ def resample_wavelength(
     curve: DispersionCurve,
     step: float = 1.0,
     wmax: float | None = None,
+    along: bool = False,
 ) -> DispersionCurve:
     """Resample a picked curve onto a uniform wavelength grid.
 
     Interpolates velocity (and uncertainty, if present) over wavelength
     w = v/f at uniform steps, then converts back to frequency and re-sorts
-    by frequency.
+    by frequency. Where the curve's wavelength turns back (its velocity rising
+    faster than its frequency, a stretch of inverse dispersion), the curve meets
+    a wavelength more than once: `along`, each meeting is kept, along the curve
+    (_crossings: a hand pick's), where interpolating over the wavelengths sorted
+    mixes points of both stretches (the tracker's, as PACo's checks were set on).
     """
     fs = np.asarray(curve.fs, dtype=np.float64)
     vs = np.asarray(curve.vs, dtype=np.float64)
@@ -144,17 +148,29 @@ def resample_wavelength(
     n_steps = round((w_max - w_min) / step) + 1
     w_resamp = np.linspace(w_min, w_max, n_steps)
 
-    vs_resamp = interp1d(w, vs, kind="linear")(w_resamp)
-    vs_err_resamp = (
-        interp1d(
-            w,
-            np.asarray(curve.vs_err, dtype=np.float64),
-            kind="linear",
-            fill_value="extrapolate",  # pyright: ignore[reportArgumentType] -- scipy's stub omits this valid literal
-        )(w_resamp)
-        if curve.vs_err is not None
-        else None
-    )
+    by_frequency = np.argsort(fs, kind="stable")
+    turns = np.diff(np.sign(np.diff(w[by_frequency])))
+    if along and (np.any(turns != 0) or np.any(np.diff(w[by_frequency]) == 0)):
+        w_resamp, vs_resamp, vs_err_resamp = _crossings(
+            w[by_frequency],
+            vs[by_frequency],
+            np.asarray(curve.vs_err, dtype=np.float64)[by_frequency]
+            if curve.vs_err is not None
+            else None,
+            w_resamp,
+        )
+    else:
+        vs_resamp = interp1d(w, vs, kind="linear")(w_resamp)
+        vs_err_resamp = (
+            interp1d(
+                w,
+                np.asarray(curve.vs_err, dtype=np.float64),
+                kind="linear",
+                fill_value="extrapolate",  # pyright: ignore[reportArgumentType] -- scipy's stub omits this valid literal
+            )(w_resamp)
+            if curve.vs_err is not None
+            else None
+        )
 
     if wmax is not None and w_resamp.max() > wmax:
         keep = w_resamp <= wmax
@@ -182,6 +198,87 @@ def resample_wavelength(
     )
 
 
+def _crossings(
+    w: np.ndarray, vs: np.ndarray, errors: np.ndarray | None, grid: np.ndarray
+) -> tuple[np.ndarray, np.ndarray, np.ndarray | None]:
+    """Where a curve, its points in frequency order at wavelengths `w`, meets each wavelength of
+    `grid`, every time: the wavelengths met, the velocities there (and uncertainties, if given),
+    interpolated linearly in wavelength between the two points around. A wavelength met at a
+    point is taken once there."""
+    met: list[np.ndarray] = []
+    velocities: list[np.ndarray] = []
+    uncertainties: list[np.ndarray] = []
+    last = w.size - 2
+    for i in range(w.size - 1):
+        a, b = w[i], w[i + 1]
+        if a == b:
+            continue
+        meets = (grid >= min(a, b)) & (grid <= max(a, b))
+        if i < last:
+            meets &= grid != b  # the next stretch's, from its first point
+        t = grid[meets]
+        share = (t - a) / (b - a)
+        met.append(t)
+        velocities.append(vs[i] + share * (vs[i + 1] - vs[i]))
+        if errors is not None:
+            uncertainties.append(errors[i] + share * (errors[i + 1] - errors[i]))
+    if not met:
+        empty = np.empty(0, dtype=np.float64)
+        return empty, empty, empty if errors is not None else None
+    return (
+        np.concatenate(met),
+        np.concatenate(velocities),
+        np.concatenate(uncertainties) if errors is not None else None,
+    )
+
+
+# The most columns between two picks that a hand pick's resampling bridges: farther apart, the
+# image has no peak between them where the pick was drawn, and nothing is made up there.
+BRIDGED_COLUMNS = 2
+
+
+def resample_runs(
+    curve: DispersionCurve, rows: np.ndarray, step: float = 1.0, bridged: int = BRIDGED_COLUMNS
+) -> DispersionCurve:
+    """`curve`, its points picked on the image's `rows`, resampled over wavelength along it
+    (resample_wavelength) run by run: picks at most `bridged` columns apart in one run, a run of
+    a single pick dropped. Across a wider gap a single resampling would draw a chord, off the
+    ridge; each run keeps to its picks."""
+    rows = np.asarray(rows)
+    breaks = np.flatnonzero(np.diff(rows) > bridged) + 1
+    runs = [run for run in np.split(np.arange(rows.size), breaks) if run.size >= 2]
+    pieces = [
+        resample_wavelength(
+            DispersionCurve(
+                fs=curve.fs[run],
+                vs=curve.vs[run],
+                mode=curve.mode,
+                acquisition=curve.acquisition,
+                vs_err=curve.vs_err[run] if curve.vs_err is not None else None,
+                type=curve.type,
+            ),
+            step=step,
+            along=True,
+        )
+        for run in runs
+    ]
+    if not pieces:
+        return resample_wavelength(curve, step=step, along=True)
+    fs = np.concatenate([piece.fs for piece in pieces])
+    order = np.argsort(fs, kind="stable")
+    errors = [piece.vs_err for piece in pieces]
+    return DispersionCurve(
+        fs=fs[order],
+        vs=np.concatenate([piece.vs for piece in pieces])[order],
+        mode=curve.mode,
+        acquisition=curve.acquisition,
+        vs_err=np.concatenate([e for e in errors if e is not None])[order]
+        if all(e is not None for e in errors)
+        else None,
+        type=curve.type,
+    )
+
+
 def pick_curves(
     dispersion_image: DispersionImage,
     fmins: list[float | None] | None = None,
@@ -197,7 +294,8 @@ def pick_curves(
     resample_over_wavelength: bool = False,
 ) -> DispersionImage:
     """Pick one curve per label as the per-frequency energy maximum of
-    `fv_map`, within whatever bounds that label is given.
+    `fv_map`, within whatever bounds that label is given: the brightest peak of each column
+    within them (brightest_peaks), so that a column whose ridge a bound cuts gives no pick.
 
     `modeled_curves`/`modeled_dvs` restrict a label's search to a band
     around a known reference curve -- at each frequency, only velocities
@@ -277,18 +375,16 @@ def pick_curves(
             )
         if modeled_dv is not None and modeled_dv <= 0:
             raise ValueError(f"modeled_dvs must be > 0, got {modeled_dv} for label '{label}'")
-        fs = dispersion_image.fs.copy()
-        vs = dispersion_image.vs.copy()
-        fv_map = dispersion_image.fv_map.copy()
+        fs = dispersion_image.fs
+        vs = dispersion_image.vs
 
         F, V = np.meshgrid(fs, vs, indexing="ij")
+        within = np.isfinite(dispersion_image.fv_map)
         wavelength = V / (F + 1e-12)
-        wavelength_mask = np.ones_like(fv_map, dtype=bool)
         if lbdmin is not None:
-            wavelength_mask &= wavelength >= lbdmin
+            within &= wavelength >= lbdmin
         if lbdmax is not None:
-            wavelength_mask &= wavelength <= lbdmax
-        fv_map[~wavelength_mask] = np.nan
+            within &= wavelength <= lbdmax
 
         if modeled_curve is not None and modeled_dv is not None:
             # np.interp would clamp to the modeled curve's endpoint
@@ -300,48 +396,46 @@ def pick_curves(
             in_modeled_range = (fs >= modeled_curve.fs.min()) & (fs <= modeled_curve.fs.max())
             v_lo = (modeled_vs - modeled_dv)[:, None]
             v_hi = (modeled_vs + modeled_dv)[:, None]
-            band_mask = (v_lo <= V) & (v_hi >= V) & in_modeled_range[:, None]
-            fv_map[~band_mask] = np.nan
+            within &= (v_lo <= V) & (v_hi >= V) & in_modeled_range[:, None]
 
-        mask_f = np.ones_like(fs, dtype=bool)
         if fmin is not None:
-            mask_f &= fs >= fmin
+            within &= fmin <= F
         if fmax is not None:
-            mask_f &= fs <= fmax
-        mask_v = np.ones_like(vs, dtype=bool)
+            within &= fmax >= F
         if vmin is not None:
-            mask_v &= vs >= vmin
+            within &= vmin <= V
         if vmax is not None:
-            mask_v &= vs <= vmax
-        fs = fs[mask_f]
-        vs = vs[mask_v]
-        fv_map = fv_map[mask_f][:, mask_v]
+            within &= vmax >= V
 
-        valid_rows = ~np.all(np.isnan(fv_map), axis=1)
-        fs = fs[valid_rows]
-        fv_map = fv_map[valid_rows]
-
-        if len(fs) < 2:
+        n_rows = int(np.count_nonzero(within.any(axis=1)))
+        if n_rows < 2:
             raise ValueError(
-                f"label '{label}': bounds leave {len(fs)} frequencies with any energy, "
+                f"label '{label}': bounds leave {n_rows} frequencies with any energy, "
                 "too few to pick a curve -- widen fmin/fmax, vmin/vmax, lbdmin/lbdmax, "
                 "or modeled_dv"
             )
-
-        idx = np.array([np.where(row == np.nanmax(row))[0][-1] for row in fv_map])
-        picked_vs = clean_picks(fs, vs[idx])
+        rows, peaks = brightest_peaks(dispersion_image.fv_map, vs, within)
+        if rows.size < 2:
+            raise ValueError(
+                f"label '{label}': the image peaks within the bounds at {rows.size} "
+                "frequencies, too few to pick a curve (where a bound cuts a ridge, its "
+                "column has no peak within them) -- widen fmin/fmax, vmin/vmax, "
+                "lbdmin/lbdmax, or modeled_dv"
+            )
+        picked_fs = fs[rows]
+        picked_vs = clean_picks(picked_fs, peaks)
 
         picked_curve = DispersionCurve(
-            fs=fs,
+            fs=picked_fs,
             vs=picked_vs,
             mode=Mode(label if label else "M", mode),
             acquisition=dispersion_image.acquisition,
             type=dispersion_image.type,
-            vs_err=lorentzian_uncertainty(fs, picked_vs, dispersion_image.acquisition),
+            vs_err=lorentzian_uncertainty(picked_fs, picked_vs, dispersion_image.acquisition),
         )
 
         if resample_over_wavelength:
-            picked_curve = resample_wavelength(picked_curve)
+            picked_curve = resample_runs(picked_curve, rows)
 
         picked_curves.append(picked_curve)
 
@@ -358,30 +452,103 @@ def pick_curves(
     )
 
 
-def clean_picks(fs: np.ndarray, vs: np.ndarray, polyorder: int = 2) -> np.ndarray:
-    """Picked velocities `vs` at frequencies `fs`, cleaned: each point far from
-    the median of its 5 neighbours (beyond 2.5 times the median distance)
-    replaced by the others' interpolation, then the curve smoothed."""
+# The faintest peak a pick takes, as a share of the brightest value it may take in its column:
+# fainter, a bump beside the ridge (a sidelobe, noise) where the bounds cut the ridge itself.
+PEAK_SHARE = 0.5
+
+
+def brightest_peaks(
+    values: np.ndarray, velocities: np.ndarray, within: np.ndarray, share: float = PEAK_SHARE
+) -> tuple[np.ndarray, np.ndarray]:
+    """Per frequency (row) of `values` [n_f, n_v]: the brightest of the column's peaks `within`
+    the bounds (a [n_f, n_v] mask), when it reaches `share` of the brightest value within them,
+    its velocity refined between cells (refined_peaks). The rows picked, and their velocities.
+
+    A peak is where the whole column rises into a cell and falls after it (column_peaks), so
+    that where a bound cuts a ridge still rising at its edge, the column gives no pick: the
+    ridge's maximum lies beyond, and the edge is not where the image peaks. Each column of a
+    phase-shift image is a frequency's own delay and sum, so its peak is that frequency's
+    velocity, however steep the curve there."""
+    column = np.nan_to_num(np.asarray(values, dtype=np.float64), nan=0.0)
+    peaks = column_peaks(column)
+    held = np.where(within, column, -np.inf)
+    brightest = held.max(axis=1, initial=-np.inf)
+    candidates = peaks & within & (column >= share * brightest[:, None])
+    rows = np.flatnonzero(candidates.any(axis=1))
+    cells = np.argmax(np.where(candidates[rows], column[rows], -np.inf), axis=1)
+    return rows, refined_peaks(column, np.asarray(velocities, dtype=np.float64), rows, cells)
+
+
+def column_peaks(values: np.ndarray) -> np.ndarray:
+    """[n_f, n_v] mask: the cells each column of `values` rises into and falls after, past any
+    flat stretch (each cell of a flat top). A column that only rises, or only falls, has none,
+    whatever steps rounding leaves on its slope; nor has a flat one, nor its edges."""
+    steps = np.sign(np.diff(values, axis=1))  # step j: from cell j to j + 1
+    n_steps = steps.shape[1]
+    positions = np.arange(n_steps)
+    # The last step that changes the value before each cell, and the first from it on.
+    before = np.maximum.accumulate(np.where(steps != 0, positions, -1), axis=1)
+    after = np.minimum.accumulate(np.where(steps != 0, positions, n_steps)[:, ::-1], axis=1)[
+        :, ::-1
+    ]
+    rises = np.take_along_axis(steps, np.clip(before, 0, None), axis=1) > 0
+    rises &= before >= 0
+    falls = np.take_along_axis(steps, np.clip(after, None, n_steps - 1), axis=1) < 0
+    falls &= after < n_steps
+    peaks = np.zeros(values.shape, dtype=bool)
+    # Cell j (inner): risen into by the steps before it (to j - 1), falling from step j on.
+    peaks[:, 1:-1] = rises[:, :-1] & falls[:, 1:]
+    return peaks
+
+
+def refined_peaks(
+    values: np.ndarray, velocities: np.ndarray, rows: np.ndarray, cells: np.ndarray
+) -> np.ndarray:
+    """The velocity of each peak (`rows`, `cells`: inner cells of `values`), between cells: the
+    vertex of the parabola through the peak and its two neighbours, at most half a cell away."""
+    if rows.size == 0:
+        return np.empty(0, dtype=np.float64)
+    left, peak, right = (values[rows, cells + k] for k in (-1, 0, 1))
+    curvature = left - 2 * peak + right
+    with np.errstate(divide="ignore", invalid="ignore"):
+        shift = np.where(curvature < 0, 0.5 * (left - right) / curvature, 0.0)
+    shift = np.clip(np.nan_to_num(shift), -0.5, 0.5)
+    step = np.where(
+        shift >= 0,
+        velocities[cells + 1] - velocities[cells],
+        velocities[cells] - velocities[cells - 1],
+    )
+    return velocities[cells] + shift * step
+
+
+def clean_picks(fs: np.ndarray, vs: np.ndarray) -> np.ndarray:
+    """Picked velocities `vs` at frequencies `fs`, cleaned: each point far from the median of its
+    5 neighbours (beyond 2.5 times the median distance, and 1 % of its velocity) replaced by the
+    others' interpolation, then the curve smoothed (smoothed)."""
+    fs = np.asarray(fs, dtype=np.float64)
     vs = np.array(vs, dtype=np.float64)
     # The ends padded with their own values: zeros would make them outliers.
     median_vs = median_filter(vs, size=5, mode="nearest")
-    residual = np.abs(vs - median_vs)
-    outliers = residual > 2.5 * np.median(residual)
-    if np.any(outliers):
+    residual = np.abs(vs - median_vs) / median_vs
+    # On a monotonic stretch each point is its neighbours' median: with more than half the curve
+    # such, the median distance is 0, and without a floor any point off it would be an outlier.
+    outliers = residual > max(2.5 * float(np.median(residual)), 0.01)
+    if np.any(outliers) and np.count_nonzero(~outliers) >= 2:
         valid = ~outliers
         vs[outliers] = np.interp(fs[outliers], fs[valid], vs[valid])
-    return _smooth(vs, polyorder)
+    return smoothed(fs, vs).astype(np.float32)
 
 
-def _smooth(vs: np.ndarray, polyorder: int = 2) -> np.ndarray:
-    """Savitzky-Golay over about half the curve (an odd window). A curve too
-    short for the polynomial's order is kept as picked."""
-    window = len(vs) // 2
-    if window % 2 == 0:
-        window += 1
-    if window <= polyorder:
-        return np.asarray(vs, dtype=np.float32)
-    return np.asarray(
-        savgol_filter(vs, window_length=window, polyorder=polyorder),
-        dtype=np.float32,
-    )
+def smoothed(fs: np.ndarray, vs: np.ndarray) -> np.ndarray:
+    """`vs` smoothed: the smoothing spline of ln v over ln f whose smoothness generalized
+    cross-validation chooses (scipy's make_smoothing_spline), as little as the picks' own scatter
+    calls for. Where they follow a steep branch and its knee, so does the curve, which one
+    polynomial over much of it would cut across; where they scatter about a flat stretch, it is
+    smoothed as much. Under 5 points, or frequencies not increasing, kept as picked."""
+    fs = np.asarray(fs, dtype=np.float64)
+    vs = np.array(vs, dtype=np.float64)
+    if fs.size < 5 or np.any(fs <= 0) or np.any(vs <= 0) or np.any(np.diff(fs) <= 0):
+        return vs
+    x = np.log(fs)
+    spline = make_smoothing_spline(x, np.log(vs))
+    return np.exp(np.asarray(spline(x), dtype=np.float64))
