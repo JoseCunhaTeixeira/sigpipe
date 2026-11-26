@@ -1,9 +1,10 @@
 """The picker's parameters, and what it returns for one dispersion image."""
 
 from dataclasses import dataclass
+from typing import Self
 
 import numpy as np
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from sigpipe.algorithms.picking.dispersion.curve import PICKED_SPACINGS
 from sigpipe.base.dispersion_curve import DispersionCurve
@@ -89,10 +90,18 @@ class PickingParameters(BaseModel):
         "bridged over at most this many Hz, a wider gap ends the run; null: every kept point.",
     )
     break_slope: float = Field(
-        default=2.0,
+        default=4.0,
         gt=0,
         description="A step between consecutive kept points steeper than this |d ln v / d ln f| "
-        "ends the run: the ridge broke.",
+        "ends the run: the pick jumped off its ridge. A ridge turning fast (a steep branch, its "
+        "knee) steps less.",
+    )
+    reach_slope: float = Field(
+        default=2.0,
+        gt=0,
+        description="Beyond the window's reach (wavelengths over three window lengths), a step "
+        "steeper than this ends the run already: there the pick climbs the smear of a ridge the "
+        "window no longer resolves.",
     )
     max_low_fall: float | None = Field(
         default=0.05,
@@ -130,8 +139,23 @@ class PickingParameters(BaseModel):
     guide: tuple[tuple[float, float], ...] | None = Field(
         default=None,
         description="Points (frequency in Hz, velocity in m/s) the M0 corridor is centred on, "
-        "instead of the lowest ridge: e.g. the neighbouring windows' median curve (G4).",
+        "instead of the lowest ridge, within their band: e.g. the neighbouring windows' median "
+        "curve (G4).",
     )
+    lasso: tuple[tuple[float, float], ...] | None = Field(
+        default=None,
+        min_length=3,
+        description="Vertices (frequency in Hz, velocity in m/s) of a polygon M0 is picked "
+        "inside, as PAC's lasso picks: the brightest peak of each column inside it, none where "
+        "its edge cuts a ridge still rising, cleaned; no search. The search's bounds still hold "
+        "(the band, the wavelengths). Null: the tracker.",
+    )
+
+    @model_validator(mode="after")
+    def _one_way(self) -> Self:
+        if self.guide is not None and self.lasso is not None:
+            raise ValueError("a guide or a lasso, not both")
+        return self
 
 
 @dataclass(frozen=True, slots=True)
@@ -140,8 +164,10 @@ class PickedMode:
 
     number: int
     frequencies: np.ndarray  # every tracked frequency, Hz
-    velocities: np.ndarray  # the pick at each frequency, m/s
-    coherence: np.ndarray  # image value along the pick
+    # The pick at each frequency, m/s: a kept point at its column's peak within the corridor, as
+    # a lasso along the ridge picks it (cleaned); the others where the tracking went.
+    velocities: np.ndarray
+    coherence: np.ndarray  # image value along the tracking
     # The bound, not the data, decided: the pick is on its corridor's edge, or its column's ridge
     # is cut by the search bounds.
     pinned: np.ndarray
@@ -149,9 +175,36 @@ class PickedMode:
     # pick's continuous run.
     kept: np.ndarray
     noise_floor: float  # 1/sqrt(N) for the N receivers of the window
-    # The kept points, resampled over wavelength every wavelength_step; None below 2 points.
+    # The kept points, resampled over wavelength every wavelength_step (along the curve where its
+    # wavelength turns back); None below 2 points.
     curve: DispersionCurve | None
+    # The lasso the kept points were picked in, m/s at each frequency: the edges of the corridor's
+    # lowest and highest cells (half a cell beyond them), or of a drawn lasso's; None for a curve
+    # picked elsewhere (a saved one).
+    low: np.ndarray | None = None
+    high: np.ndarray | None = None
 
     @property
     def label(self) -> str:
         return f"M{self.number}"
+
+    @property
+    def lasso(self) -> tuple[tuple[float, float], ...] | None:
+        """The lasso the pick was made in, as a polygon (frequency in Hz, velocity in m/s): its
+        bottom from the first kept point to the last, then its top back, half a column beyond
+        the first and the last. Given back as the picking's lasso, it holds the same cells; None
+        without kept points or a lasso."""
+        if self.low is None or self.high is None or not self.kept.any():
+            return None
+        indices = np.flatnonzero(self.kept)
+        within = slice(int(indices[0]), int(indices[-1]) + 1)
+        fs = self.frequencies[within].astype(float)
+        column = float(np.min(np.diff(self.frequencies))) / 2 if self.frequencies.size > 1 else 0.5
+        edges = np.concatenate(([fs[0] - column], fs, [fs[-1] + column]))
+        low = self.low[within].astype(float)
+        high = self.high[within].astype(float)
+        bottom = np.concatenate(([low[0]], low, [low[-1]]))
+        top = np.concatenate(([high[0]], high, [high[-1]]))
+        vertices = [*zip(edges.tolist(), bottom.tolist(), strict=True)]
+        vertices += [*zip(edges[::-1].tolist(), top[::-1].tolist(), strict=True)]
+        return tuple(vertices)

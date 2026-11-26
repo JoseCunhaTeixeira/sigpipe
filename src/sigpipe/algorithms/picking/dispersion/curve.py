@@ -521,10 +521,11 @@ def refined_peaks(
     return velocities[cells] + shift * step
 
 
-def clean_picks(fs: np.ndarray, vs: np.ndarray) -> np.ndarray:
+def clean_picks(fs: np.ndarray, vs: np.ndarray, fallback: np.ndarray | None = None) -> np.ndarray:
     """Picked velocities `vs` at frequencies `fs`, cleaned: each point far from the median of its
-    5 neighbours (beyond 2.5 times the median distance, and 1 % of its velocity) replaced by the
-    others' interpolation, then the curve smoothed (smoothed)."""
+    5 neighbours (beyond 2.5 times the median distance, and 1 % of its velocity) replaced, by
+    `fallback` there when given (their median, for the tracker's picks), else by the others'
+    interpolation, then the curve smoothed (smoothed)."""
     fs = np.asarray(fs, dtype=np.float64)
     vs = np.array(vs, dtype=np.float64)
     # The ends padded with their own values: zeros would make them outliers.
@@ -533,7 +534,9 @@ def clean_picks(fs: np.ndarray, vs: np.ndarray) -> np.ndarray:
     # On a monotonic stretch each point is its neighbours' median: with more than half the curve
     # such, the median distance is 0, and without a floor any point off it would be an outlier.
     outliers = residual > max(2.5 * float(np.median(residual)), 0.01)
-    if np.any(outliers) and np.count_nonzero(~outliers) >= 2:
+    if fallback is not None:
+        vs[outliers] = np.asarray(fallback, dtype=np.float64)[outliers]
+    elif np.any(outliers) and np.count_nonzero(~outliers) >= 2:
         valid = ~outliers
         vs[outliers] = np.interp(fs[outliers], fs[valid], vs[valid])
     return smoothed(fs, vs).astype(np.float32)

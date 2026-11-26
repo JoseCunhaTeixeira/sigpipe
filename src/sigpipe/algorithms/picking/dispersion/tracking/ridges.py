@@ -62,8 +62,10 @@ def followed_ridge(
     Where the lowest ridge drops further than `jump` (relative) below the ridge followed, a
     maximum within `jump` of that ridge, and brighter than the lower one, continues it: a dimmer
     maximum under a ridge that goes on is its sidelobe or its alias, not the fundamental mode.
-    Any other step beyond `jump` ends the following (the ridge broke, or rose onto another
-    branch, or a brighter one appeared under it): from there on, the lowest ridge.
+    Where the lowest ridge rises further than `jump` above it, onto a brighter ridge (a higher
+    mode taking over), a maximum within `jump` of the ridge followed that still reaches `floor`
+    continues it, dimmer, under the brighter one. Any other step beyond `jump` ends the following
+    (the ridge broke, or a brighter one appeared under it): from there on, the lowest ridge.
     """
     lowest = lowest_ridge(image, start, stop, threshold, floor)
     log_v = np.log(velocities)
@@ -75,8 +77,13 @@ def followed_ridge(
         while 0 <= i < lowest.size:
             here = int(lowest[i])
             if log_v[here] - log_v[previous] > reach:
-                break
-            if log_v[previous] - log_v[here] > reach:
+                low = int(start[i])
+                maxima = low + _peaks(image[i, low : int(stop[i]) + 1], floor)
+                distances = np.abs(log_v[maxima] - log_v[previous])
+                if not (distances <= reach).any():
+                    break
+                here = int(maxima[np.argmin(distances)])
+            elif log_v[previous] - log_v[here] > reach:
                 low = int(start[i])
                 maxima = low + _maxima(image[i, low : int(stop[i]) + 1], threshold, floor)
                 distances = np.abs(log_v[maxima] - log_v[previous])
@@ -90,6 +97,13 @@ def followed_ridge(
             previous = here
             i += step
     return ridge
+
+
+def _peaks(column: np.ndarray, floor: float) -> np.ndarray:
+    """The indices of `column`'s inner local maxima that reach `floor`, from the slowest."""
+    inner = column[1:-1]
+    peaks = (inner >= column[:-2]) & (inner >= column[2:]) & (inner >= floor)
+    return np.flatnonzero(peaks) + 1
 
 
 def _maxima(column: np.ndarray, threshold: float, floor: float = 0.0) -> np.ndarray:

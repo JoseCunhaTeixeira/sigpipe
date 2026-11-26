@@ -8,7 +8,7 @@ import numpy as np
 from sigpipe.algorithms.picking.dispersion.tracking import pick_modes
 from sigpipe.base.acquisition import LinearAcquisition
 from sigpipe.base.coordinate import Coordinate
-from sigpipe.base.dispersion_curve import VelocityType
+from sigpipe.base.dispersion_curve import DispersionCurve, Mode, VelocityType
 from sigpipe.base.dispersion_image import DispersionImage
 from sigpipe.masw.quality.curve import CurveLimits, measure_curve, pick_of
 from sigpipe.masw.quality.image import (
@@ -21,7 +21,7 @@ from sigpipe.masw.quality.image import (
     noise_floor,
 )
 from sigpipe.masw.quality.line import Series, neighbourhoods, spread
-from sigpipe.masw.quality.pick import measure_pick
+from sigpipe.masw.quality.pick import measure_pick, strong_band
 
 ACQUISITION = LinearAcquisition(
     source=Coordinate(0.0, 0.0, 0.0),
@@ -103,6 +103,23 @@ def test_a_clean_ridges_pick_scores_as_a_plane_wave() -> None:
     assert measures.constant_wavelength is not None and measures.constant_wavelength < 0.2
     assert measure_pick(image, None).n_points == 0
     assert measure_pick(image, None).sharpness is None
+
+
+def test_the_band_where_a_pick_stands_out_on_its_data() -> None:
+    # Under 30 Hz a ridge 1.6 times faster than M0 and brighter (0.8 against 0.5): M0's pick lies
+    # off its columns' brightest value there, 45 % of it. From 30 Hz up it is the brightest: the
+    # band to pick, the bad points under it left out though the share would allow some.
+    lower = _ridge(1.6 * M0) * (FS < 30)[:, None]
+    image = _image(np.maximum(_ridge(M0, height=0.5), lower))
+    (m0,) = pick_modes(image)
+    limits = {"min_prominence": 0.5, "min_on_data": 0.6, "min_points": 5}
+
+    assert (measure_pick(image, m0).on_data or 0.0) < 0.6
+    assert strong_band(image, m0, **limits) == (30.0, 60.0)
+    # Under a brighter ridge throughout: no band to pick.
+    over = _image(np.maximum(_ridge(M0, height=0.5), _ridge(1.6 * M0)))
+    (under,) = pick_modes(over)
+    assert strong_band(over, under, **limits) is None
 
 
 def test_the_background_off_the_ridge_and_its_stripes() -> None:
@@ -192,6 +209,43 @@ def test_the_nearest_shot_is_reported() -> None:
         "n_points",
     ]
     assert not missing["n_points"].passed
+
+
+def _jump(fs: np.ndarray, vs: np.ndarray) -> float:
+    curve = DispersionCurve(
+        fs=fs, vs=vs, mode=Mode("M", 0), acquisition=ACQUISITION, type=VelocityType.PHASE
+    )
+    image = _image(_ridge(M0))
+    measures = measure_curve(image, pick_of(curve, image), CurveLimits()).measures
+    value = next(one for one in measures if one.name == "max_jump").value
+    assert value is not None
+    return float(value)
+
+
+def test_a_jump_is_a_step_or_a_slide_onto_a_faster_mode_not_a_bump_of_the_ridge() -> None:
+    fs = np.arange(8.0, 40.0, 0.5)
+    m0 = 150 + 250 * np.exp(-fs / 15)
+    limit = CurveLimits().max_jump
+
+    # A step onto a mode 60 % faster at 25 Hz, from one point to the next.
+    assert _jump(fs, np.where(fs >= 25, 1.6 * m0, m0)) > limit
+    # The same mode reached over 3 Hz, under 10 % a point, then held: a slide.
+    slide = m0 * (1 + 0.6 * np.clip((fs - 20) / 3, 0, 1))
+    assert np.max(np.abs(np.diff(slide)) / slide[:-1]) < 0.1
+    assert _jump(fs, slide) > limit
+    # The ridge's bump, 50 % up from 15 to 19 Hz and back down: by wavelength its two sides
+    # interleave, 34 % apart, as a jump's would, but it falls back.
+    bump = m0 * (1 + 0.5 * np.exp(-0.5 * ((fs - 19) / 1.5) ** 2))
+    by_wavelength = bump[np.argsort(bump / fs)]
+    assert np.max(np.abs(np.diff(by_wavelength)) / by_wavelength[:-1]) > limit
+    assert _jump(fs, bump) <= limit
+    # A steeper curve with a gap in its picks from 8 to 16 Hz (a lasso's, around a streak): the
+    # ridge's own dispersion changes the velocity 31 % across it, at a slope of 0.5, no steeper
+    # than a ridge turns: no jump.
+    steep = 150 + 400 * np.exp(-fs / 8)
+    gap = (fs > 8) & (fs < 16)
+    assert np.abs(steep[fs == 16][0] / steep[fs == 8][0] - 1) > limit
+    assert _jump(fs[~gap], steep[~gap]) <= limit
 
 
 def test_an_isolated_window_is_an_outlier_and_a_shared_change_is_geology() -> None:

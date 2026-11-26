@@ -2,6 +2,7 @@ import numpy as np
 import pytest
 
 from sigpipe.algorithms.picking.dispersion.curve import (
+    brightest_peaks,
     longest_reached_wavelength,
     max_resolvable_wavelength,
     min_resolvable_wavelength,
@@ -9,7 +10,8 @@ from sigpipe.algorithms.picking.dispersion.curve import (
     resample_wavelength,
     shortest_picked_wavelength,
 )
-from sigpipe.algorithms.picking.dispersion.lasso import pick_lasso
+from sigpipe.algorithms.picking.dispersion.lasso import lasso_cells, pick_lasso
+from sigpipe.algorithms.picking.dispersion.tracking import PickingParameters, pick_modes
 from sigpipe.base.acquisition import LinearAcquisition
 from sigpipe.base.coordinate import Coordinate
 from sigpipe.base.dispersion_curve import DispersionCurve, Mode, VelocityType
@@ -135,6 +137,62 @@ def test_where_a_lasso_cuts_the_ridge_its_columns_give_no_pick(steep: Dispersion
 
     assert not ((fs > 5.05) & (fs < 5.95)).any()
     np.testing.assert_allclose(vs, knee(fs), rtol=0.01)
+
+
+def _cut_lasso() -> list[tuple[float, float]]:
+    """A lasso around the knee from 4.8 to 16 Hz, its upper edge 5 % under the ridge between 5
+    and 6 Hz."""
+    upper = [
+        (float(f), float(knee(f)) * (0.95 if 5.0 <= f <= 6.0 else 1.25))
+        for f in KNEE_FS
+        if 4.8 <= f <= 16.0
+    ]
+    return upper + [(f, 0.8 * float(knee(f))) for f, _ in upper[::-1]]
+
+
+def test_the_pickers_lasso_is_pacs_and_pins_where_its_edge_cuts_the_ridge(
+    steep: DispersionImage,
+) -> None:
+    # Given to the picker (as PACo's agent gives one), the lasso picks the curve PAC's lasso
+    # picks, so that the checks judge it and a replay makes it again; where its edge cuts the
+    # ridge, the edge decided: pinned, not kept.
+    polygon = _cut_lasso()
+
+    (mode,) = pick_modes(steep, PickingParameters(lasso=tuple(polygon)))
+    fs, vs = _m0(pick_lasso(steep, polygon, Mode("M", 0)))
+
+    assert mode.curve is not None
+    np.testing.assert_array_equal(mode.curve.fs.astype(float), fs)
+    np.testing.assert_array_equal(mode.curve.vs.astype(float), vs)
+    rows, _ = brightest_peaks(steep.fv_map, steep.vs, lasso_cells(steep, polygon))
+    np.testing.assert_array_equal(mode.kept, np.isin(mode.frequencies, steep.fs[rows]))
+    np.testing.assert_array_equal(mode.pinned, ~mode.kept)
+    assert mode.pinned[(mode.frequencies > 5.05) & (mode.frequencies < 5.95)].all()
+    # Resampled finer as the picking asks (G3's fix for too few points), on the same picks.
+    (finer,) = pick_modes(steep, PickingParameters(lasso=tuple(polygon), wavelength_step=0.5))
+    assert finer.curve is not None
+    assert finer.curve.fs.size > 1.5 * mode.curve.fs.size
+    np.testing.assert_array_equal(finer.velocities, mode.velocities)
+
+
+def test_a_lasso_or_a_guide_not_both() -> None:
+    with pytest.raises(ValueError, match="not both"):
+        PickingParameters(lasso=((5, 100), (10, 100), (10, 200)), guide=((5, 150), (10, 150)))
+    with pytest.raises(ValueError, match="at least 3"):
+        PickingParameters(lasso=((5, 100), (10, 200)))
+
+
+def test_a_pick_gives_back_the_lasso_it_was_made_in(steep: DispersionImage) -> None:
+    # The tracker's corridor over its kept points is its lasso: given back to the picker (an
+    # agent editing it), it holds the same cells, and picks each kept point again.
+    (auto,) = pick_modes(steep)
+    assert auto.lasso is not None
+
+    (again,) = pick_modes(steep, PickingParameters(lasso=auto.lasso))
+
+    common = np.isin(again.frequencies, auto.frequencies[auto.kept]) & again.kept
+    assert np.count_nonzero(common) == np.count_nonzero(auto.kept)
+    np.testing.assert_allclose(again.velocities[common], auto.velocities[auto.kept], rtol=0.01)
 
 
 def test_a_box_whose_bound_cuts_the_ridge_picks_nothing_there(steep: DispersionImage) -> None:

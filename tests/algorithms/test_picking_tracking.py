@@ -98,7 +98,8 @@ def test_the_default_is_m0_only() -> None:
 
 
 def test_the_pick_stops_where_its_ridge_breaks() -> None:
-    # At 40 Hz the ridge jumps onto a branch 60 % faster: two runs, and the wider one is kept.
+    # At 40 Hz the ridge jumps onto a branch 60 % faster: two runs, and the one spanning more
+    # octaves within the window's reach is kept: below the jump, where the wavelengths are longest.
     def jumping(frequencies: np.ndarray) -> np.ndarray:
         return np.where(frequencies < 40, m0(frequencies), 1.6 * m0(frequencies))
 
@@ -107,8 +108,8 @@ def test_the_pick_stops_where_its_ridge_breaks() -> None:
     (mode,) = pick_modes(image)
     (everything,) = pick_modes(image, PickingParameters(max_gap_hz=None))
 
-    assert mode.frequencies[mode.kept].min() >= 40
-    assert everything.frequencies[everything.kept].min() < 40
+    assert mode.frequencies[mode.kept].max() < 40
+    assert everything.frequencies[everything.kept].max() > 40
 
 
 def test_the_pick_goes_on_over_a_dimmer_ridge_under_it() -> None:
@@ -129,8 +130,9 @@ def test_the_pick_goes_on_over_a_dimmer_ridge_under_it() -> None:
 
 
 def test_a_brighter_ridge_under_the_one_followed_ends_the_following() -> None:
-    # Above 40 Hz a branch 60 % faster than M0 alone, the pick (the widest run); below, M0
-    # appears under it, brighter than the branch going on: the fundamental mode, not a sidelobe.
+    # Searched from 25 Hz: above 40 Hz a branch 60 % faster than M0 alone, the pick (the run
+    # widest in octaves); below, M0 appears under it, brighter than the branch going on: the
+    # fundamental mode, not a sidelobe.
     def fast(frequencies: np.ndarray) -> np.ndarray:
         return 1.6 * m0(frequencies)
 
@@ -140,8 +142,9 @@ def test_a_brighter_ridge_under_the_one_followed_ends_the_following() -> None:
     def below_40_hz(frequencies: np.ndarray) -> np.ndarray:
         return np.where(frequencies < 40, 1.0, 0.0)
 
-    (mode,) = pick_modes(_shot([(fast, dimmer_below_40_hz), (m0, below_40_hz)], noise=0.3))
-    below = (mode.frequencies >= 6) & (mode.frequencies <= 35)
+    image = _shot([(fast, dimmer_below_40_hz), (m0, below_40_hz)], noise=0.3)
+    (mode,) = pick_modes(image, PickingParameters(fmin=25.0))
+    below = (mode.frequencies >= 26) & (mode.frequencies <= 35)
 
     # The pick stays the branch's run; below it, M0 is tracked, not the dimmer branch.
     assert mode.frequencies[mode.kept].min() >= 40
@@ -170,9 +173,71 @@ def test_a_short_gap_in_the_ridge_is_bridged_a_wide_one_ends_it() -> None:
     # One silent column drops 1.5 Hz of them, under 2 Hz: one run on both sides.
     kept = short.frequencies[short.kept]
     assert kept.min() < 20 and kept.max() > 60
-    # 6 Hz: the run ends there, and the wider side (36 to 100 Hz) is the pick.
+    # 6 Hz: the run ends there, and the side spanning more octaves within the window's reach
+    # (under 30 Hz, its wavelengths the longest) is the pick.
     kept = wide.frequencies[wide.kept]
-    assert kept.min() >= 36
+    assert kept.max() < 30
+
+
+def _ridges(*ridges: tuple[np.ndarray, np.ndarray]) -> DispersionImage:
+    """An image of Gaussian ridges, 10 % wide, at 0.9 over a 0.05 background: each its band
+    (a mask over FS_FINE) and its velocities there."""
+    fv_map = np.full((FS_FINE.size, VS_FINE.size), 0.05)
+    for band, centre in ridges:
+        ridge = 0.9 * np.exp(-0.5 * ((VS_FINE - centre[:, None]) / (0.1 * centre[:, None])) ** 2)
+        fv_map[band] = np.maximum(fv_map[band], 0.05 + ridge)
+    return DispersionImage(
+        fv_map=fv_map, fs=FS_FINE, vs=VS_FINE, type=VelocityType.PHASE, acquisition=ACQUISITION
+    )
+
+
+FS_FINE = np.arange(1.0, 95.25, 0.25)
+VS_FINE = np.arange(1.0, 1001.0)
+
+
+def test_a_run_at_a_constant_wavelength_is_no_modes() -> None:
+    # M0 from 5 to 35 Hz; from 40 to 95 Hz, a wider run at 1.5 m whatever the frequency (an
+    # alias at one receiver spacing, its velocity rising as the frequency): M0 is the pick.
+    low, high = (FS_FINE >= 5) & (FS_FINE <= 35), (FS_FINE >= 40) & (FS_FINE <= 95)
+    (mode,) = pick_modes(_ridges((low, m0(FS_FINE[low])), (high, 1.5 * FS_FINE[high])))
+
+    kept = mode.frequencies[mode.kept]
+    assert kept.max() <= 35
+    assert mode.velocities[mode.kept] == pytest.approx(m0(kept), rel=0.03)
+
+
+def test_a_faster_run_with_no_slower_ridge_under_it_stays_m0s() -> None:
+    # From 13 to 16 Hz a run dipping from 209 to 153 m/s, then from 33 to 48 Hz a ridge at
+    # 222 m/s spanning more octaves, 45 % faster, nothing under it: not a higher mode over M0,
+    # but M0 itself, the pick (as on active_test_profile's 24-receiver window at 53.25 m).
+    dip, flat = (FS_FINE >= 13) & (FS_FINE <= 16), (FS_FINE >= 33) & (FS_FINE <= 48)
+    falling = 209 - (FS_FINE[dip] - 13) * 56 / 3
+    (mode,) = pick_modes(_ridges((dip, falling), (flat, np.full(flat.sum(), 222.0))))
+
+    kept = mode.frequencies[mode.kept]
+    assert kept.min() >= 33 and kept.max() <= 48
+
+
+def test_a_run_slower_than_any_surface_wave_is_no_modes() -> None:
+    # From 1 to 18 Hz an artefact at 20 m/s (a correlation's zero lag), wider than M0's run
+    # from 20 to 34 Hz: M0 is the pick.
+    low, high = (FS_FINE >= 1) & (FS_FINE <= 18), (FS_FINE >= 20) & (FS_FINE <= 34)
+    (mode,) = pick_modes(_ridges((low, np.full(low.sum(), 20.0)), (high, m0(FS_FINE[high]))))
+
+    kept = mode.frequencies[mode.kept]
+    assert kept.min() >= 20
+    assert mode.velocities[mode.kept] == pytest.approx(m0(kept), rel=0.03)
+
+
+def test_of_two_runs_nearly_as_wide_the_lowest_is_kept() -> None:
+    # M0 from 10 to 20 Hz and from 30 to 62 Hz, silent between: the lower run spans an octave
+    # (a factor 2), the upper a little more (2.07), and 22 Hz more; the lower, nearly as wide
+    # in octaves, its wavelengths longer, is kept.
+    low, high = (FS_FINE >= 10) & (FS_FINE <= 20), (FS_FINE >= 30) & (FS_FINE <= 62)
+    (mode,) = pick_modes(_ridges((low, m0(FS_FINE[low])), (high, m0(FS_FINE[high]))))
+
+    kept = mode.frequencies[mode.kept]
+    assert kept.max() <= 20
 
 
 def _slowing_below(frequency: float, fall: float) -> Dispersion:
@@ -194,10 +259,10 @@ def test_a_pick_slowing_down_toward_its_lowest_frequencies_loses_that_end() -> N
     # than the fastest point above, it is cut; without the cut, the pick goes on down.
     assert mode.frequencies[mode.kept].min() >= 3.5
     assert everything.frequencies[everything.kept].min() < 2
-    # Above, the pick is the one without the cut.
+    # Above, the pick is the one without the cut: smoothed over the points kept, a hair apart.
     above = mode.kept & (mode.frequencies >= 5)
     assert everything.kept[above].all()
-    assert mode.velocities[above] == pytest.approx(everything.velocities[above])
+    assert mode.velocities[above] == pytest.approx(everything.velocities[above], rel=1e-3)
 
 
 def test_a_long_gentle_slowing_at_the_low_end_is_cut_too() -> None:
@@ -406,6 +471,127 @@ def test_the_curve_is_the_kept_points_over_wavelength() -> None:
     assert (curve.vs / curve.fs).max() <= kept_wavelengths.max()
 
 
+def test_the_curve_follows_a_steep_branch_and_its_knee() -> None:
+    """Six receivers 5 m apart, whose ridges are broad at low frequencies, and a soft layer over a
+    stiff one: from 225 m/s at 4.7 Hz down to 105 at 6, flat at 82 above 9. Where the ridge turns
+    fast the tracking's smoothness holds it off the crest, by up to 5 %; the curve, each point at
+    its column's peak in the corridor (a lasso along the ridge), keeps to it."""
+    acquisition = LinearAcquisition(
+        source=Coordinate(0.0, 0.0, 0.0),
+        receivers=tuple(Coordinate(5.0 + 5.0 * k, 0.0, 0.0) for k in range(6)),
+    )
+    offsets = acquisition.offsets.astype(float)
+
+    def knee(frequencies: np.ndarray) -> np.ndarray:
+        return 82 + 143 * np.exp(-(frequencies - 4.7) / 0.85)
+
+    sampling_freq, n_samples = 100.0, 1_000  # 10 s records: 0.1 Hz columns
+    frequencies = np.fft.rfftfreq(n_samples, 1 / sampling_freq)
+    rng = np.random.default_rng(0)
+    shape = (offsets.size, frequencies.size)
+    spectra = 0.1 * (rng.standard_normal(shape) + 1j * rng.standard_normal(shape)) / math.sqrt(2)
+    spectra += np.exp(
+        -2j * np.pi * offsets[:, None] * frequencies / knee(np.maximum(frequencies, 1e-3))
+    )
+    traces = np.fft.irfft(spectra, n=n_samples, axis=1)
+    fs, vs, fv_map = phase_shift(
+        traces, sampling_freq, offsets, fmin=0.0, fmax=30.0, vmin=30.0, vmax=400.0, nv=371
+    )
+    image = DispersionImage(
+        fv_map=fv_map, fs=fs, vs=vs, type=VelocityType.PHASE, acquisition=acquisition
+    )
+
+    (mode,) = pick_modes(image)
+    curve = mode.curve
+
+    assert curve is not None
+    band = (curve.fs >= 6) & (curve.fs <= 16)
+    assert band.sum() >= 10
+    assert curve.vs[band] == pytest.approx(knee(curve.fs[band]), rel=0.01)
+    # Its steepest stretch, within the window's reach, is one run with the rest: a ridge turning
+    # fast, at 2 to 3.3 in |d ln v / d ln f|, steps less than a jump.
+    steepest = (mode.frequencies >= 4.7) & (mode.frequencies <= 6)
+    assert mode.kept[steepest].all()
+    assert mode.velocities[steepest] == pytest.approx(knee(mode.frequencies[steepest]), rel=0.02)
+
+
+def test_beyond_the_reach_a_steep_climb_ends_the_run() -> None:
+    """A ridge climbing at 3 in |d ln v / d ln f| toward its lowest frequencies, under 10 Hz, past
+    three window lengths (141 m) under 6.8 Hz: within the reach, a ridge turning fast, kept;
+    beyond it, the smear of a ridge the window no longer resolves, where the run ends."""
+    fs = np.arange(5.0, 30.25, 0.25)
+    vs = np.arange(1.0, 1501.0)
+    centre = np.where(fs >= 10, 300.0, 300.0 * (fs / 10) ** -3)[:, None]
+    image = DispersionImage(
+        fv_map=0.05 + 0.9 * np.exp(-0.5 * ((vs - centre) / (0.1 * centre)) ** 2),
+        fs=fs,
+        vs=vs,
+        type=VelocityType.PHASE,
+        acquisition=ACQUISITION,
+    )
+
+    (mode,) = pick_modes(image)
+    (climbing,) = pick_modes(image, PickingParameters(reach_slope=4.0))
+    (strict,) = pick_modes(image, PickingParameters(break_slope=2.0))
+
+    assert mode.frequencies[mode.kept].min() == pytest.approx(7.0)
+    assert mode.velocities[mode.kept] == pytest.approx(centre[mode.kept, 0], rel=0.02)
+    assert climbing.frequencies[climbing.kept].min() < 6.5
+    # A limit of 2 within the reach too cuts the climb where it starts.
+    assert strict.frequencies[strict.kept].min() == pytest.approx(10.0)
+
+
+def test_m0_is_picked_where_a_higher_mode_is_brighter_at_high_frequencies() -> None:
+    """M1, 70 % faster, outshines M0 above 35 Hz, its widest run: the pick stays on M0, the
+    slowest mode, followed under M1 as far as it stands above the noise floor."""
+
+    def m1_rising(frequencies: np.ndarray) -> np.ndarray:
+        return np.clip((frequencies - 20) / 15, 0, 1.6)
+
+    (mode,) = pick_modes(_shot([(m0, 1.0), (lambda f: 1.7 * m0(f), m1_rising)], noise=0.6))
+
+    kept = mode.frequencies[mode.kept]
+    velocities = mode.velocities[mode.kept]
+    # Every kept point on M0, none on M1, past where M1 outshines it; within the window's reach
+    # (from 5 Hz), within 6 % on this noisy shot.
+    assert (np.abs(velocities - m0(kept)) < np.abs(velocities - 1.7 * m0(kept))).all()
+    assert kept.max() > 60
+    reached = kept >= 5
+    assert velocities[reached] == pytest.approx(m0(kept[reached]), rel=0.06)
+
+
+def test_a_maximum_under_the_noise_floor_does_not_pull_the_pick() -> None:
+    """Nine receivers 1.5 m apart (a noise floor of 1/3) and, in five columns scattered over the
+    run's low end, a bump at 40 m/s under the ridge: over 0.35 of its column's maximum, so the
+    lowest maximum there, but under the noise floor, so noise (as at active_p2's 6 m, 9 receivers
+    a window). Within the run the ridge followed held them, its corridor pulled down to them,
+    losing them and their neighbours; the pick keeps every column, on M0."""
+    acquisition = LinearAcquisition(
+        source=Coordinate(0.0, 0.0, 0.0),
+        receivers=tuple(Coordinate(1.5 * k, 0.0, 0.0) for k in range(9)),
+    )
+    fs = np.round(np.arange(10.0, 30.01, 1 / 3), 2)  # 3 s records
+    vs = np.arange(10.0, 601.0, 1.0)
+    centre = m0(fs)[:, None]
+    fv_map = 0.05 + 0.85 * np.exp(-0.5 * ((vs[None, :] - centre) / (0.15 * centre)) ** 2)
+    bump = np.isin(fs, [11.33, 11.67, 13.0, 13.33, 15.0])
+    fv_map[bump] += 0.27 * np.exp(-0.5 * ((vs[None, :] - 40.0) / 2.0) ** 2)
+    floor = 1 / 3
+    assert (fv_map[bump][:, 30] < floor).all() and (fv_map[bump][:, 30] > 0.35 * 0.9).all()
+    image = DispersionImage(
+        fv_map=fv_map.astype(np.float32),
+        fs=fs,
+        vs=vs,
+        type=VelocityType.PHASE,
+        acquisition=acquisition,
+    )
+
+    (mode,) = pick_modes(image)
+
+    assert mode.kept.all()
+    assert mode.velocities == pytest.approx(m0(mode.frequencies), rel=0.02)
+
+
 # ---------------------------------------------------------------- the three stages
 
 
@@ -534,6 +720,10 @@ def test_a_guide_centres_the_corridor_on_the_curve_given() -> None:
 
     (default,) = pick_modes(image, PickingParameters())
     (guided,) = pick_modes(image, PickingParameters(guide=guide))
+    (short,) = pick_modes(image, PickingParameters(guide=guide[2:6]))
 
     assert default.velocities[default.kept] == pytest.approx(lower[default.kept], rel=0.05)
     assert guided.velocities[guided.kept] == pytest.approx(upper[guided.kept], rel=0.05)
+    # A guide steers within its band: beyond its ends it says nothing, and nothing is kept.
+    kept = short.frequencies[short.kept]
+    assert kept.min() >= guide[2][0] and kept.max() <= guide[5][0]

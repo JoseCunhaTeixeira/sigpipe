@@ -110,9 +110,58 @@ def _sharpness(
 def _prominence(above: np.ndarray, perfect: np.ndarray, peaks: np.ndarray) -> float:
     """Median prominence (peak height above the floor over its column's median height above
     the floor, counted up to _PROMINENT_ENOUGH), over a perfect plane wave's."""
+    return float(np.median(_point_prominences(above, perfect, peaks)))
+
+
+def _point_prominences(above: np.ndarray, perfect: np.ndarray, peaks: np.ndarray) -> np.ndarray:
+    """Each point's prominence, counted up to _PROMINENT_ENOUGH, over a perfect plane wave's."""
     measured = np.minimum(prominences(above, peaks), _PROMINENT_ENOUGH)
     reference = np.minimum(prominences(perfect, peaks), _PROMINENT_ENOUGH)
-    return float(np.median(measured / np.maximum(reference, 1e-3)))
+    return measured / np.maximum(reference, 1e-3)
+
+
+def strong_band(
+    image: DispersionImage,
+    m0: PickedMode,
+    min_prominence: float,
+    min_on_data: float,
+    min_points: int,
+) -> tuple[float, float] | None:
+    """The widest band, in octaves, of `m0`'s kept points over which the pick stands out and
+    lies on its data as the checks ask (its median prominence at least `min_prominence`, a share
+    `min_on_data` of its points on their column's brightest value), from and to a point that
+    does both, of `min_points` at least; the lowest of bands as wide. Where to pick when the
+    whole pick fails them: a ridge weakening toward an end, a brighter one competing over part
+    of it. None when no band holds (Hz)."""
+    kept = m0.kept & (m0.frequencies > 0)
+    frequencies, velocities = m0.frequencies[kept], m0.velocities[kept]
+    if frequencies.size < max(min_points, 2):
+        return None
+
+    grid_v = image.vs.astype(float)
+    rows = _nearest_rows(np.asarray(image.fs, dtype=float), frequencies)
+    peaks = np.searchsorted(grid_v, velocities)
+    above = np.clip(image.fv_map[rows].astype(float) - m0.noise_floor, 0, None)
+    perfect = plane_wave_columns(image, frequencies, velocities, m0.noise_floor)
+    brightest = grid_v[np.argmax(above, axis=1)]
+    on = np.abs(brightest - velocities) / velocities < _ON_DATA_TOLERANCE
+    prominent = _point_prominences(above, perfect, peaks)
+    good = on & (prominent >= min_prominence)
+
+    on_before = np.concatenate([[0], np.cumsum(on)])
+    starts, ends = np.triu_indices(frequencies.size, k=max(min_points, 2) - 1)
+    ends_good = good[starts] & good[ends]
+    starts, ends = starts[ends_good], ends[ends_good]
+    widths = np.log(frequencies[ends] / frequencies[starts])
+    # The widest first, the lowest of those as wide.
+    for index in np.lexsort(np.stack((starts.astype(float), -widths))).tolist():
+        first, last = int(starts[index]), int(ends[index])
+        if (on_before[last + 1] - on_before[first]) / (last - first + 1) < min_on_data:
+            continue
+        if float(np.median(prominent[first : last + 1])) < min_prominence:
+            continue
+        return float(frequencies[first]), float(frequencies[last])
+    return None
 
 
 def _constant_wavelength(frequencies: np.ndarray, velocities: np.ndarray) -> float:

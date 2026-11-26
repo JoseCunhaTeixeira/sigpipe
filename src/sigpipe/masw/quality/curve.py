@@ -77,8 +77,10 @@ class CurveLimits(BaseModel):
     max_jump: float = Field(
         default=0.3,
         gt=0,
-        description="Relative velocity step between consecutive points of the resampled "
-        "curve, at most: beyond it the pick jumped onto another mode.",
+        description="Relative velocity step between points of the resampled curve consecutive "
+        "in frequency, steeper than a ridge turns, or rise over a stretch where it slides onto a "
+        "faster mode and does not come back, at most: beyond it the pick jumped onto another "
+        "mode.",
     )
     air_wave_band: tuple[float, float] = Field(
         default=(330.0, 345.0), description="m/s, where the air wave sits"
@@ -262,8 +264,15 @@ def measure_curve(
     # The wavelengths the curve spans, as a ratio: however many its points, a narrow span
     # resolves no layered model.
     ratio = float(lengths.max() / lengths.min()) if n_points else 0.0
-    # A step between consecutive points of the resampled curve: the pick jumped onto another mode.
-    jump = float(np.max(np.abs(np.diff(vs)) / vs[:-1])) if n_points > 1 else 0.0
+    # The pick jumped onto another mode: a steep step between points consecutive in frequency
+    # (jump_steps), or a slide onto a faster one over many (slide_of). The ridge's own bumps, which
+    # rise and fall back, are neither; by wavelength their two sides would interleave as a jump's
+    # do.
+    by_frequency = np.argsort(fs, kind="stable")
+    along_f, along_v = fs[by_frequency], vs[by_frequency]
+    step = float(jump_steps(along_f, along_v).max(initial=0.0))
+    slid = slide_of(along_f, along_v)
+    jump = max(step, slid.rise if slid is not None else 0.0)
     low, high = limits.air_wave_band
     air = float(np.mean((vs >= low) & (vs <= high))) if n_points else 0.0
     # Normal dispersion: velocity rising with wavelength.
@@ -294,7 +303,7 @@ def measure_curve(
             bound="max",
             passed=jump <= limits.max_jump,
             of="curve",
-            over=f"{points}: each step to the next by wavelength",
+            over=f"{points}: each step to the next in frequency, and each slide onto a faster mode",
         ),
         Measure(
             name="air_wave_share",
@@ -353,6 +362,64 @@ def measure_curve(
         trend=trend,
         uncertainty=uncertainty,
     )
+
+
+# A step between neighbouring points is a jump only steeper than this |d ln v / d ln f|: across a
+# gap in the picks (a lasso's, around a streak), the ridge's own dispersion changes the velocity.
+JUMP_SLOPE = 2.0
+
+
+def jump_steps(frequencies: np.ndarray, velocities: np.ndarray) -> np.ndarray:
+    """The relative velocity step from each point to the next (`frequencies` sorted), where it is
+    steeper than JUMP_SLOPE, 0 elsewhere: a step onto another mode, not the ridge's dispersion
+    across a gap in the picks. Empty under 2 points."""
+    log_f = np.log(np.asarray(frequencies, dtype=float))
+    log_v = np.log(np.asarray(velocities, dtype=float))
+    steps = np.abs(np.expm1(np.diff(log_v)))
+    slopes = np.abs(np.diff(log_v)) / np.maximum(np.diff(log_f), 1e-9)
+    return np.where(slopes > JUMP_SLOPE, steps, 0.0)
+
+
+@dataclass(frozen=True, slots=True)
+class Slide:
+    """A stretch of a curve where it slides onto a faster mode (slide_of): its velocity's rise,
+    as a share, from `start_hz` to `end_hz`."""
+
+    rise: float
+    start_hz: float
+    end_hz: float
+
+
+def slide_of(frequencies: np.ndarray, velocities: np.ndarray) -> Slide | None:
+    """The largest rise of velocity over a stretch of the curve (in frequency order) where its
+    wavelength grows (the velocity rising faster than the frequency), that the curve does not
+    come back from: over three times the stretch's band past it (or to the curve's end), its
+    velocity stays above the stretch's start by more than half the rise, as on a faster mode,
+    itself dispersive. None without one. A pick sliding over many columns onto another mode
+    steps little from each to the next; the ridge's bumps fall back, more slowly than they
+    rose."""
+    order = np.argsort(frequencies, kind="stable")
+    frequencies = np.asarray(frequencies, dtype=float)[order]
+    velocities = np.asarray(velocities, dtype=float)[order]
+    grows = np.diff(velocities / frequencies) > 0
+    largest: Slide | None = None
+    i = 0
+    while i < grows.size:
+        if not grows[i]:
+            i += 1
+            continue
+        end = i
+        while end < grows.size and grows[end]:
+            end += 1
+        rise = float(velocities[end] / velocities[i] - 1)
+        reach = frequencies[end] + 3 * (frequencies[end] - frequencies[i])
+        after = velocities[end:][frequencies[end:] <= reach]
+        if (largest is None or rise > largest.rise) and after.min() > velocities[i] * (
+            1 + rise / 2
+        ):
+            largest = Slide(rise, float(frequencies[i]), float(frequencies[end]))
+        i = end
+    return largest
 
 
 def _past(wavelengths: np.ndarray, limit: float | None, below: bool) -> np.ndarray:
