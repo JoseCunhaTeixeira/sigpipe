@@ -307,6 +307,38 @@ def test_a_bump_higher_up_stays() -> None:
     assert mode.velocities[band] == pytest.approx(bumped(mode.frequencies[band]), rel=0.05)
 
 
+def _bumped(lower: float, upper: float) -> DispersionImage:
+    """M0 from 5 to 60 Hz, but from `lower` to `upper` Hz a ridge 60 % faster instead: a higher
+    mode brighter there, M0 under it no ridge of its own."""
+    fs = FS_FINE
+    faster = (fs >= lower) & (fs < upper)
+    around = (fs >= 5) & (fs <= 60) & ~faster
+    return _ridges((around, m0(fs[around])), (faster, 1.6 * m0(fs[faster])))
+
+
+def test_a_faster_ridge_the_pick_leaves_m0_for_and_comes_back_from_is_bridged() -> None:
+    # From 20 to 25 Hz the lowest ridge is 60 % faster than M0 on either side, reached by a jump
+    # and left by one back to M0's level, as on active_p2's 21-receiver windows near xmid 93: no
+    # point of M0's there, the pick going on along M0 across it, the curve bridging it.
+    (mode,) = pick_modes(_bumped(20.0, 25.0))
+    kept = mode.frequencies[mode.kept]
+
+    assert kept.min() < 6 and kept.max() > 55
+    assert not ((kept >= 20) & (kept < 25)).any()
+    assert mode.velocities[mode.kept] == pytest.approx(m0(kept), rel=0.05)
+    assert mode.curve is not None
+    assert np.asarray(mode.curve.vs) == pytest.approx(m0(np.asarray(mode.curve.fs)), rel=0.06)
+
+
+def test_a_wide_faster_stretch_is_not_bridged() -> None:
+    # The same ridge from 20 to 45 Hz, over an octave: no higher mode brighter over a short band
+    # (it may be the mode's own ridge), nothing bridged: the pick is one run, never across it.
+    (mode,) = pick_modes(_bumped(20.0, 45.0))
+    kept = mode.frequencies[mode.kept]
+
+    assert not (kept.min() < 20 and kept.max() > 45)
+
+
 @pytest.mark.parametrize("spacings", [1.0, 2.0])
 def test_the_search_stays_between_its_shortest_and_longest_wavelengths(spacings: float) -> None:
     parameters = PickingParameters(max_wavelength=1.0, min_wavelength=spacings)

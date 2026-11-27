@@ -241,9 +241,13 @@ def _tracked(
     stop: np.ndarray,
     parameters: PickingParameters,
     noise_floor: float,
+    bridged: np.ndarray | None = None,
 ) -> _Tracked:
     """`ridge` (over the columns of `span`) fenced in by its corridor and tracked, and the points
-    of the track kept."""
+    of the track kept. Where the ridge leaves its level for a faster ridge and comes back to it
+    (_faster_ridge: a higher mode brighter there, M0 a shoulder under it), it is tracked again
+    along its level there (_levelled), the columns `bridged` holding no point of the mode's: left
+    out, the run going on across them."""
     frequencies = image.fs.astype(float)[span]
     velocities = image.vs.astype(float)
     values = image.fv_map.astype(float)[span]
@@ -265,6 +269,15 @@ def _tracked(
         kept &= _resolved(
             image, frequencies, velocities[path], kept, noise_floor, parameters.min_contrast
         )
+    if bridged is None:
+        strength = values[np.arange(ridge.size), ridge]
+        bridged = _faster_ridge(
+            frequencies, velocities[ridge], strength, kept, parameters.min_frequencies
+        )
+        if bridged.any():
+            levelled = _levelled(frequencies, velocities, ridge, bridged)
+            return _tracked(image, span, levelled, start, stop, parameters, noise_floor, bridged)
+    kept &= ~bridged
     # Where the ridge breaks, at either end, the pick stops: its longest continuous run.
     if parameters.max_gap_hz is not None:
         kept = _continuous_run(
@@ -280,6 +293,7 @@ def _tracked(
             ),
             parameters.min_frequencies,
             _slower_below(values, velocities, path, parameters.point_min_ratio * noise_floor),
+            bridged,
         )
     # Where it slows down toward its lowest frequencies, at wavelengths longer than the window,
     # its low end is dropped.
@@ -334,10 +348,13 @@ def _continuous_run(
     resolved: tuple[float | None, float | None],
     min_points: int,
     slower: np.ndarray,
+    bridged: np.ndarray | None = None,
 ) -> np.ndarray:
     """`kept` reduced to its longest continuous run (the widest in octaves; the lowest on a tie):
     consecutive kept points stay in one run while the columns between them that are not kept
-    span at most `max_gap_hz`, and the step between them is at most `break_slope` in
+    span at most `max_gap_hz` (a faster ridge's columns, `bridged`, not counted: the ridge left
+    its level there and came back, _faster_ridge), and the step between them is at most
+    `break_slope` in
     |d ln v / d ln f|, `reach_slope` where either lies beyond the window's reach (`resolved`:
     the shortest and longest wavelengths the window resolves, m; None: unknown, `break_slope`
     throughout). A pick goes down as far as the ridge holds: a ridge turning fast steps less
@@ -363,6 +380,8 @@ def _continuous_run(
     start = int(indices[0])
     for before, after in zip(indices[:-1].tolist(), indices[1:].tolist(), strict=True):
         gap = frequencies[after] - frequencies[before] - column
+        if bridged is not None:
+            gap -= column * int(bridged[before + 1 : after].sum())
         slope = abs(math.log(velocities[after] / velocities[before])) / math.log(
             frequencies[after] / frequencies[before]
         )
@@ -449,6 +468,111 @@ CONSTANT_RISE = 0.8
 TIE = 0.9
 # m/s: under it a ridge is an artefact (a correlation's zero lag, a mute's edge), as G2 counts.
 ARTEFACT_SPEED = 30.0
+# A step steeper than this |d ln v / d ln f| is a jump onto another ridge (G3's mode jump,
+# sigpipe.masw.quality.curve.JUMP_SLOPE): a ridge turns less steeply.
+JUMP_SLOPE = 2.0
+# How much faster than the level the ridge climbs, at least, to be bridged: a higher mode's,
+# 50 to 70 % faster on active_p2's 21-receiver windows; a ridge's own wiggle in noise (33 % on
+# PACo's 7-shot test line) stays.
+BRIDGED_RISE = 0.4
+# How close to the level it held a ridge comes back, as a share of it, to be on it again: at most
+# LEVEL_BAND faster (the share that also bounds the columns holding the level) and LEVEL_FALL
+# slower (M0 slowing with frequency across the faster ridge; a ridge far slower is an artefact's).
+LEVEL_BAND = 0.12
+LEVEL_FALL = 0.2
+# How bright the level's ridge is, at least, as a share of the faster ridge's: M0 holding its
+# level, not a faint ridge under the mode (an alias, a smear's edge) the mode would seem to leave.
+LEVEL_STRENGTH = 0.75
+# The widest faster ridge bridged, as the log of its frequencies' ratio (0.4: a third wider at its
+# top than at its foot, about half an octave), and the share of its columns kept at least: a
+# higher mode brighter over a short band, a ridge of its own, not the noise or stripes of a wide
+# stretch the ridge would seem to come back from.
+BRIDGED_WIDTH = 0.4
+BRIDGED_KEPT = 0.5
+
+
+def _faster_ridge(
+    frequencies: np.ndarray,
+    velocities: np.ndarray,
+    strength: np.ndarray,
+    kept: np.ndarray,
+    min_points: int,
+) -> np.ndarray:
+    """The columns where the ridge followed (`velocities` and its value `strength`, at each
+    column) has left its level for a faster ridge it comes back to the level from: those between
+    the last kept column within LEVEL_BAND of the level before the rise and the first kept one
+    back within it, its median over 5 kept columns too and the next `min_points` kept columns'.
+    The ridge rises more than BRIDGED_RISE above the level, by a step steeper than JUMP_SLOPE
+    from that last column. The level is the one the ridge holds just before: the slowest of its medians
+    over 5 kept columns at the `min_points` kept columns before the rise, all within LEVEL_BAND of
+    it (a ridge falling fast, or a stray column far below, holds none), the ridge there at least
+    LEVEL_STRENGTH as bright as the faster one. M0 is the slowest mode: the faster ridge is a
+    higher mode's, brighter there, M0 under it a shoulder whose columns hold no peak of it. A ridge
+    that rises gently (a bump of its own) or does not come back stays."""
+    faster = np.zeros_like(kept)
+    indices = np.flatnonzero(kept)
+    if indices.size <= 2 * min_points:
+        return faster
+    f = frequencies[indices]
+    v = velocities[indices]
+    s = strength[indices]
+    medians = np.asarray(median_filter(v, size=5, mode="nearest"), dtype=np.float64)
+    position = min_points
+    while position < v.size:
+        before = medians[position - min_points : position]
+        level = float(before.min())
+        band = (1 + LEVEL_BAND) * level
+        if before.max() > band or v[position] <= (1 + BRIDGED_RISE) * level:
+            position += 1
+            continue
+        floor = (1 - LEVEL_FALL) * level
+        foot = position - 1
+        while foot >= 0 and not floor <= v[foot] <= band:
+            foot -= 1
+        back = position + 1
+        while back < v.size and not (floor <= v[back] <= band and floor <= medians[back] <= band):
+            back += 1
+        after = medians[back : back + min_points]
+        steep = foot >= 0 and (
+            math.log(v[position] / v[foot]) / math.log(f[position] / f[foot]) > JUMP_SLOPE
+        )
+        held = (
+            after.size == min_points and float(after.max()) <= band and float(after.min()) >= floor
+        )
+        bright = float(np.median(s[position - min_points : position])) >= LEVEL_STRENGTH * float(
+            np.median(s[foot + 1 : back])
+        )
+        narrow = (
+            steep
+            and back < v.size
+            and (
+                math.log(f[back] / f[foot]) <= BRIDGED_WIDTH
+                and (back - foot - 1) >= BRIDGED_KEPT * (indices[back] - indices[foot] - 1)
+            )
+        )
+        if steep and held and bright and narrow:
+            faster[indices[foot] + 1 : indices[back]] = True
+            position = back
+        else:
+            position += 1
+    return faster
+
+
+def _levelled(
+    frequencies: np.ndarray, velocities: np.ndarray, ridge: np.ndarray, bridged: np.ndarray
+) -> np.ndarray:
+    """`ridge` (velocity indices) along its level across each stretch of `bridged` columns: its
+    velocity there interpolated, in log-log, between the columns on either side."""
+    levelled = ridge.copy()
+    columns = np.flatnonzero(bridged)
+    for stretch in np.split(columns, np.flatnonzero(np.diff(columns) > 1) + 1):
+        first, last = int(stretch[0]) - 1, int(stretch[-1]) + 1
+        ends = np.log(frequencies[[first, last]])
+        level = np.exp(
+            np.interp(np.log(frequencies[stretch]), ends, np.log(velocities[ridge[[first, last]]]))
+        )
+        levelled[stretch] = np.searchsorted(velocities, level, side="left")
+    return levelled
 
 
 def _slower_below(
