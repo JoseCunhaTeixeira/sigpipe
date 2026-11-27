@@ -2,6 +2,7 @@
 the lateral consistency of windows along a line."""
 
 import math
+from dataclasses import replace
 
 import numpy as np
 
@@ -120,6 +121,21 @@ def test_the_band_where_a_pick_stands_out_on_its_data() -> None:
     over = _image(np.maximum(_ridge(M0, height=0.5), _ridge(1.6 * M0)))
     (under,) = pick_modes(over)
     assert strong_band(over, under, **limits) is None
+
+
+def test_a_pick_on_the_grids_top_is_measured_on_its_last_row() -> None:
+    # Under 15 Hz the pick sits on the grid's top velocity, a hair above it once rounded (a
+    # column peaking on the grid's edge, as a passive line's low frequencies do): measured on the
+    # grid's last row, never past its end (PACo's search failed there).
+    image = _image(_ridge(M0))
+    (m0,) = pick_modes(image)
+    top = replace(m0, velocities=np.where(m0.frequencies < 15, VS[-1] + 1e-3, m0.velocities))
+
+    measures = measure_pick(image, top)
+
+    assert measures.sharpness is not None and math.isfinite(measures.sharpness)
+    assert measures.prominence is not None and math.isfinite(measures.prominence)
+    strong_band(image, top, min_prominence=0.5, min_on_data=0.6, min_points=5)
 
 
 def test_the_background_off_the_ridge_and_its_stripes() -> None:

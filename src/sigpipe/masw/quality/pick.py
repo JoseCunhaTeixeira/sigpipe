@@ -62,7 +62,7 @@ def measure_pick(image: DispersionImage, m0: PickedMode | None) -> PickMeasures:
 
     grid_v = image.vs.astype(float)
     rows = _nearest_rows(np.asarray(image.fs, dtype=float), frequencies)
-    peaks = np.searchsorted(grid_v, velocities)
+    peaks = _peak_rows(grid_v, velocities)
     above = np.clip(image.fv_map[rows].astype(float) - m0.noise_floor, 0, None)
     perfect = plane_wave_columns(image, frequencies, velocities, m0.noise_floor)
     brightest = grid_v[np.argmax(above, axis=1)]
@@ -74,6 +74,13 @@ def measure_pick(image: DispersionImage, m0: PickedMode | None) -> PickMeasures:
         on_data=float(np.mean(np.abs(brightest - velocities) / velocities < _ON_DATA_TOLERANCE)),
         constant_wavelength=_constant_wavelength(frequencies, velocities),
     )
+
+
+def _peak_rows(grid_v: np.ndarray, velocities: np.ndarray) -> np.ndarray:
+    """Each point's velocity row: the first at or above its velocity, the grid's last for a point
+    on its top (a column peaking on the grid's edge, a hair above it once rounded), never past
+    it."""
+    return np.minimum(np.searchsorted(grid_v, velocities), grid_v.size - 1)
 
 
 def _nearest_rows(fs: np.ndarray, frequencies: np.ndarray) -> np.ndarray:
@@ -140,7 +147,7 @@ def strong_band(
 
     grid_v = image.vs.astype(float)
     rows = _nearest_rows(np.asarray(image.fs, dtype=float), frequencies)
-    peaks = np.searchsorted(grid_v, velocities)
+    peaks = _peak_rows(grid_v, velocities)
     above = np.clip(image.fv_map[rows].astype(float) - m0.noise_floor, 0, None)
     perfect = plane_wave_columns(image, frequencies, velocities, m0.noise_floor)
     brightest = grid_v[np.argmax(above, axis=1)]
