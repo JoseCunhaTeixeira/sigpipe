@@ -26,12 +26,31 @@ _MODEL_STYLE: dict[str, tuple[str, str]] = {
 
 
 def _hdi_levels(density: np.ndarray, probs: tuple[float, ...]) -> list[float]:
-    """Density thresholds whose enclosed area contains each given probability mass."""
+    """Density thresholds whose enclosed area contains each given probability mass, then the
+    density's peak: the bounds of the filled bands, increasing. A mass the peak's node holds on
+    its own (a density narrower than the grid's cells, a few far samples stretching the grid) has
+    the peak for threshold and no band: left out, as a threshold two masses share is given once."""
     flat = np.sort(density.ravel())[::-1]
     cumulative = np.cumsum(flat)
     cumulative /= cumulative[-1]
-    levels = [flat[min(int(np.searchsorted(cumulative, p)), len(flat) - 1)] for p in probs]
-    return sorted(levels)
+    peak = flat[0]
+    levels = {flat[min(int(np.searchsorted(cumulative, p)), len(flat) - 1)] for p in probs}
+    return [*sorted(level for level in levels if level < peak), peak]
+
+
+def _density_bands(
+    x: np.ndarray, y: np.ndarray, grid_x: np.ndarray, grid_y: np.ndarray, probs: tuple[float, ...]
+) -> tuple[np.ndarray, np.ndarray, np.ndarray, list[float]] | None:
+    """The 2D KDE of samples (x, y) on the grid, with its bands' bounds (_hdi_levels); None
+    without a density (two values that move together) or a band to fill."""
+    try:
+        kde = gaussian_kde(np.vstack([x, y]))
+    except np.linalg.LinAlgError:
+        return None
+    X, Y = np.meshgrid(grid_x, grid_y)
+    density = kde(np.vstack([X.ravel(), Y.ravel()])).reshape(X.shape)
+    levels = _hdi_levels(density, probs)
+    return (X, Y, density, levels) if len(levels) > 1 else None
 
 
 def plot_posterior_marginals(
@@ -45,7 +64,8 @@ def plot_posterior_marginals(
     Corner plot of posterior samples.
 
     Diagonal: 1D KDE marginal for each parameter.
-    Lower triangle: 2D KDE with highest-density-interval contours (hdi_probs).
+    Lower triangle: 2D KDE with highest-density-interval contours (hdi_probs); a pair whose peak's
+    node holds every mass asked, no band to fill, its samples.
     """
     names = list(samples.keys())
     n = len(names)
@@ -67,7 +87,7 @@ def plot_posterior_marginals(
                 continue
 
             # Values without a density (two that move together, as the Vs at two depths one
-            # layer spans): the samples themselves.
+            # layer spans), or whose density has no band to fill: the samples themselves.
             if i == j:
                 try:
                     kde = gaussian_kde(samples[name_i])
@@ -78,15 +98,13 @@ def plot_posterior_marginals(
                     ax.plot(xs, kde(xs), color="tab:blue", linewidth=1)
                 ax.set_yticks([])
             else:
-                try:
-                    kde = gaussian_kde(np.vstack([samples[name_j], samples[name_i]]))
-                except np.linalg.LinAlgError:
-                    ax.scatter(samples[name_j], samples[name_i], s=2, color="tab:blue")
+                x, y = samples[name_j], samples[name_i]
+                bands = _density_bands(x, y, grids_1d[name_j], grids_1d[name_i], hdi_probs)
+                if bands is None:
+                    ax.scatter(x, y, s=2, color="tab:blue")
                 else:
-                    X, Y = np.meshgrid(grids_1d[name_j], grids_1d[name_i])
-                    density = kde(np.vstack([X.ravel(), Y.ravel()])).reshape(X.shape)
-                    levels = _hdi_levels(density, hdi_probs)
-                    ax.contourf(X, Y, density, levels=[*levels, density.max()], cmap="Blues")
+                    X, Y, density, levels = bands
+                    ax.contourf(X, Y, density, levels=levels, cmap="Blues")
 
             # Three ticks an axis, whole numbers for a count of layers.
             ax.xaxis.set_major_locator(MaxNLocator(3, integer=name_j == "Layers"))
